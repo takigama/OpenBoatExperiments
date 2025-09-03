@@ -70,3 +70,15 @@ openplotter and fenix are interesting and possibly useful for some of the stuff,
 ## Power control.
 
 One other facet I want to include in all components it the ability for the ESP's to "disable" stuff (i.e. turn off the GY-86, gps or several of the displays). this is useful when anchored cause you really only need one gps to be sending data with no real displays and if you get a sudden movement, power everything back up again.
+
+## AI Detection
+
+Another interesting concept to explore is frigate. Frigate is an NVR thats existed for a long time but uses the Coral TPU (and other inference capable devices) with tensor flow to do image recog (mine at home has been trained to recognise me, my partner and both our dogs very accurately). A "fork" of frigate that was designed to do image recognition would be very interesting on boat.... the sort of thing im talking about it:
+ - water navigation marks
+ - other boats
+ - people overboard
+ - land and other water marks.
+... and other things?
+
+AI could also be extended to the autopilot intreesting ways when combined with all the sensors available.
+

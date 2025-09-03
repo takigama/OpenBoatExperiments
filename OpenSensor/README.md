@@ -1,6 +1,6 @@
 # Open sensor
 
-10-28v input.
+10-30v input (there are a tonne of options here). Would may be worth doing 10-30v -> 5v as a buck then 5v -> 3.3v as an LDO for noise rejection.
 
 esp32 (unspecific yet) connected to a gy-87 (MPU6050 HMC5883L BMP180) covering
  - Acceleration
