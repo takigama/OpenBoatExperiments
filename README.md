@@ -66,3 +66,7 @@ So one other thing I'd love is a wrist wearable 7" display similar to the other 
 ## other projects...
 
 openplotter and fenix are interesting and possibly useful for some of the stuff, but i dont like RPI's for this kind of thing, the lack of on-board storage and everything on the SD card i've had issues with in other mobile things.
+
+## Power control.
+
+One other facet I want to include in all components it the ability for the ESP's to "disable" stuff (i.e. turn off the GY-86, gps or several of the displays). this is useful when anchored cause you really only need one gps to be sending data with no real displays and if you get a sudden movement, power everything back up again.
