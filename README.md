@@ -8,7 +8,7 @@ So far this is a dump of my ideas and nothing more.
 
 ## connectivity
 
-Everything will be connected via wifi using ESP32's. There will be some form of router required (preferably something openwrt based that can handle running gpsd and mqtt
+Everything will be connected via wifi using ESP32's. There will be some form of router required (preferably something openwrt based that can handle running gpsd and mqtt). The core of eveyrthing will be mqtt. I tried to get on board with signalk, but MQTT has lot more support and being able to subscribe to different data sets is advantageous here (it doesn't appear signalK can do that).
 
 ## sensors
 
@@ -65,7 +65,7 @@ So one other thing I'd love is a wrist wearable 7" display similar to the other 
 
 ## other projects...
 
-openplotter and fenix are interesting and possibly useful for some of the stuff, but i dont like RPI's for this kind of thing, the lack of on-board storage and everything on the SD card i've had issues with in other mobile things.
+openplotter and fenix are interesting and possibly useful for some of the stuff, but i dont like RPI's for this kind of thing, the lack of on-board storage and everything on the SD card i've had to many issues with it in other mobile things or anywhere thats might be needing to be a bit hardened.
 
 ## Power control.
 
