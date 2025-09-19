@@ -34,11 +34,11 @@ it would be nice to be able to select a course in opencpn then be able to export
 
 a 3d printed wind speed/direction sensor would be an interesting addition.
 
-There is one diy depth sounder, but we'll see...
+There is one diy depth sounder, but we'll see, its not hugely encouraging.
 
 Most boats already have some form of speed indicator, reading it from an ESP32 should be pretty trivial.. The rest of the information about speeds and directions should be able to be gotten from gps and wind speed/direciton sensor.
 
-Direction of rudder
+Now, heres where things can get interesting, and also why I want to combine everything into a single cohesive brain. The sensors will have tilt/gyro/accel/pressure, etc and gps, combining all of this is going to be a fun little math problem, but should result in extremely acurate speed. GPS are impressively accurate for speed (nothing really comes close), but there are reasons why it may not be in alot of cases directly accurate on a boat. However, combining all the gyro/accell/tilt data should bring the accuracy much close. Not looking forward to doing that calculus, though hopefully someone already has. There is a part of them that realises theres no real need for that kind of accurace on a sailboat (shhh, i dont care).
 
 ## types of displays
 
