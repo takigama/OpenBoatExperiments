@@ -1,5 +1,14 @@
 # Open sensor
 
+## Progress!
+
+The first version of the board has been printed and put together and is working well.
+![Bottom](https://raw.githubusercontent.com/takigama/OpenBoatExperiments/refs/heads/master/OpenSensor/Hardware/opensenceesp32/Bottom.jpg "Bottom Of The Board ")
+![Top](https://raw.githubusercontent.com/takigama/OpenBoatExperiments/refs/heads/master/OpenSensor/Hardware/opensenceesp32/Top.jpg "Top Of The Board ")
+
+
+## Goal
+
 10-30v input (there are a tonne of options here). Would may be worth doing 10-30v -> 5v as a buck then 5v -> 3.3v as an LDO for noise rejection.
 
 esp32 (unspecific yet) connected to a gy-87 (MPU6050 HMC5883L BMP180) covering
