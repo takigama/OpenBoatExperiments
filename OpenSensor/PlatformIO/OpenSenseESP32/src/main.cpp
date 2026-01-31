@@ -1,0 +1,318 @@
+#ifndef USE_SCANNER
+#include <Arduino.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Wire.h>
+#include <Adafruit_BMP085.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+#include <QMC5883LCompass.h>
+
+/*
+QMC5883 Code
+*/
+QMC5883LCompass compass;
+
+void QMC5883_setup(void)
+{
+  /* If an MPU6050 exists, turn off master mode */
+  Wire.beginTransmission(0x68); // MPU6050 address
+  Wire.write(0x6A);             // USER_CTRL
+  Wire.write(0x00);             // Disable master mode
+  Wire.endTransmission();
+  Wire.beginTransmission(0x68);
+  Wire.write(0x37); // INT_PIN_CFG
+  Wire.write(0x02); // Enable bypass
+  Wire.endTransmission();
+
+  compass.init();
+}
+
+void QMC5883_loop(void)
+{
+  int x, y, z;
+
+  // Read compass values
+  compass.read();
+
+  // Return XYZ readings
+  x = compass.getX();
+  y = compass.getY();
+  z = compass.getZ();
+
+  Serial.print("MAG:");
+  Serial.print(x);
+  Serial.print(",");
+  Serial.print(y);
+  Serial.print(",");
+  Serial.print(z);
+  Serial.println();
+}
+
+/*
+END of QMC5883 Code
+*/
+
+/*
+BMP 180 Code
+*/
+
+Adafruit_BMP085 bmp;
+bool bmpsetup = false;
+
+void BMP085_setup(void)
+{
+  if (!bmp.begin())
+  {
+    Serial.println("Could not find a valid BMP085 sensor, check wiring!");
+  }
+  else
+  {
+    bmpsetup = true;
+  }
+}
+
+void BMP085_loop(void)
+{
+  if (bmpsetup)
+  {
+    Serial.print("BMP:T:");
+    Serial.print(bmp.readTemperature());
+    Serial.print(",");
+
+    Serial.print("P:");
+    Serial.print(bmp.readPressure());
+    Serial.print(",");
+
+    Serial.print("A:");
+    Serial.print(bmp.readAltitude());
+    Serial.print(",");
+
+    Serial.print("PS:");
+    Serial.print(bmp.readSealevelPressure());
+    Serial.print(",");
+
+    Serial.print("AR:");
+    Serial.print(bmp.readAltitude(101500));
+
+    Serial.println();
+  }
+}
+
+/* END of bmp180 code*/
+
+/* MPU6050 Code*/
+Adafruit_MPU6050 mpu;
+bool MPU6050init = false;
+
+void MPU6050_setup(void)
+{
+  if (!mpu.begin())
+  {
+    Serial.println("Failed to find MPU6050 chip");
+  }
+  else
+  {
+    MPU6050init = true;
+
+    Serial.println("MPU6050 Found!");
+
+    mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+    Serial.print("Accelerometer range set to: ");
+    switch (mpu.getAccelerometerRange())
+    {
+    case MPU6050_RANGE_2_G:
+      Serial.println("+-2G");
+      break;
+    case MPU6050_RANGE_4_G:
+      Serial.println("+-4G");
+      break;
+    case MPU6050_RANGE_8_G:
+      Serial.println("+-8G");
+      break;
+    case MPU6050_RANGE_16_G:
+      Serial.println("+-16G");
+      break;
+    }
+    mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+    Serial.print("Gyro range set to: ");
+    switch (mpu.getGyroRange())
+    {
+    case MPU6050_RANGE_250_DEG:
+      Serial.println("+- 250 deg/s");
+      break;
+    case MPU6050_RANGE_500_DEG:
+      Serial.println("+- 500 deg/s");
+      break;
+    case MPU6050_RANGE_1000_DEG:
+      Serial.println("+- 1000 deg/s");
+      break;
+    case MPU6050_RANGE_2000_DEG:
+      Serial.println("+- 2000 deg/s");
+      break;
+    }
+
+    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+    Serial.print("Filter bandwidth set to: ");
+    switch (mpu.getFilterBandwidth())
+    {
+    case MPU6050_BAND_260_HZ:
+      Serial.println("260 Hz");
+      break;
+    case MPU6050_BAND_184_HZ:
+      Serial.println("184 Hz");
+      break;
+    case MPU6050_BAND_94_HZ:
+      Serial.println("94 Hz");
+      break;
+    case MPU6050_BAND_44_HZ:
+      Serial.println("44 Hz");
+      break;
+    case MPU6050_BAND_21_HZ:
+      Serial.println("21 Hz");
+      break;
+    case MPU6050_BAND_10_HZ:
+      Serial.println("10 Hz");
+      break;
+    case MPU6050_BAND_5_HZ:
+      Serial.println("5 Hz");
+      break;
+    }
+
+    Serial.println("");
+    delay(100);
+  }
+  
+  /* work around to get the MPU to turn off master mode because hmc wont init otherwise*/
+  Wire.beginTransmission(0x68); // MPU6050 address
+  Wire.write(0x6A);             // USER_CTRL
+  Wire.write(0x00);             // Disable master mode
+  Wire.endTransmission();
+  Wire.beginTransmission(0x68);
+  Wire.write(0x37); // INT_PIN_CFG
+  Wire.write(0x02); // Enable bypass
+  Wire.endTransmission();
+}
+
+void MPU6050_loop()
+{
+
+  /* Get new sensor events with the readings */
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  /* Print out the values */
+  Serial.print("MPU:AX:");
+  Serial.print(a.acceleration.x);
+  Serial.print(",AY:");
+  Serial.print(a.acceleration.y);
+  Serial.print(",AZ:");
+  Serial.print(a.acceleration.z);
+  Serial.print(",");
+
+  Serial.print("RX:");
+  Serial.print(g.gyro.x);
+  Serial.print(",RY:");
+  Serial.print(g.gyro.y);
+  Serial.print(",RZ:");
+  Serial.print(g.gyro.z);
+  Serial.print(",");
+
+  Serial.print("T:");
+  Serial.print(temp.temperature);
+
+  Serial.println("");
+}
+
+/* End of MPU6050 Code*/
+
+/* Start of GPS Code */
+#define MSG_BUFFER_SIZE (256)
+char msg[MSG_BUFFER_SIZE];
+
+String receivedMessage = "";
+
+void GPS_setup(void)
+{
+  // lets set the serial speed up to 115200, we do this as multiple rates, just to make sure
+  Serial.println("Begin GPS init");
+  Serial1.begin(9600, SERIAL_8N1, 20, 21);
+  Serial1.print("\r\n");
+  Serial1.print("\r\n");
+  Serial1.print("$PQBAUD,W,115200*43\r\n");
+  Serial1.print("\r\n");
+  Serial1.print("\r\n");
+
+  Serial1.begin(38400, SERIAL_8N1, 20, 21);
+  Serial1.print("\r\n");
+  Serial1.print("\r\n");
+  Serial1.print("$PQBAUD,W,115200*43\r\n");
+  Serial1.print("\r\n");
+  Serial1.print("\r\n");
+
+  Serial1.begin(115200, SERIAL_8N1, 20, 21);
+
+  // set output of all sentences
+  Serial1.print("\r\n");
+  Serial1.print("\r\n");
+  Serial1.print("$PMTK314,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,0*2D\r\n");
+  Serial1.print("\r\n");
+  Serial1.print("\r\n");
+  Serial.println("End GPS init");
+}
+
+void GPS_loop(void)
+{
+  if (Serial1.available())
+  {
+    while (Serial1.available())
+    {
+      char incomingChar = Serial1.read(); // Read each character from the buffer
+
+      if (incomingChar == '\n')
+      { // Check if the user pressed Enter (new line character)
+
+        // Clear the message buffer for the next input
+        snprintf(msg, MSG_BUFFER_SIZE, "%s", receivedMessage.c_str());
+        // client.publish("outTopic", msg);
+        Serial.printf("GPS:%s\n", msg);
+        receivedMessage = "";
+      }
+      else
+      {
+        // Append the character to the message string
+        receivedMessage += incomingChar;
+      }
+    }
+  }
+}
+/* End of GPS Code*/
+
+void setup(void)
+{
+  Serial.begin(115200);
+  delay(6000);
+  Wire.begin(8, 9);
+
+  GPS_setup();
+  BMP085_setup();
+  MPU6050_setup();
+  QMC5883_setup();
+  Serial.println("Setup finished");
+}
+
+unsigned long tm, lm;
+
+void loop(void)
+{
+  GPS_loop();
+  QMC5883_loop();
+  BMP085_loop();
+  MPU6050_loop();
+
+  // lets get an idea about loop delay, in testing with all sensors, this is taking about 138ms per cycle
+  tm=micros();
+  Serial.printf("TMS:%lu, %lu\n", tm-lm, tm);
+  lm = tm;
+}
+#endif
