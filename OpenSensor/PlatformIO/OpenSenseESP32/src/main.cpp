@@ -8,6 +8,185 @@
 #include <Adafruit_Sensor.h>
 #include <QMC5883LCompass.h>
 
+#include <WebServer.h>
+#include <Preferences.h>
+#include "WebPageHandler.h"
+
+/* WIFI Config/Web interface*/
+WiFiClient espClient;
+Preferences prefs;
+WebServer *server = nullptr;
+WebPageHandler *pageHandler = nullptr;
+
+#define AP_NAME "openboatsense"
+#define AP_PASS "12345678"
+#define HOLD_TIME 10000 // 10 seconds hold to trigger
+#define BUTTON_PIN 10
+
+const unsigned long CONFIG_PORTAL_TIMEOUT = 120000; // 2 minutes timeout
+volatile bool buttonPressed = false;
+static bool messageShown = false;
+unsigned long buttonPressStart = 0;
+
+String name, password;
+bool configRunning = false;
+
+// Interrupt Service Routine (ISR)
+void IRAM_ATTR handleButtonInterrupt()
+{
+  if (!buttonPressed)
+  {
+    buttonPressed = true;
+    buttonPressStart = millis();
+  }
+}
+
+void runConfigPortal()
+{
+  configRunning = true;
+  // Reset WiFi modes
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.softAPdisconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_OFF);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+
+  // Start Access Point
+  WiFi.softAP(AP_NAME, AP_PASS);
+  Serial.println("AP Mode Started SSID: " + String(AP_NAME));
+  Serial.println("AP IP Address: " + WiFi.softAPIP().toString());
+
+  if (server)
+    delete server;
+  if (pageHandler)
+    delete pageHandler;
+
+  server = new WebServer(80);
+  pageHandler = new WebPageHandler(*server);
+  pageHandler->begin();
+
+  unsigned long startTime = millis();
+  while (millis() - startTime < CONFIG_PORTAL_TIMEOUT)
+  {
+    server->handleClient();
+    delay(1);
+
+    if (pageHandler->isConfigDone())
+    {
+      Serial.println("Configuration completed. Exiting portal.");
+      break;
+    }
+  }
+
+  server->stop();
+  WiFi.disconnect(true);
+  delay(100);
+  WiFi.softAPdisconnect(true);
+  delay(100);
+  WiFi.mode(WIFI_OFF);
+  delay(100);
+  Serial.println("Portal closed.");
+
+  // Read back the new data to verify
+  prefs.begin("device_prefs", true);
+  name = prefs.getString("device_name", "N/A");
+  password = prefs.getString("password", "N/A");
+  prefs.end();
+
+  Serial.println("NEW DATA SAVED:");
+  Serial.println("Device Name: " + name);
+  Serial.println("Password: " + password);
+  Serial.println("---------------------------");
+
+  configRunning = false;
+}
+
+void CONFIG_setup()
+{
+  pinMode(BUTTON_PIN, INPUT);
+  // Attach interrupt to the button pin
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonInterrupt, FALLING);
+
+  // Load existing data on startup
+  prefs.begin("device_prefs", true);
+  name = prefs.getString("device_name", "N/A");
+  password = prefs.getString("password", "N/A");
+
+  Serial.println("From Preferences:");
+  Serial.println("Device Name: " + name);
+  Serial.println("Password: " + password);
+  Serial.println("---------------------------");
+  delay(2000);
+
+  // If no data exists, force config mode
+  if (name == "N/A" || password == "N/A")
+  {
+    Serial.println("No valid config found. Launching config portal...");
+    runConfigPortal();
+  }
+}
+
+void CONFIG_loop()
+{
+  if (buttonPressed)
+  {
+    Serial.println("Button Pressed");
+    if (digitalRead(BUTTON_PIN) == LOW)
+    {
+      if (!messageShown)
+      {
+        Serial.println("Button pressed. Hold to confirm...");
+        messageShown = true;
+      }
+
+      if (millis() - buttonPressStart >= HOLD_TIME)
+      {
+        Serial.println("Button held for 10s — starting config portal...");
+        buttonPressed = false;
+        messageShown = false;
+        runConfigPortal();
+      }
+    }
+    else
+    {
+      // Button released early
+      buttonPressed = false;
+      messageShown = false;
+      Serial.println("Button Released");
+    }
+  }
+}
+
+/* End Wifi Config Interface*/
+
+/*
+WIFI
+*/
+void WIFI_setup()
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(name, password);
+  Serial.println("");
+
+  // Wait for connection
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(name);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+/*
+End WiFi
+*/
+
 /*
 QMC5883 Code
 */
@@ -182,7 +361,7 @@ void MPU6050_setup(void)
     Serial.println("");
     delay(100);
   }
-  
+
   /* work around to get the MPU to turn off master mode because hmc wont init otherwise*/
   Wire.beginTransmission(0x68); // MPU6050 address
   Wire.write(0x6A);             // USER_CTRL
@@ -294,6 +473,10 @@ void setup(void)
   delay(6000);
   Wire.begin(8, 9);
 
+  CONFIG_setup();
+
+  WIFI_setup();
+
   GPS_setup();
   BMP085_setup();
   MPU6050_setup();
@@ -305,14 +488,17 @@ unsigned long tm, lm;
 
 void loop(void)
 {
+
+  CONFIG_loop();
+
   GPS_loop();
   QMC5883_loop();
   BMP085_loop();
   MPU6050_loop();
 
   // lets get an idea about loop delay, in testing with all sensors, this is taking about 138ms per cycle
-  tm=micros();
-  Serial.printf("TMS:%lu, %lu\n", tm-lm, tm);
+  tm = micros();
+  Serial.printf("TMS:%lu, %lu\n", tm - lm, tm);
   lm = tm;
 }
 #endif
