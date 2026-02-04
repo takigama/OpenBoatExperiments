@@ -7,6 +7,8 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <QMC5883LCompass.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 #include <WebServer.h>
 #include <Preferences.h>
@@ -160,6 +162,89 @@ void CONFIG_loop()
 }
 
 /* End Wifi Config Interface*/
+
+/* u8g setup*/
+
+TwoWire Wire1 = TwoWire(1);
+
+#define SCREEN_ADDRESS 0x3C
+#define OLED_RESET -1 // Reset pin
+#define OLED_SDA 5
+#define OLED_SCL 6
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define I2C_FREQ 400000
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, OLED_RESET);
+
+void testdrawcircle(void)
+{
+  display.clearDisplay();
+  Serial.println("SSD1306 setup");
+
+  for (int16_t i = 0; i < max(display.width(), display.height()) / 2; i += 2)
+  {
+    display.drawCircle(display.width() / 2, display.height() / 2, i, SSD1306_WHITE);
+    display.display();
+    delay(1);
+  }
+}
+
+void I2C_ScannerWire1()
+{
+  byte error, address;
+  int nDevices;
+
+  Serial.println("Scanning...");
+
+  nDevices = 0;
+  for (address = 1; address < 127; address++)
+  {
+    Wire1.beginTransmission(address);
+    error = Wire1.endTransmission();
+
+    if (error == 0)
+    {
+      Serial.print("I2C device found at address 0x");
+      if (address < 16)
+        Serial.print("0");
+      Serial.print(address, HEX);
+      Serial.println("  !");
+
+      nDevices++;
+    }
+    else if (error == 4)
+    {
+      Serial.print("Unknown error at address 0x");
+      if (address < 16)
+        Serial.print("0");
+      Serial.println(address, HEX);
+    }
+  }
+  if (nDevices == 0)
+    Serial.println("No I2C devices found\n");
+  else
+    Serial.println("done\n");
+}
+
+void SSD1306_setup()
+{
+  Wire1.begin(OLED_SDA, OLED_SCL);
+  I2C_ScannerWire1();
+
+  // if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS))
+  // {
+  //   Serial.println(F("SSD1306 allocation failed"));
+  // }
+  // else
+  // {
+  //   display.clearDisplay();
+  //   display.display();
+  //   testdrawcircle();
+  // }
+}
+
+/* end u8g */
 
 /*
 WIFI
@@ -476,6 +561,8 @@ void setup(void)
   CONFIG_setup();
 
   WIFI_setup();
+
+  // SSD1306_setup();
 
   GPS_setup();
   BMP085_setup();
