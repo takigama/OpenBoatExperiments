@@ -7,8 +7,8 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <QMC5883LCompass.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <U8g2lib.h>
+
 
 #include <WebServer.h>
 #include <Preferences.h>
@@ -164,84 +164,64 @@ void CONFIG_loop()
 /* End Wifi Config Interface*/
 
 /* u8g setup*/
-
-TwoWire Wire1 = TwoWire(1);
-
-#define SCREEN_ADDRESS 0x3C
-#define OLED_RESET -1 // Reset pin
+#define OLED_RESET U8X8_PIN_NONE  // Reset pin
 #define OLED_SDA 5
 #define OLED_SCL 6
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define I2C_FREQ 400000
 
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire1, OLED_RESET);
+// this one works, but slow.. real slow.. Doesnt seems to be able to use
+// a second i2c hardware port on a esp32
+U8G2_SSD1306_128X64_NONAME_F_SW_I2C u8g2(U8G2_R0, OLED_SCL, OLED_SDA, OLED_RESET);
 
-void testdrawcircle(void)
-{
-  display.clearDisplay();
-  Serial.println("SSD1306 setup");
+// nope
+// U8G2_SSD1306_128X64_VCOMH0_2_HW_I2C u8g2(U8G2_R0, OLED_RESET, OLED_SCL, OLED_SDA);
 
-  for (int16_t i = 0; i < max(display.width(), display.height()) / 2; i += 2)
-  {
-    display.drawCircle(display.width() / 2, display.height() / 2, i, SSD1306_WHITE);
-    display.display();
-    delay(1);
-  }
+// nope
+// U8G2_SSD1306_128X64_NONAME_F_2ND_HW_I2C u8g2(U8G2_R0, OLED_RESET);
+
+// nope
+// U8G2_SSD1306_128X64_NONAME_2_HW_I2C u8g2(U8G2_R0, OLED_RESET, OLED_SCL, OLED_SDA);
+
+// cant work with wire
+// U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, OLED_RESET, OLED_SCL, OLED_SDA);
+
+int width = 72;
+int height = 40;
+int xOffset = 30;  // = (132-w)/2
+int yOffset = 12;  // = (64-h)/2
+
+unsigned long c = 0, lastc = 0;
+int tc = 0;
+
+void handle_oled(int c) {
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_7x13_tr);
+  u8g2.drawStr(xOffset + 0, yOffset + 10, "GPS!");
+  u8g2.drawStr(xOffset + 0, yOffset + 20, "GPS");
+  char buffer[20];
+  snprintf(buffer, sizeof(buffer), "N: %ds", c);
+  u8g2.drawStr(xOffset + 0, yOffset + 30, buffer);
+  u8g2.sendBuffer();
 }
 
-void I2C_ScannerWire1()
-{
-  byte error, address;
-  int nDevices;
 
-  Serial.println("Scanning...");
-
-  nDevices = 0;
-  for (address = 1; address < 127; address++)
-  {
-    Wire1.beginTransmission(address);
-    error = Wire1.endTransmission();
-
-    if (error == 0)
-    {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16)
-        Serial.print("0");
-      Serial.print(address, HEX);
-      Serial.println("  !");
-
-      nDevices++;
-    }
-    else if (error == 4)
-    {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16)
-        Serial.print("0");
-      Serial.println(address, HEX);
-    }
+void U8G2_setup(void) {
+  if(!u8g2.begin()) {
+    Serial.println("U8G2: FAILURE");
   }
-  if (nDevices == 0)
-    Serial.println("No I2C devices found\n");
-  else
-    Serial.println("done\n");
+  u8g2.setContrast(255);     // set contrast to maximum
+  u8g2.setBusClock(400000);  //400kHz I2C
+  c = micros();
+  lastc = micros();
 }
 
-void SSD1306_setup()
-{
-  Wire1.begin(OLED_SDA, OLED_SCL);
-  I2C_ScannerWire1();
-
-  // if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS))
-  // {
-  //   Serial.println(F("SSD1306 allocation failed"));
-  // }
-  // else
-  // {
-  //   display.clearDisplay();
-  //   display.display();
-  //   testdrawcircle();
-  // }
+void U8G2_loop(void) {
+  c = micros();
+  if( (c-lastc) > ((unsigned long)(5000000)) ) {
+    Serial.printf("HO, %u, %u, %u\n", lastc, c, c-lastc);
+    lastc = c;
+    tc++;
+    handle_oled(tc);
+  }
 }
 
 /* end u8g */
@@ -562,7 +542,7 @@ void setup(void)
 
   WIFI_setup();
 
-  // SSD1306_setup();
+  U8G2_setup();
 
   GPS_setup();
   BMP085_setup();
@@ -575,6 +555,7 @@ unsigned long tm, lm;
 
 void loop(void)
 {
+  U8G2_loop();
 
   CONFIG_loop();
 
@@ -582,6 +563,7 @@ void loop(void)
   QMC5883_loop();
   BMP085_loop();
   MPU6050_loop();
+
 
   // lets get an idea about loop delay, in testing with all sensors, this is taking about 138ms per cycle
   tm = micros();
