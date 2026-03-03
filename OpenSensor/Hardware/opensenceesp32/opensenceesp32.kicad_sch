@@ -2984,12 +2984,6 @@
 		)
 	)
 	(junction
-		(at 127 113.03)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "01701c4c-ef31-4c89-9bbc-fd3985a610b9")
-	)
-	(junction
 		(at 73.66 167.64)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3030,12 +3024,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "6970b3e0-0303-44a9-b759-cd901a53f652")
-	)
-	(junction
-		(at 138.43 104.14)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "810c09ef-1416-4aea-8b7b-ac542a63b4a2")
 	)
 	(junction
 		(at 102.87 182.88)
@@ -3082,16 +3070,6 @@
 			(type default)
 		)
 		(uuid "0241f13f-77b4-4aa3-be30-d47e821a1be2")
-	)
-	(wire
-		(pts
-			(xy 138.43 104.14) (xy 138.43 101.6)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "039fda8e-0610-44f0-975c-80e9d94e9a29")
 	)
 	(wire
 		(pts
@@ -3155,16 +3133,6 @@
 	)
 	(wire
 		(pts
-			(xy 129.54 109.22) (xy 127 109.22)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "1c511baf-5499-45ec-967f-fa8d6cd2a848")
-	)
-	(wire
-		(pts
 			(xy 109.22 167.64) (xy 109.22 171.45)
 		)
 		(stroke
@@ -3175,16 +3143,6 @@
 	)
 	(wire
 		(pts
-			(xy 148.59 113.03) (xy 148.59 109.22)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "231ef372-dd91-43d0-8111-78ee1771f85a")
-	)
-	(wire
-		(pts
 			(xy 257.81 36.83) (xy 255.27 36.83)
 		)
 		(stroke
@@ -3192,16 +3150,6 @@
 			(type default)
 		)
 		(uuid "27dfa994-f125-49f0-86e9-cb7aeb80d8af")
-	)
-	(wire
-		(pts
-			(xy 127 113.03) (xy 127 116.84)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "28b46f3f-d4ad-4e68-9da6-3ed5779e935e")
 	)
 	(wire
 		(pts
@@ -3285,16 +3233,6 @@
 	)
 	(wire
 		(pts
-			(xy 127 113.03) (xy 148.59 113.03)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "46edb5e1-efda-4f7d-97c7-c90971d7961a")
-	)
-	(wire
-		(pts
 			(xy 34.29 26.67) (xy 29.21 26.67)
 		)
 		(stroke
@@ -3362,16 +3300,6 @@
 			(type default)
 		)
 		(uuid "5c593e4c-3a7b-4802-aecc-f555fc2dd9be")
-	)
-	(wire
-		(pts
-			(xy 127 109.22) (xy 127 113.03)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "5e8e1bf3-084a-44a4-afcd-1e582b0f2ddc")
 	)
 	(wire
 		(pts
@@ -3532,16 +3460,6 @@
 			(type default)
 		)
 		(uuid "734930d1-b536-48ba-9d59-08d17322bd46")
-	)
-	(wire
-		(pts
-			(xy 148.59 95.25) (xy 148.59 99.06)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "736bb0fa-a0fa-4490-b827-64cbaf55d9e9")
 	)
 	(wire
 		(pts
@@ -3785,16 +3703,6 @@
 	)
 	(wire
 		(pts
-			(xy 138.43 90.17) (xy 138.43 93.98)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "b0a9240d-2f4d-440a-9633-1d244526c993")
-	)
-	(wire
-		(pts
 			(xy 31.75 54.61) (xy 31.75 62.23)
 		)
 		(stroke
@@ -3862,36 +3770,6 @@
 			(type default)
 		)
 		(uuid "da5a5cc5-0f4b-46bc-a83e-ab3c6cfcef4f")
-	)
-	(wire
-		(pts
-			(xy 137.16 109.22) (xy 138.43 109.22)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "db2030c5-f4ae-4d30-b132-525a15165992")
-	)
-	(wire
-		(pts
-			(xy 222.25 53.34) (xy 231.14 53.34)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "dea87702-355c-4fbe-89cb-6c7cc3a8f78e")
-	)
-	(wire
-		(pts
-			(xy 138.43 109.22) (xy 138.43 104.14)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "dec08dde-1a07-4d53-8ecb-77e7014661b3")
 	)
 	(wire
 		(pts
@@ -3972,16 +3850,6 @@
 			(type default)
 		)
 		(uuid "f19f3225-52aa-4b8d-971b-2fe7837edb7f")
-	)
-	(wire
-		(pts
-			(xy 140.97 104.14) (xy 138.43 104.14)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "f76b437e-2d76-46ff-82b5-2e86a75bae37")
 	)
 	(wire
 		(pts
@@ -4072,16 +3940,6 @@
 			(justify left bottom)
 		)
 		(uuid "6673ef9f-2456-456b-845a-86d10dcc02a4")
-	)
-	(label "GY_87_GND_SW"
-		(at 148.59 95.25 90)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "66878ec7-b25b-4656-9122-17430006fa68")
 	)
 	(label "SDA"
 		(at 203.2 110.49 270)
@@ -4183,16 +4041,6 @@
 		)
 		(uuid "acaac68c-4002-4710-99f8-a12fd759b6eb")
 	)
-	(label "GPIO_GY86_ON"
-		(at 231.14 53.34 0)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "b0f1417d-bd3a-4341-bb1b-4ee5f68ec439")
-	)
 	(label "GPS_RESET"
 		(at 187.96 53.34 180)
 		(effects
@@ -4212,16 +4060,6 @@
 			(justify left bottom)
 		)
 		(uuid "c1f2cc4b-6b9b-4357-bd27-c8cad82dea29")
-	)
-	(label "GPIO_GY86_ON"
-		(at 138.43 90.17 90)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify left bottom)
-		)
-		(uuid "d2b316f9-a63e-4b66-8ec5-8f91c3f6f554")
 	)
 	(label "1PPS"
 		(at 231.14 45.72 0)
@@ -4498,74 +4336,6 @@
 			(project ""
 				(path "/31556bbb-d2ef-4237-bfc8-f6b321d6c5e7"
 					(reference "J3")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 133.35 109.22 90)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "21d47650-23b9-4feb-8b36-90519da649d5")
-		(property "Reference" "R3"
-			(at 133.35 102.87 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "100k"
-			(at 133.35 105.41 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder"
-			(at 133.35 110.998 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 133.35 109.22 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Resistor"
-			(at 133.35 109.22 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "acd73ecf-96b9-43f3-af75-e4ed63afc32f")
-		)
-		(pin "1"
-			(uuid "d22d52bd-f0ae-4568-ba72-00a0b230904f")
-		)
-		(instances
-			(project "opensenceesp32"
-				(path "/31556bbb-d2ef-4237-bfc8-f6b321d6c5e7"
-					(reference "R3")
 					(unit 1)
 				)
 			)
@@ -6225,73 +5995,6 @@
 		)
 	)
 	(symbol
-		(lib_id "power:GND")
-		(at 127 116.84 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "a58b343d-1c38-41e2-845f-582f7e177b41")
-		(property "Reference" "#PWR03"
-			(at 127 123.19 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Value" "GND"
-			(at 129.54 118.1099 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" ""
-			(at 127 116.84 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" ""
-			(at 127 116.84 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 127 116.84 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "42fef194-1a7c-43b4-936d-d1202b5ebf15")
-		)
-		(instances
-			(project ""
-				(path "/31556bbb-d2ef-4237-bfc8-f6b321d6c5e7"
-					(reference "#PWR03")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "Transistor_FET:AO3400A")
 		(at 73.66 104.14 0)
 		(unit 1)
@@ -6574,82 +6277,6 @@
 		)
 	)
 	(symbol
-		(lib_id "Transistor_FET:AO3400A")
-		(at 146.05 104.14 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "c7644c36-fa1d-404e-af6c-5fbffbc8772f")
-		(property "Reference" "Q2"
-			(at 152.4 102.8699 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "AO3400A"
-			(at 152.4 105.4099 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Package_TO_SOT_SMD:SOT-23"
-			(at 151.13 106.045 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-					(italic yes)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "http://www.aosmd.com/pdfs/datasheet/AO3400A.pdf"
-			(at 151.13 107.95 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-				(hide yes)
-			)
-		)
-		(property "Description" "30V Vds, 5.7A Id, N-Channel MOSFET, SOT-23"
-			(at 146.05 104.14 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "1"
-			(uuid "7ff0d6e6-df55-4a0b-ac96-04b52feb7a49")
-		)
-		(pin "3"
-			(uuid "7455ccfa-c143-4c77-90fd-9e286eda621d")
-		)
-		(pin "2"
-			(uuid "1d55e0a1-9bcd-4413-8f93-b72c90f64d1b")
-		)
-		(instances
-			(project "opensenceesp32"
-				(path "/31556bbb-d2ef-4237-bfc8-f6b321d6c5e7"
-					(reference "Q2")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
 		(lib_id "power:GND")
 		(at 255.27 50.8 0)
 		(unit 1)
@@ -6710,76 +6337,6 @@
 			(project "opensenceesp32"
 				(path "/31556bbb-d2ef-4237-bfc8-f6b321d6c5e7"
 					(reference "#PWR013")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 138.43 97.79 0)
-		(unit 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(dnp no)
-		(fields_autoplaced yes)
-		(uuid "cdb562e1-f4cb-499d-a546-c05dcbbd6ca8")
-		(property "Reference" "R2"
-			(at 140.97 96.5199 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Value" "2.2k"
-			(at 140.97 99.0599 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(justify left)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_1206_3216Metric_Pad1.30x1.75mm_HandSolder"
-			(at 136.652 97.79 90)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Datasheet" "~"
-			(at 138.43 97.79 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(property "Description" "Resistor"
-			(at 138.43 97.79 0)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-				(hide yes)
-			)
-		)
-		(pin "2"
-			(uuid "2222c3eb-2e30-4f77-957d-70f07c8d8e00")
-		)
-		(pin "1"
-			(uuid "3142a5ea-407a-4999-bb97-37493e15fde9")
-		)
-		(instances
-			(project "opensenceesp32"
-				(path "/31556bbb-d2ef-4237-bfc8-f6b321d6c5e7"
-					(reference "R2")
 					(unit 1)
 				)
 			)

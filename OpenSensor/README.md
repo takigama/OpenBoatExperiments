@@ -30,3 +30,4 @@ And a quectel L80 GPS - i've had alot really good success with these, they are a
 - autodetect/enable/disable devices on i2c bus
 - add a web interface for config
 - add signalk and nmea 2000 outputs
+- trying to device if i want to move to the esp32-c6-lcd, it has so many advantages
