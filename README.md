@@ -4,6 +4,15 @@ Getting back into sailing after a number of years and my electronics itch is wan
 
 So far this is a dump of my ideas and nothing more.
 
+# The Main Ideas
+
+I want to dump my main ideas that i've not seen done anywhere and I think are inovative (for boats)
+
+ - Wireless everything (esp32-c6 has wifi, bluetooth and zibgee - unfortunately aliexpress delivered my esp32-c6 to a garbage bin so i havent been able to test the zigbee bit) so everything is done over wifi with bluetooth and zigbee backups
+ - Wireless charging!, the idea is to remove any form of water ingress by everything external being plastic and well sealed. The display units (4"-7" ESP32's you can get almost anywhere) would have a lithium battery on board and the "mount" would be the charger side - nothing metal need be exposed to the weather and allows you to pick up the unit - Think QI chargers, many available as arduino modules
+ - The Big one - Man Over Board detection. This is the one i've been trying to get working really hard and failing with and could be done REALLY cheaply. Google and Apple "find hub"/"find my" tags. It should be easy to implement, you just have to pair from the esp32 to the tag, figure out an IRK between them and then keep track of it. Every device on the boat is based on ESP32's, so every device can track the visibility of the device. Needs to be 100% offline-able
+ - Dead man autopilot - I wanted an autopilot model that could connect itself, either as a simple dead-man switch in the cockpit or some form of human detection that auto-connects the AP when no ones at the helm. This is important for the man over board detection.
+
 # Components
 
 ## connectivity
@@ -81,4 +90,3 @@ Another interesting concept to explore is frigate. Frigate is an NVR thats exist
 ... and other things?
 
 AI could also be extended to the autopilot intreesting ways when combined with all the sensors available.
-
