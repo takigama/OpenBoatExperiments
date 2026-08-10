@@ -1,0 +1,11 @@
+# Real tag EIKs - see eid_resolver/known_tags.example.json for the
+# template. Never commit the real known_tags.json. Same split as the
+# ESP32 side's secrets.h/no_secrets.h.
+eid_resolver/known_tags.json
+
+__pycache__/
+*.pyc
+
+# Debian packaging build output
+packaging/debian/*.deb
+packaging/debian/.debhelper/

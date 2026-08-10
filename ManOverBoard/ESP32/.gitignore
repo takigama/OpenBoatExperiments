@@ -1,0 +1,6 @@
+# Real WiFi credentials + tag EIKs for local bench testing - see
+# src/no_secrets.h for the template. Never commit the real secrets.h.
+src/secrets.h
+
+# PlatformIO build output
+.pio/

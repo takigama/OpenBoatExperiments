@@ -1,0 +1,8 @@
+[
+    {
+        "name": "Example Tag",
+        "eik_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "device_time_offset_secs": 0,
+        "reset_baseline_device_time": null
+    }
+]
