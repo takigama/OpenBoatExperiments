@@ -1,0 +1,19 @@
+# KiCad transient/generated files
+*.lck
+fp-info-cache
+*-backups/
+\#auto_saved_files#
+
+# TopoR autorouter session snapshots (keep the top-level project files,
+# drop the timestamped per-run history under autoroute_*/)
+**/Topor/**/autoroute_*/
+
+# Claude Code local/personal settings - contains machine-specific permission
+# allowlists, local IPs, etc. Never meant to be shared.
+**/settings.local.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.bak
+*~
