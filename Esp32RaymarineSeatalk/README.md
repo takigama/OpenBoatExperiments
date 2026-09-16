@@ -1,0 +1,3 @@
+A really simple board for connecting an ESP32-C3-OLED board to seatalk as an in-path or end-of-path device... firmware to come...
+
+Also has support for CAN BUS (for NEMA2000) and UART extension (which will be useful for the project revolving around using google tags as MOB tokens)
