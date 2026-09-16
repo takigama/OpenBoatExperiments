@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--******************************************-->
+<!--   File    : ESP32SeaTalk.fsproj          -->
+<!--   Format  : TopoR Project file           -->
+<!--   Version : 2                            -->
+<!--   Program : TopoR Lite 7.0.18508         -->
+<!--   Date    : Thursday, September 17, 2026 -->
+<!--   Time    : 02:51                        -->
+<!--******************************************-->
+
+<Project>
+   <Version current="2"/>
+   <GUID>{09D51212-CFA1-40FF-ABB3-6F1737754B87}</GUID>
+   <Documents>
+      <Section name="PCB" isExpanded="true">
+         <File path=".\ESP32Seatalk.fsx" isopened="1" dateChange="2026-09-16 15:36:27"/>
+      </Section>
+      <Section name="AutoRouting" isExpanded="true">
+         <File path=".\autoroute_260917022742\ESP32Seatalk_398-1s.fsb" isopened="0" dateChange="2026-09-17 02:34:39"/>
+      </Section>
+   </Documents>
+   <Import>
+      <Specctra>
+         <Path name="D:\Owncloud.cl\Electronics\OpenBoat\Esp32RaymarineSeatalk\ESP32Seatalk\ESP32Seatalk.dsn"/>
+      </Specctra>
+   </Import>
+</Project>
