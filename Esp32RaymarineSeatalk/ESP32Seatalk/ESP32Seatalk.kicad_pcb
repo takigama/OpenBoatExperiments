@@ -103,10 +103,10 @@
 		(uuid "1e8561c2-8a55-43ea-aa10-3b5962caf46e")
 		(at 93.98 67.31)
 		(property "Reference" "U2"
-			(at -7.366 -11.049 0)
+			(at 0.508 -9.017 0)
 			(unlocked yes)
 			(layer "F.SilkS")
-			(uuid "815e23cb-ace3-4c6b-a346-fc4ae68dd459")
+			(uuid "fcc9d934-9910-40fc-9fc9-b742af7f8efb")
 			(effects
 				(font
 					(size 1 1)
@@ -118,7 +118,7 @@
 			(at 0 -11.049 0)
 			(unlocked yes)
 			(layer "F.Fab")
-			(uuid "e6dcba22-c84a-4cd6-9ff3-6e0b9297d05c")
+			(uuid "b4914c6a-b05b-44c6-bbbb-86a6619045eb")
 			(effects
 				(font
 					(size 1 1)
@@ -131,7 +131,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "7f94932c-e4eb-408c-bc12-75bed9f219f9")
+			(uuid "28f9b0db-5def-437d-b0b6-cc6bc806ce01")
 			(effects
 				(font
 					(size 1 1)
@@ -144,7 +144,7 @@
 			(unlocked yes)
 			(layer "F.Fab")
 			(hide yes)
-			(uuid "944d1f78-e375-40e2-b3c9-4110395651be")
+			(uuid "996d015f-885b-4dfa-a579-977fc6e48ab7")
 			(effects
 				(font
 					(size 1 1)
@@ -475,7 +475,7 @@
 		(descr "Through hole straight pin header, 1x03, 2.54mm pitch, single row")
 		(tags "Through hole pin header THT 1x03 2.54mm single row")
 		(property "Reference" "J1"
-			(at 0.635 -2.667 180)
+			(at 0 -2.54 180)
 			(layer "F.SilkS")
 			(uuid "f2eec7e4-b29e-44b8-a744-a58fa9378d97")
 			(effects
@@ -843,7 +843,7 @@
 		(descr "Through hole straight pin header, 1x03, 2.54mm pitch, single row")
 		(tags "Through hole pin header THT 1x03 2.54mm single row")
 		(property "Reference" "J7"
-			(at 0 -2.38 90)
+			(at 2.667 2.159 180)
 			(layer "F.SilkS")
 			(uuid "08548346-c6af-45f8-9209-d87ac7799622")
 			(effects
@@ -1211,7 +1211,7 @@
 		(descr "Through hole straight pin header, 1x06, 2.54mm pitch, single row")
 		(tags "Through hole pin header THT 1x06 2.54mm single row")
 		(property "Reference" "J4"
-			(at 0 -2.38 90)
+			(at -2.54 1.524 180)
 			(layer "F.SilkS")
 			(uuid "fa41ae47-6b37-455d-99ae-dc568e0a218c")
 			(effects
@@ -1508,7 +1508,7 @@
 		(descr "Through hole straight pin header, 1x05, 2.54mm pitch, single row")
 		(tags "Through hole pin header THT 1x05 2.54mm single row")
 		(property "Reference" "J5"
-			(at 0 12.827 180)
+			(at 0.127 12.827 0)
 			(layer "F.SilkS")
 			(uuid "00e3a80d-de57-41b1-8e1a-51a05f5c87cb")
 			(effects
@@ -1794,7 +1794,7 @@
 		(descr "Through hole straight pin header, 1x03, 2.54mm pitch, single row")
 		(tags "Through hole pin header THT 1x03 2.54mm single row")
 		(property "Reference" "J3"
-			(at 0 -2.38 90)
+			(at 2.54 2.54 180)
 			(layer "F.SilkS")
 			(uuid "c133dcb8-7914-4315-9ce5-8f975994fdd4")
 			(effects
@@ -2344,7 +2344,7 @@
 		(descr "Through hole straight pin header, 1x03, 2.54mm pitch, single row")
 		(tags "Through hole pin header THT 1x03 2.54mm single row")
 		(property "Reference" "J2"
-			(at 0.762 7.874 180)
+			(at -0.127 7.62 0)
 			(layer "F.SilkS")
 			(uuid "09d8090a-8655-472b-b398-c40be244d2fe")
 			(effects
@@ -2816,7 +2816,7 @@
 		(descr "Capacitor SMD 0805 (2012 Metric), square (rectangular) end terminal, IPC-7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf, https://docs.google.com/spreadsheets/d/1BsfQQcO9C6DZCsRaXUlFlo91Tg2WpOkGARC1WS5S8t0/edit?usp=sharing), generated with kicad-footprint-generator")
 		(tags "capacitor handsolder")
 		(property "Reference" "C2"
-			(at 1.0375 1.778 180)
+			(at -0.1055 -1.651 180)
 			(layer "B.SilkS")
 			(uuid "3b6ffd9c-167a-4f19-8084-bc6ef40f406d")
 			(effects
@@ -3020,7 +3020,7 @@
 		(descr "Capacitor SMD 0805 (2012 Metric), square (rectangular) end terminal, IPC-7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 76, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf, https://docs.google.com/spreadsheets/d/1BsfQQcO9C6DZCsRaXUlFlo91Tg2WpOkGARC1WS5S8t0/edit?usp=sharing), generated with kicad-footprint-generator")
 		(tags "capacitor handsolder")
 		(property "Reference" "C4"
-			(at 2.54 0.762 90)
+			(at 0.127 1.651 180)
 			(layer "B.SilkS")
 			(uuid "faf3873d-fc70-4b85-92b6-60e54735f5a4")
 			(effects
@@ -3448,7 +3448,7 @@
 		(descr "Tantalum Capacitor SMD Kemet-S (3216-12 Metric), IPC-7352 nominal, (Body size from: http://www.kemet.com/Lists/ProductCatalog/Attachments/253/KEM_TC101_STD.pdf), generated with kicad-footprint-generator")
 		(tags "capacitor tantalum")
 		(property "Reference" "C1"
-			(at 0 1.75 180)
+			(at 1.016 -2.032 180)
 			(layer "B.SilkS")
 			(uuid "0e800e25-c1f2-4963-b84c-1606b317a333")
 			(effects
@@ -3672,7 +3672,7 @@
 		(descr "Resistor SMD 0805 (2012 Metric), square (rectangular) end terminal, IPC-7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 72, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator")
 		(tags "resistor handsolder")
 		(property "Reference" "R1"
-			(at 2.413 -1.778 90)
+			(at 0.127 -1.778 270)
 			(layer "B.SilkS")
 			(uuid "e3f5d440-1bfa-4928-b7f1-989ffb836ee3")
 			(effects
@@ -4146,7 +4146,7 @@
 		(descr "SOT, 3 Pin (JEDEC TO-236 Var AB https://www.jedec.org/document_search?search_api_views_fulltext=TO-236), generated with kicad-footprint-generator ipc_gullwing_generator.py")
 		(tags "SOT TO_SOT_SMD")
 		(property "Reference" "Q1"
-			(at 0 2.4 180)
+			(at 0.381 -2.54 180)
 			(layer "B.SilkS")
 			(uuid "f6e12d0e-91d5-4697-8b6f-afb61cf33c34")
 			(effects
@@ -4476,7 +4476,7 @@
 		(descr "Resistor SMD 0805 (2012 Metric), square (rectangular) end terminal, IPC-7351 nominal with elongated pad for handsoldering. (Body size source: IPC-SM-782 page 72, https://www.pcb-3d.com/wordpress/wp-content/uploads/ipc-sm-782a_amendment_1_and_2.pdf), generated with kicad-footprint-generator")
 		(tags "resistor handsolder")
 		(property "Reference" "R2"
-			(at 2.556 0.127 180)
+			(at 0.016 1.778 270)
 			(layer "B.SilkS")
 			(uuid "aa90bc8e-c0e1-4e15-870d-987ab5784a40")
 			(effects
