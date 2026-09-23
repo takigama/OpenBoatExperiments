@@ -3,6 +3,7 @@
 #include <WebServer.h>
 #include <WiFi.h>
 
+#include "debug_log.h"
 #include "ota_manager.h"
 #include "wifi_manager.h"
 
@@ -72,7 +73,16 @@ void handleRoot() {
         body = "<p>Joined WiFi. IP: <b>" + WiFi.localIP().toString() + "</b></p>";
         body += otaSection();
     }
+    // No USB once this is plugged into a real SeaTalk bus (it shares 3.3V
+    // with the bus itself) - this page is the only diagnostic surface
+    // that'll exist in the field, so the log link belongs on every page,
+    // not just once things go wrong.
+    body += "<hr><p><a href='/log'>View debug log</a></p>";
     server.send(200, "text/html", pageWrap("ESP32Seatalk setup", body));
+}
+
+void handleLog() {
+    server.send(200, "text/plain; charset=utf-8", DebugLog::recentLines());
 }
 
 void handleWifiSave() {
@@ -113,8 +123,9 @@ void begin() {
     server.on("/wifi/save", HTTP_POST, handleWifiSave);
     server.on("/ota/check", HTTP_GET, handleOtaCheck);
     server.on("/ota/apply", HTTP_GET, handleOtaApply);
+    server.on("/log", HTTP_GET, handleLog);
     server.begin();
-    Serial.println("web: config server listening on port 80");
+    DebugLog::logf("web: config server listening on port 80");
 }
 
 void handleClient() { server.handleClient(); }

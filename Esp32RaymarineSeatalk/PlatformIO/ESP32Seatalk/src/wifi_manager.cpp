@@ -3,6 +3,8 @@
 #include <Preferences.h>
 #include <WiFi.h>
 
+#include "debug_log.h"
+
 namespace WifiManager {
 
 namespace {
@@ -34,24 +36,24 @@ bool joinSaved() {
     p.end();
 
     if (ssid.isEmpty()) {
-        Serial.println("wifi: no saved credentials");
+        DebugLog::logf("wifi: no saved credentials");
         return false;
     }
 
-    Serial.printf("wifi: joining \"%s\"...\n", ssid.c_str());
+    DebugLog::logf("wifi: joining \"%s\"...", ssid.c_str());
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid.c_str(), pass.c_str());
 
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
         if (millis() - start > kJoinTimeoutMs) {
-            Serial.println("wifi: join timed out");
+            DebugLog::logf("wifi: join timed out");
             WiFi.disconnect(true);
             return false;
         }
         delay(250);
     }
-    Serial.printf("wifi: joined, IP %s\n", WiFi.localIP().toString().c_str());
+    DebugLog::logf("wifi: joined, IP %s", WiFi.localIP().toString().c_str());
     return true;
 }
 
@@ -59,8 +61,8 @@ void startAp() {
     s_apSsid = computeApSsid();
     WiFi.mode(WIFI_AP);
     WiFi.softAP(s_apSsid.c_str());
-    Serial.printf("wifi: AP mode - SSID \"%s\", IP %s\n", s_apSsid.c_str(),
-                  WiFi.softAPIP().toString().c_str());
+    DebugLog::logf("wifi: AP mode - SSID \"%s\", IP %s", s_apSsid.c_str(),
+                    WiFi.softAPIP().toString().c_str());
 }
 
 }  // namespace
@@ -82,7 +84,7 @@ void saveCredentialsAndReboot(const String &ssid, const String &password) {
     p.putString("ssid", ssid);
     p.putString("pass", password);
     p.end();
-    Serial.printf("wifi: saved credentials for \"%s\", rebooting\n", ssid.c_str());
+    DebugLog::logf("wifi: saved credentials for \"%s\", rebooting", ssid.c_str());
     delay(200);  // let the response/log flush before the reset
     ESP.restart();
 }

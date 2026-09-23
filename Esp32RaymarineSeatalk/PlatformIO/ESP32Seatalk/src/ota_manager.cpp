@@ -21,6 +21,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 
+#include "debug_log.h"
+
 namespace OtaManager {
 
 namespace {
@@ -39,7 +41,7 @@ UpdateInfo checkForUpdate() {
     UpdateInfo info;
 
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("ota: no WiFi, skipping check");
+        DebugLog::logf("ota: no WiFi, skipping check");
         return info;
     }
 
@@ -48,13 +50,13 @@ UpdateInfo checkForUpdate() {
 
     HTTPClient http;
     if (!http.begin(client, kManifestUrl)) {
-        Serial.println("ota: http.begin() failed");
+        DebugLog::logf("ota: http.begin() failed");
         return info;
     }
 
     int status = http.GET();
     if (status != HTTP_CODE_OK) {
-        Serial.printf("ota: manifest fetch failed, HTTP %d\n", status);
+        DebugLog::logf("ota: manifest fetch failed, HTTP %d", status);
         http.end();
         return info;
     }
@@ -63,7 +65,7 @@ UpdateInfo checkForUpdate() {
     DeserializationError err = deserializeJson(doc, http.getStream());
     http.end();
     if (err) {
-        Serial.printf("ota: manifest JSON parse failed: %s\n", err.c_str());
+        DebugLog::logf("ota: manifest JSON parse failed: %s", err.c_str());
         return info;
     }
 
@@ -76,9 +78,9 @@ UpdateInfo checkForUpdate() {
         info.build = remoteBuild;
         info.url = url;
         info.md5 = md5;
-        Serial.printf("ota: update available - build %u (running %d)\n", remoteBuild, FW_BUILD);
+        DebugLog::logf("ota: update available - build %u (running %d)", remoteBuild, FW_BUILD);
     } else {
-        Serial.printf("ota: up to date (running %d, manifest has %u)\n", FW_BUILD, remoteBuild);
+        DebugLog::logf("ota: up to date (running %d, manifest has %u)", FW_BUILD, remoteBuild);
     }
     return info;
 }
@@ -98,7 +100,7 @@ bool applyUpdate(const UpdateInfo &info) {
 
     HTTPClient http;
     if (!http.begin(client, info.url)) {
-        Serial.println("ota: http.begin() failed for download");
+        DebugLog::logf("ota: http.begin() failed for download");
         return false;
     }
     // GitHub Release asset URLs 302 to a signed release-assets.githubusercontent.com
@@ -110,20 +112,20 @@ bool applyUpdate(const UpdateInfo &info) {
 
     int status = http.GET();
     if (status != HTTP_CODE_OK) {
-        Serial.printf("ota: download failed, HTTP %d\n", status);
+        DebugLog::logf("ota: download failed, HTTP %d", status);
         http.end();
         return false;
     }
 
     int contentLength = http.getSize();
     if (contentLength <= 0) {
-        Serial.println("ota: server didn't report a content length");
+        DebugLog::logf("ota: server didn't report a content length");
         http.end();
         return false;
     }
 
     if (!Update.begin(contentLength)) {
-        Serial.printf("ota: Update.begin() failed: %s\n", Update.errorString());
+        DebugLog::logf("ota: Update.begin() failed: %s", Update.errorString());
         http.end();
         return false;
     }
@@ -131,8 +133,8 @@ bool applyUpdate(const UpdateInfo &info) {
     MD5Builder md5;
     md5.begin();
 
-    Serial.printf("ota: downloading build %u from %s (%d bytes)\n", info.build, info.url.c_str(),
-                  contentLength);
+    DebugLog::logf("ota: downloading build %u from %s (%d bytes)", info.build, info.url.c_str(),
+                    contentLength);
 
     WiFiClient *stream = http.getStreamPtr();
     uint8_t buf[1024];
@@ -151,7 +153,7 @@ bool applyUpdate(const UpdateInfo &info) {
     http.end();
 
     if (written != contentLength) {
-        Serial.printf("ota: short read (%d of %d bytes) - aborting\n", written, contentLength);
+        DebugLog::logf("ota: short read (%d of %d bytes) - aborting", written, contentLength);
         Update.abort();
         return false;
     }
@@ -159,18 +161,18 @@ bool applyUpdate(const UpdateInfo &info) {
     md5.calculate();
     String gotMd5 = md5.toString();
     if (info.md5.length() && !info.md5.equalsIgnoreCase(gotMd5)) {
-        Serial.printf("ota: MD5 mismatch - expected %s, got %s - aborting\n", info.md5.c_str(),
-                      gotMd5.c_str());
+        DebugLog::logf("ota: MD5 mismatch - expected %s, got %s - aborting", info.md5.c_str(),
+                        gotMd5.c_str());
         Update.abort();
         return false;
     }
 
     if (!Update.end(true)) {
-        Serial.printf("ota: Update.end() failed: %s\n", Update.errorString());
+        DebugLog::logf("ota: Update.end() failed: %s", Update.errorString());
         return false;
     }
 
-    Serial.println("ota: update OK (MD5 verified), restarting");
+    DebugLog::logf("ota: update OK (MD5 verified), restarting");
     delay(500);
     ESP.restart();
     return true;  // unreached, but keeps the compiler happy

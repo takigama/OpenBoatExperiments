@@ -1,6 +1,10 @@
 #include <Arduino.h>
+#include <math.h>
 
+#include "debug_log.h"
 #include "ota_manager.h"
+#include "seatalk_bus.h"
+#include "seatalk_decode.h"
 #include "web_config.h"
 #include "wifi_manager.h"
 
@@ -12,17 +16,74 @@
 constexpr uint32_t kBootCheckDelayMs = 30000;
 bool s_bootCheckDone = false;
 
+constexpr int kSeatalkPin = 4;  // LV_SEATALK, per the schematic - GPIO4 through the BSS138 shifter
+
+// No live SeaTalk bus connected yet (see seatalk_bus.h) - this is the only
+// validation the RX path has had so far: transmit a known depth datagram
+// and confirm our own decoder reconstructs exactly the value we sent,
+// looped back over the same open-drain wire. Runs once, a couple seconds
+// after boot.
+bool s_loopbackTestDone = false;
+constexpr uint32_t kLoopbackTestDelayMs = 3000;
+
+void runLoopbackTest() {
+    // Depth below transducer: "00 02 YZ XX XX" (see seatalk_decode.cpp) -
+    // dataBytes here is everything after the command byte, so it needs
+    // the attribute byte (0x02) itself, not just the payload after it.
+    // 12.3m -> feet*10 = 12.3/0.3048*10 = 403 = 0x0193
+    uint16_t raw = (uint16_t)(12.3 / 0.3048 * 10.0 + 0.5);
+    uint8_t data[] = {0x02, 0x00, (uint8_t)(raw & 0xFF), (uint8_t)(raw >> 8)};
+    SeatalkBus::send(0x00, data, sizeof(data));
+
+    uint32_t start = millis();
+    SeatalkBus::Datagram dg;
+    while (millis() - start < 200) {
+        if (SeatalkBus::poll(&dg)) {
+            String rawHex;
+            for (int i = 0; i < dg.length; i++) rawHex += String(dg.bytes[i], HEX) + " ";
+            SeatalkDecode::Event ev;
+            if (SeatalkDecode::decode(dg, &ev) && ev.type == SeatalkDecode::Type::Depth &&
+                fabs(ev.value - 12.3) < 0.05) {
+                DebugLog::logf("seatalk: loopback test PASSED (sent 12.3m, decoded %.2fm, raw: %s)",
+                                ev.value, rawHex.c_str());
+            } else {
+                DebugLog::logf("seatalk: loopback test FAILED - raw bytes: %s (len %d)", rawHex.c_str(),
+                                dg.length);
+            }
+            return;
+        }
+        delay(1);
+    }
+    DebugLog::logf("seatalk: loopback test FAILED - nothing came back within 200ms");
+}
+
 void setup() {
     Serial.begin(115200);
     delay(500);
-    Serial.printf("ESP32Seatalk build %d booted\n", FW_BUILD);
+    DebugLog::logf("ESP32Seatalk build %d booted", FW_BUILD);
 
     WifiManager::begin();
     WebConfig::begin();
+    SeatalkBus::begin(kSeatalkPin);
 }
 
 void loop() {
     WebConfig::handleClient();
+
+    if (!s_loopbackTestDone && millis() > kLoopbackTestDelayMs) {
+        s_loopbackTestDone = true;
+        runLoopbackTest();
+    }
+
+    SeatalkBus::Datagram dg;
+    if (SeatalkBus::poll(&dg)) {
+        SeatalkDecode::Event ev;
+        if (SeatalkDecode::decode(dg, &ev)) {
+            DebugLog::logf("seatalk: type=%d value=%.3f value2=%.3f", (int)ev.type, ev.value, ev.value2);
+        } else {
+            DebugLog::logf("seatalk: undecoded cmd=0x%02X len=%d", dg.bytes[0], dg.length);
+        }
+    }
 
     if (!s_bootCheckDone && WifiManager::currentMode() == WifiManager::Mode::STA &&
         millis() > kBootCheckDelayMs) {
@@ -33,10 +94,20 @@ void loop() {
     // Periodic liveness line - startup-only logging is useless for anyone
     // attaching a serial monitor after the fact (native USB CDC doesn't
     // buffer for a not-yet-attached host, those lines are just gone).
+    // Fast cadence to Serial only (dev-time, USB attached); a much slower
+    // one also into the ring buffer - at 5s intervals a heartbeat alone
+    // would cycle the whole 80-line /log buffer in under 7 minutes,
+    // crowding out the WiFi/OTA/SeaTalk events that buffer actually
+    // exists for.
     static uint32_t lastStatus = 0;
+    static uint32_t lastStatusLogged = 0;
     if (millis() - lastStatus >= 5000) {
         lastStatus = millis();
         const char *mode = WifiManager::currentMode() == WifiManager::Mode::STA ? "STA" : "AP";
         Serial.printf("status: mode=%s heap=%u uptime=%lus\n", mode, ESP.getFreeHeap(), millis() / 1000);
+        if (millis() - lastStatusLogged >= 60000) {
+            lastStatusLogged = millis();
+            DebugLog::logf("status: mode=%s heap=%u uptime=%lus", mode, ESP.getFreeHeap(), millis() / 1000);
+        }
     }
 }
