@@ -249,7 +249,8 @@ void handleRoot() {
         body += routeSection();
     }
     if (WifiManager::currentMode() == WifiManager::Mode::STA) {
-        body += "<hr><p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
+        body += "<hr><h3>Test/Debug SeaTalk</h3>";
+        body += "<p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
                 "Test: cycle instrument lamp</button></a></p>";
         if (s_navCycling) {
             body += "<p><a href='/seatalk/test-nav-data/stop'><button style='width:100%;padding:.6em'>"
