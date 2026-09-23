@@ -91,6 +91,8 @@ void handleRoot() {
     if (WifiManager::currentMode() == WifiManager::Mode::STA) {
         body += "<hr><p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
                 "Test: cycle instrument lamp</button></a></p>";
+        body += "<p><a href='/seatalk/test-nav-data'><button style='width:100%;padding:.6em'>"
+                "Test: send wind/speed/depth</button></a></p>";
     }
     // No USB once this is plugged into a real SeaTalk bus (it shares 3.3V
     // with the bus itself) - this page is the only diagnostic surface
@@ -120,6 +122,41 @@ void handleTestLamp() {
         DebugLog::logf("seatalk: sent lamp level 0x%02X", level);
         delay(1200);
     }
+}
+
+// Injects fixed, easy-to-recognize values for the 4 readings the Wind/
+// Tridata units on the bus right now have no transducer for, so their
+// displays have nothing of their own to show - if these numbers show up
+// there, it confirms both our TX encoding *and* the reference formulas
+// against a real second implementation (not just our own decoder talking
+// to itself, which self-loopback can't tell apart from "we encoded and
+// decoded the same wrong thing").
+void handleTestNavData() {
+    server.send(200, "text/html",
+                pageWrap("Testing nav data", "<p>Sending test values - watch the instruments...</p>"));
+
+    // Apparent wind angle 45.0deg: "10 01 XX YY", XXYY/2 - raw=90=0x005A
+    uint8_t wind_angle[] = {0x01, 0x5A, 0x00};
+    SeatalkBus::send(0x10, wind_angle, sizeof(wind_angle));
+    DebugLog::logf("seatalk: sent apparent wind angle 45.0deg");
+    delay(500);
+
+    // Apparent wind speed 12.5kn: "11 01 XX 0Y", (XX&0x7F)+Y/10
+    uint8_t wind_speed[] = {0x01, 0x0C, 0x05};
+    SeatalkBus::send(0x11, wind_speed, sizeof(wind_speed));
+    DebugLog::logf("seatalk: sent apparent wind speed 12.5kn");
+    delay(500);
+
+    // Speed through water 6.5kn: "20 01 XX XX", XXXX/10 - raw=65=0x0041
+    uint8_t boat_speed[] = {0x01, 0x41, 0x00};
+    SeatalkBus::send(0x20, boat_speed, sizeof(boat_speed));
+    DebugLog::logf("seatalk: sent boat speed 6.5kn");
+    delay(500);
+
+    // Depth below transducer 15.5ft: "00 02 YZ XX XX", XXXX/10 - raw=155=0x009B
+    uint8_t depth[] = {0x02, 0x00, 0x9B, 0x00};
+    SeatalkBus::send(0x00, depth, sizeof(depth));
+    DebugLog::logf("seatalk: sent depth 15.5ft");
 }
 
 void handleWifiSave() {
@@ -201,6 +238,7 @@ void begin() {
     server.on("/ota/upload", HTTP_POST, handleOtaUploadDone, handleOtaUploadChunk);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/seatalk/test-lamp", HTTP_GET, handleTestLamp);
+    server.on("/seatalk/test-nav-data", HTTP_GET, handleTestNavData);
     server.begin();
     DebugLog::logf("web: config server listening on port 80");
 }
