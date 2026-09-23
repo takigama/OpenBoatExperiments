@@ -34,10 +34,13 @@ String configHost();
 uint16_t configPort();
 String configBaseTopic();
 
-// Publishes a decoded event to its SignalK-style path, and the raw hex
-// dump to the raw-message topic - called from main.cpp's RX loop for
-// every datagram received, decoded or not.
-void publishDecoded(const SeatalkBus::Datagram &dg, const SeatalkDecode::Event &ev);
+// Publishes a decoded event to its SignalK-style path - takes just the
+// Event (no Datagram) so any source can feed it, not only SeaTalk RX; see
+// N2kManager, which relays parsed N2K PGNs through this same sink.
+void publishDecoded(const SeatalkDecode::Event &ev);
+// Raw hex dump to the raw-message topic - SeaTalk-specific (N2K has no
+// undecoded-bytes equivalent worth dumping this way), called from
+// main.cpp's RX loop for every datagram received, decoded or not.
 void publishRaw(const SeatalkBus::Datagram &dg);
 
 }  // namespace MqttManager

@@ -4,6 +4,7 @@
 #include "debug_log.h"
 #include "demo_mode.h"
 #include "mqtt_manager.h"
+#include "n2k_manager.h"
 #include "ota_manager.h"
 #include "seatalk_bus.h"
 #include "seatalk_decode.h"
@@ -79,6 +80,7 @@ void setup() {
     SeatalkBus::begin(kSeatalkPin);
     MqttManager::begin();
     SignalKManager::begin();
+    N2kManager::begin();
 }
 
 void loop() {
@@ -87,6 +89,7 @@ void loop() {
     DemoMode::tick();
     MqttManager::tick();
     SignalKManager::tick();
+    N2kManager::tick();
 
     if (!s_loopbackTestDone && millis() > kLoopbackTestDelayMs) {
         s_loopbackTestDone = true;
@@ -117,8 +120,9 @@ void loop() {
         if (SeatalkDecode::decode(dg, &ev)) {
             DebugLog::logf("seatalk: %s-> type=%d value=%.3f value2=%.3f", hex.c_str(), (int)ev.type,
                             ev.value, ev.value2);
-            MqttManager::publishDecoded(dg, ev);
+            MqttManager::publishDecoded(ev);
             SignalKManager::publishDecoded(ev);
+            N2kManager::publishDecoded(ev);
         } else {
             DebugLog::logf("seatalk: %s-> undecoded", hex.c_str());
         }

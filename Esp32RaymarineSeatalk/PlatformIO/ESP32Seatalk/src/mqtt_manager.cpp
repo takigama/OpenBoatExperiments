@@ -110,7 +110,7 @@ String configHost() { return s_host; }
 uint16_t configPort() { return s_port; }
 String configBaseTopic() { return s_baseTopic; }
 
-void publishDecoded(const SeatalkBus::Datagram &dg, const SeatalkDecode::Event &ev) {
+void publishDecoded(const SeatalkDecode::Event &ev) {
     if (ev.type == SeatalkDecode::Type::HeadingAndRudder) {
         publishValue(slashify(SeatalkDecode::kPathHeadingMagnetic), String(ev.value, 4));
         publishValue(slashify(SeatalkDecode::kPathRudderAngle), String(ev.value2, 4));
