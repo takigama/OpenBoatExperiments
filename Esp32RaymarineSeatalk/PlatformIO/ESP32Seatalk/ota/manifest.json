@@ -1,5 +1,5 @@
 {
-  "build": 20,
-  "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/esp32seatalk-v20/esp32seatalk-firmware.bin",
-  "md5": "9a43b7cbd5b5cb820393a7c2fcc1cb3f"
+  "build": 21,
+  "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/esp32seatalk-v21/esp32seatalk-firmware.bin",
+  "md5": "010e76795705c325c9c42b026bab81c3"
 }
