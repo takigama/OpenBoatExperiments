@@ -162,4 +162,24 @@ bool decode(const SeatalkBus::Datagram &dg, Event *out) {
     }
 }
 
+const char *canonicalPath(Type type) {
+    switch (type) {
+        case Type::Depth: return "environment.depth.belowTransducer";
+        case Type::SpeedThroughWater: return "navigation.speedThroughWater";
+        case Type::TripLog: return "navigation.trip.log";
+        case Type::TotalLog: return "navigation.log";
+        case Type::ApparentWindAngle: return "environment.wind.angleApparent";
+        case Type::ApparentWindSpeed: return "environment.wind.speedApparent";
+        case Type::WaterTemperature: return "environment.water.temperature";
+        case Type::Latitude: return "navigation.position.latitude";
+        case Type::Longitude: return "navigation.position.longitude";
+        case Type::SpeedOverGround: return "navigation.speedOverGround";
+        case Type::CourseOverGround: return "navigation.courseOverGroundTrue";
+        case Type::GnssTime: return "navigation.datetime.secondsSinceMidnight";
+        case Type::SatelliteCount: return "navigation.gnss.satellites";
+        case Type::MagneticVariation: return "navigation.magneticVariation";
+        default: return nullptr;  // HeadingAndRudder, GnssDate - see header comment
+    }
+}
+
 }  // namespace SeatalkDecode

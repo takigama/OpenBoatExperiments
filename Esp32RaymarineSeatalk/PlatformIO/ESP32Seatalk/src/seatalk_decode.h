@@ -59,4 +59,21 @@ struct Event {
 // framing error slipping through, or a command we don't fully understand).
 bool decode(const SeatalkBus::Datagram &dg, Event *out);
 
+// SignalK's own dot-path convention (e.g. "navigation.speedThroughWater") -
+// the single source of truth both MqttManager (converting dots to slashes
+// for its topic names) and SignalKManager (using them as delta paths
+// directly) publish under, so the mapping only exists in one place.
+// Returns nullptr for HeadingAndRudder and GnssDate, which each need
+// their own multi-path handling at the publisher (one Event, two or more
+// destination paths) rather than a single 1:1 mapping.
+const char *canonicalPath(Type type);
+
+// HeadingAndRudder and GnssDate each need multiple/combined paths, so they
+// fall outside canonicalPath()'s 1:1 mapping - these constants are the
+// shared literal paths for them, so MqttManager and SignalKManager agree
+// without duplicating the strings.
+constexpr const char *kPathHeadingMagnetic = "navigation.headingMagnetic";
+constexpr const char *kPathRudderAngle = "steering.rudderAngle";
+constexpr const char *kPathDatetimeDate = "navigation.datetime.date";
+
 }  // namespace SeatalkDecode

@@ -40,29 +40,21 @@ void applyConfig() {
     s_client.setServer(s_host.c_str(), s_port);
 }
 
-// SignalK-style dot-path per object, written with slashes since that's
-// what MQTT topics actually use - see mqtt_manager.h. Matches the
-// mapping table worked out in the design discussion; a couple of types
-// (HeadingAndRudder, GnssDate) need special handling in publishDecoded()
-// below rather than a single path each.
-const char *pathFor(SeatalkDecode::Type type) {
-    switch (type) {
-        case SeatalkDecode::Type::Depth: return "environment/depth/belowTransducer";
-        case SeatalkDecode::Type::SpeedThroughWater: return "navigation/speedThroughWater";
-        case SeatalkDecode::Type::TripLog: return "navigation/trip/log";
-        case SeatalkDecode::Type::TotalLog: return "navigation/log";
-        case SeatalkDecode::Type::ApparentWindAngle: return "environment/wind/angleApparent";
-        case SeatalkDecode::Type::ApparentWindSpeed: return "environment/wind/speedApparent";
-        case SeatalkDecode::Type::WaterTemperature: return "environment/water/temperature";
-        case SeatalkDecode::Type::Latitude: return "navigation/position/latitude";
-        case SeatalkDecode::Type::Longitude: return "navigation/position/longitude";
-        case SeatalkDecode::Type::SpeedOverGround: return "navigation/speedOverGround";
-        case SeatalkDecode::Type::CourseOverGround: return "navigation/courseOverGroundTrue";
-        case SeatalkDecode::Type::GnssTime: return "navigation/datetime/secondsSinceMidnight";
-        case SeatalkDecode::Type::SatelliteCount: return "navigation/gnss/satellites";
-        case SeatalkDecode::Type::MagneticVariation: return "navigation/magneticVariation";
-        default: return nullptr;  // HeadingAndRudder, GnssDate - handled specially below
-    }
+// MQTT topics mirror SeatalkDecode::canonicalPath()'s SignalK-style
+// dot-path, just with slashes instead of dots (that's what MQTT topics
+// actually use) - see mqtt_manager.h.
+String pathFor(SeatalkDecode::Type type) {
+    const char *dotPath = SeatalkDecode::canonicalPath(type);
+    if (!dotPath) return String();  // HeadingAndRudder, GnssDate - handled specially below
+    String path(dotPath);
+    path.replace('.', '/');
+    return path;
+}
+
+String slashify(const char *dotPath) {
+    String path(dotPath);
+    path.replace('.', '/');
+    return path;
 }
 
 void publishValue(const String &subPath, const String &payload) {
@@ -120,18 +112,18 @@ String configBaseTopic() { return s_baseTopic; }
 
 void publishDecoded(const SeatalkBus::Datagram &dg, const SeatalkDecode::Event &ev) {
     if (ev.type == SeatalkDecode::Type::HeadingAndRudder) {
-        publishValue("navigation/headingMagnetic", String(ev.value, 4));
-        publishValue("steering/rudderAngle", String(ev.value2, 4));
+        publishValue(slashify(SeatalkDecode::kPathHeadingMagnetic), String(ev.value, 4));
+        publishValue(slashify(SeatalkDecode::kPathRudderAngle), String(ev.value2, 4));
         return;
     }
     if (ev.type == SeatalkDecode::Type::GnssDate) {
         char buf[16];
         snprintf(buf, sizeof(buf), "%04d-%02d-%02d", ev.year, ev.month, ev.day);
-        publishValue("navigation/datetime/date", buf);
+        publishValue(slashify(SeatalkDecode::kPathDatetimeDate), buf);
         return;
     }
-    const char *path = pathFor(ev.type);
-    if (!path) return;
+    String path = pathFor(ev.type);
+    if (path.isEmpty()) return;
     publishValue(path, String(ev.value, 4));
 }
 

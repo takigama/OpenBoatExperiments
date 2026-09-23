@@ -9,6 +9,7 @@
 #include "mqtt_manager.h"
 #include "ota_manager.h"
 #include "seatalk_bus.h"
+#include "signalk_manager.h"
 #include "wifi_manager.h"
 
 namespace WebConfig {
@@ -105,6 +106,24 @@ String mqttSection() {
     return body;
 }
 
+String signalkSection() {
+    String body = "<hr><h3>SignalK</h3>";
+    if (!SignalKManager::configHost().isEmpty()) {
+        body += "<p>" + SignalKManager::configHost() + ":" + String(SignalKManager::configPort()) + " - " +
+                (SignalKManager::isConnected() ? "<b>connected</b>" : "not connected") + "</p>";
+    } else {
+        body += "<p>Not configured.</p>";
+    }
+    body += "<form method='POST' action='/signalk/save'>";
+    body += "<input name='host' placeholder='Server host/IP' value='" + htmlEscape(SignalKManager::configHost()) +
+            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
+    body += "<input name='port' type='number' placeholder='Port' value='" + String(SignalKManager::configPort()) +
+            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
+    body += "<button type='submit' style='width:100%;padding:.6em'>Save</button>";
+    body += "</form>";
+    return body;
+}
+
 String demoSection() {
     String body = "<hr><h3>Demo mode</h3>";
     DemoMode::Mode mode = DemoMode::currentMode();
@@ -155,6 +174,7 @@ void handleRoot() {
         body = "<p>Joined WiFi. IP: <b>" + WiFi.localIP().toString() + "</b></p>";
         body += otaSection();
         body += mqttSection();
+        body += signalkSection();
     }
     if (WifiManager::currentMode() == WifiManager::Mode::STA) {
         body += "<hr><p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
@@ -280,6 +300,14 @@ void handleMqttSave() {
     server.send(303);
 }
 
+void handleSignalkSave() {
+    String host = server.hasArg("host") ? server.arg("host") : "";
+    uint16_t port = server.hasArg("port") ? (uint16_t)server.arg("port").toInt() : 3000;
+    SignalKManager::saveConfig(host, port);
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
 void handleWifiSave() {
     if (!server.hasArg("ssid") || server.arg("ssid").isEmpty()) {
         server.send(400, "text/plain", "missing ssid");
@@ -355,6 +383,7 @@ void begin() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/wifi/save", HTTP_POST, handleWifiSave);
     server.on("/mqtt/save", HTTP_POST, handleMqttSave);
+    server.on("/signalk/save", HTTP_POST, handleSignalkSave);
     server.on("/ota/check", HTTP_GET, handleOtaCheck);
     server.on("/ota/apply", HTTP_GET, handleOtaApply);
     server.on("/ota/upload", HTTP_POST, handleOtaUploadDone, handleOtaUploadChunk);

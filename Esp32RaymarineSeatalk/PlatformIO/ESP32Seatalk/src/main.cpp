@@ -7,6 +7,7 @@
 #include "ota_manager.h"
 #include "seatalk_bus.h"
 #include "seatalk_decode.h"
+#include "signalk_manager.h"
 #include "web_config.h"
 #include "wifi_manager.h"
 
@@ -77,6 +78,7 @@ void setup() {
     WebConfig::begin();
     SeatalkBus::begin(kSeatalkPin);
     MqttManager::begin();
+    SignalKManager::begin();
 }
 
 void loop() {
@@ -84,6 +86,7 @@ void loop() {
     WebConfig::tick();
     DemoMode::tick();
     MqttManager::tick();
+    SignalKManager::tick();
 
     if (!s_loopbackTestDone && millis() > kLoopbackTestDelayMs) {
         s_loopbackTestDone = true;
@@ -106,6 +109,8 @@ void loop() {
         // even for ones we do decode. Same story over MQTT: raw always
         // goes out on its own topic (see MqttManager::publishRaw()),
         // decoded values additionally go to their SignalK-style path.
+        // SignalK has no raw-hex equivalent (its data model is
+        // structured, not a byte stream), so it only gets decoded events.
         String hex = hexDump(dg);
         MqttManager::publishRaw(dg);
         SeatalkDecode::Event ev;
@@ -113,6 +118,7 @@ void loop() {
             DebugLog::logf("seatalk: %s-> type=%d value=%.3f value2=%.3f", hex.c_str(), (int)ev.type,
                             ev.value, ev.value2);
             MqttManager::publishDecoded(dg, ev);
+            SignalKManager::publishDecoded(ev);
         } else {
             DebugLog::logf("seatalk: %s-> undecoded", hex.c_str());
         }
