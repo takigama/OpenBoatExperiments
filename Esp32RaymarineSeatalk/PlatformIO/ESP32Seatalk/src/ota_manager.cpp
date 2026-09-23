@@ -101,6 +101,12 @@ bool applyUpdate(const UpdateInfo &info) {
         Serial.println("ota: http.begin() failed for download");
         return false;
     }
+    // GitHub Release asset URLs 302 to a signed release-assets.githubusercontent.com
+    // blob URL - HTTPClient does NOT follow redirects by default
+    // (HTTPC_DISABLE_FOLLOW_REDIRECTS), confirmed against this core's
+    // HTTPClient.h while setting this up. Without this, the "download"
+    // just gets a 302 back and fails.
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
     int status = http.GET();
     if (status != HTTP_CODE_OK) {
