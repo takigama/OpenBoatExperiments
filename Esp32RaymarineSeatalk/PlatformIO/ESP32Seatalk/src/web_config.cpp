@@ -71,10 +71,29 @@ String htmlEscape(const String &s) {
     return out;
 }
 
+// Dark mode, permanently - no light/dark switch, just always black. One
+// <style> block here rather than touching every inline style scattered
+// across the section-building functions below: those keep controlling
+// layout (widths/padding/spacing), this overrides colors globally so the
+// two don't fight each other.
+constexpr const char *kDarkStyle =
+    "<style>"
+    "body{background:#000;color:#e6e6e6}"
+    "a{color:#6ab0ff}"
+    "input,select,textarea{background:#1a1a1a;color:#e6e6e6;border:1px solid #444}"
+    "button{background:#1e1e1e;color:#e6e6e6;border:1px solid #555}"
+    "button:hover{background:#2a2a2a}"
+    "hr{border-color:#333}"
+    "table{border-color:#333}"
+    "h1,h2,h3,h4{color:#fff}"
+    "</style>";
+
 String pageWrap(const String &title, const String &body) {
     String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>";
     html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-    html += "<title>" + title + "</title></head><body style='font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em'>";
+    html += "<title>" + title + "</title>";
+    html += kDarkStyle;
+    html += "</head><body style='font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em'>";
     html += "<h2>ESP32Seatalk</h2>";
     html += body;
     html += "</body></html>";
@@ -168,7 +187,7 @@ String signalkSection() {
 
 String routeSection() {
     String body = "<hr><h3>Routing</h3>";
-    body += "<p style='font-size:.85em;color:#666'>SeaTalk and CAN always relay to MQTT/SignalK when "
+    body += "<p style='font-size:.85em;color:#999'>SeaTalk and CAN always relay to MQTT/SignalK when "
             "connected. Check a box below to also inject that data onto SeaTalk and/or CAN, from a given "
             "source.</p>";
     body += "<form method='POST' action='/route/save'>";
