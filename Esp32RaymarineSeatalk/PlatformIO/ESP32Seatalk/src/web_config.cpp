@@ -108,7 +108,7 @@ String otaSection() {
         body += "<p>Update available: build " + String(s_lastCheck.build) + "</p>";
         body += "<a href='/ota/apply'><button style='width:100%;padding:.6em'>Update now</button></a>";
     } else {
-        body += "<a href='/ota/check'><button style='width:100%;padding:.6em'>Check for updates</button></a>";
+        body += "<a href='/ota/check'><button style='width:100%;padding:.6em'>Check for updates (github)</button></a>";
     }
     // Direct local upload, alongside the GitHub-manifest path above, not
     // instead of it - GitHub Releases stays the real distribution
@@ -119,9 +119,10 @@ String otaSection() {
     // over the LAN, not a fetch from the open internet, so the same
     // integrity concern the GitHub path (see ota_manager.cpp) exists for
     // doesn't really apply here.
-    body += "<form method='POST' action='/ota/upload' enctype='multipart/form-data' style='margin-top:.5em'>";
+    body += "<h4 style='margin-top:1em'>Manual update</h4>";
+    body += "<form method='POST' action='/ota/upload' enctype='multipart/form-data'>";
     body += "<input type='file' name='firmware' accept='.bin' style='width:100%'>";
-    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Upload firmware directly</button>";
+    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Perform local update</button>";
     body += "</form>";
     return body;
 }

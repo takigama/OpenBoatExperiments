@@ -36,13 +36,14 @@ Flashing has two paths:
 - **GitHub-hosted OTA** (canonical, used once the board is deployed):
   `ota/manifest.json` in this repo carries `{build, url, md5}` for the
   current release. The device checks it against its own `FW_BUILD`
-  (`platformio.ini`) on boot and via the web UI's "Check for updates"
-  button, downloads over HTTPS (`setInsecure()` - see `ota_manager.h` for
-  why), and verifies the MD5 before flashing.
+  (`platformio.ini`) on boot and via the web UI's "Check for updates
+  (github)" button, downloads over HTTPS (`setInsecure()` - see
+  `ota_manager.h` for why), and verifies the MD5 before flashing.
 - **Direct upload** (fast iteration): the web UI's Firmware section has a
-  file-upload form that POSTs a `.bin` straight to `/ota/upload` - no MD5
-  check needed, since it's a trusted local LAN transfer. Still push a
-  matching GitHub Release + manifest bump afterwards so OTA stays in sync.
+  "Manual update" file-upload form ("Perform local update") that POSTs a
+  `.bin` straight to `/ota/upload` - no MD5 check needed, since it's a
+  trusted local LAN transfer. Still push a matching GitHub Release +
+  manifest bump afterwards so OTA stays in sync.
 
 ## First boot / WiFi
 
