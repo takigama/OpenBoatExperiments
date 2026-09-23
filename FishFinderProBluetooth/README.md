@@ -88,15 +88,24 @@ rather than guessing at the header fields now.
 
 Build/flash via the Dockerfile in that directory (same reproducible-image
 pattern as ESP32Seatalk - see its header comment for the exact commands).
-Before building, copy `src/no_secrets.h` to `src/secrets.h` and fill in
-your real WiFi SSID/password and MQTT broker host - `secrets.h` is
-gitignored and never committed, `no_secrets.h` (the template, empty
-placeholders) is what actually ships in the repo.
 
-STA-only WiFi for now (no AP-fallback config portal like ESP32Seatalk
-has) - this is a bench/pool R&D tool, not something deployed unattended,
-so hardcoded-at-build-time credentials are the right tradeoff here rather
-than the extra complexity of a runtime config UI.
+**WiFi/MQTT config is entirely runtime, not compiled in** - same pattern
+as ESP32Seatalk, and deliberately so: this project does GitHub-hosted OTA,
+which means the compiled `.bin` itself gets published as a Release asset.
+An earlier version of this firmware used a `secrets.h`/`no_secrets.h`
+compile-time split (gitignoring the real one); that keeps credentials out
+of *source control*, but they'd still ship in plaintext inside every
+published binary, recoverable with a plain `strings firmware.bin` -
+gitignoring the source doesn't protect the built artifact. So instead:
+
+- No saved WiFi credentials → boots a SoftAP (`FishFinder-XXXX`, open, at
+  `192.168.4.1`) serving a join form - pick a network, enter its
+  password, it saves to NVS and reboots to join.
+- MQTT broker host/port/base topic are entered via the same web UI once
+  on your network (`/` when in STA mode), also saved to NVS.
+
+Nothing network-related is baked into the firmware image at all, so the
+`.bin` is safe to publish.
 
 ## Notes
 

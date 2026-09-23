@@ -7,14 +7,15 @@
 # Compile only:
 #   docker run --rm -v "$(pwd):/work" fishfinderprobluetooth-build pio run
 #
-# Compile + flash (adjust the serial device to whatever the board
-# enumerates as):
-#   docker run --rm -v "$(pwd):/work" --device=/dev/ttyUSB0 fishfinderprobluetooth-build \
-#       pio run -t upload --upload-port /dev/ttyUSB0
+# Compile + flash (needed once, over USB, to bootstrap OTA - the C3's
+# native USB-Serial/JTAG controller enumerates as /dev/ttyACM0, not
+# /dev/ttyUSB0, same as ESP32Seatalk):
+#   docker run --rm -v "$(pwd):/work" --device=/dev/ttyACM0 fishfinderprobluetooth-build \
+#       pio run -t upload --upload-port /dev/ttyACM0
 #
 # Serial monitor:
-#   docker run --rm -it -v "$(pwd):/work" --device=/dev/ttyUSB0 fishfinderprobluetooth-build \
-#       pio device monitor -p /dev/ttyUSB0
+#   docker run --rm -it -v "$(pwd):/work" --device=/dev/ttyACM0 fishfinderprobluetooth-build \
+#       pio device monitor -p /dev/ttyACM0
 
 FROM python:3.12-slim-bookworm
 

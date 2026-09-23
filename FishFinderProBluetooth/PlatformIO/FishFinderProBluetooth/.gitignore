@@ -1,7 +1,2 @@
-# Real WiFi/MQTT credentials - see src/no_secrets.h for the template.
-# Never commit the real secrets.h (see the ESP32Seatalk repo history for
-# exactly why this matters).
-src/secrets.h
-
 .pio/
 .vscode/
