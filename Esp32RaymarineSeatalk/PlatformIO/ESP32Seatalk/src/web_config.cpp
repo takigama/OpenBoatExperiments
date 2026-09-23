@@ -85,19 +85,42 @@ String otaSection() {
 
 String demoSection() {
     String body = "<hr><h3>Demo mode</h3>";
-    if (DemoMode::isRunning()) {
-        body += "<p>Running - sending checked objects once/sec.</p>";
+    DemoMode::Mode mode = DemoMode::currentMode();
+
+    if (mode != DemoMode::Mode::Off) {
+        String label = mode == DemoMode::Mode::Cycling ? "Cycling" : "Manual";
+        body += "<p>Running (" + label + ") - sending checked objects once/sec.</p>";
         body += "<a href='/demo/stop'><button style='width:100%;padding:.6em'>Stop demo</button></a>";
         return body;
     }
-    body += "<form method='POST' action='/demo/start'>";
+
+    // Cycling: checkboxes only, values come from the simulation.
+    body += "<form method='POST' action='/demo/start-cycling'>";
     for (int i = 0; i < (int)DemoMode::Object::Count; i++) {
         auto obj = (DemoMode::Object)i;
         String name = "obj" + String(i);
         body += "<label style='display:block;margin:.2em 0'><input type='checkbox' name='" + name + "'" +
                 (DemoMode::isEnabled(obj) ? " checked" : "") + "> " + DemoMode::objectName(obj) + "</label>";
     }
-    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Start demo</button>";
+    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Start cycling</button>";
+    body += "</form>";
+
+    // Manual: same checkbox set, but each enabled object also gets 1 or 2
+    // number fields for the fixed value(s) it'll send every second.
+    body += "<h4 style='margin-top:1em'>Or send fixed values</h4>";
+    body += "<form method='POST' action='/demo/start-manual'>";
+    for (int i = 0; i < (int)DemoMode::Object::Count; i++) {
+        auto obj = (DemoMode::Object)i;
+        String base = "manual_obj" + String(i);
+        body += "<div style='margin:.4em 0'><label><input type='checkbox' name='" + base + "'" +
+                (DemoMode::isEnabled(obj) ? " checked" : "") + "> " + DemoMode::objectName(obj) + "</label> ";
+        body += "<input type='number' step='0.1' name='" + base + "_v0' style='width:5em'>";
+        if (DemoMode::valueCount(obj) == 2) {
+            body += " <input type='number' step='0.1' name='" + base + "_v1' style='width:5em'>";
+        }
+        body += "</div>";
+    }
+    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Start sending fixed values</button>";
     body += "</form>";
     return body;
 }
@@ -196,11 +219,25 @@ void handleTestNavDataStop() {
     server.send(303);
 }
 
-void handleDemoStart() {
+void handleDemoStartCycling() {
     for (int i = 0; i < (int)DemoMode::Object::Count; i++) {
         DemoMode::setEnabled((DemoMode::Object)i, server.hasArg("obj" + String(i)));
     }
-    DemoMode::start();
+    DemoMode::startCycling();
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleDemoStartManual() {
+    for (int i = 0; i < (int)DemoMode::Object::Count; i++) {
+        auto obj = (DemoMode::Object)i;
+        String base = "manual_obj" + String(i);
+        DemoMode::setEnabled(obj, server.hasArg(base));
+        double v0 = server.hasArg(base + "_v0") ? server.arg(base + "_v0").toDouble() : 0;
+        double v1 = server.hasArg(base + "_v1") ? server.arg(base + "_v1").toDouble() : 0;
+        DemoMode::setManualValue(obj, v0, v1);
+    }
+    DemoMode::startManual();
     server.sendHeader("Location", "/");
     server.send(303);
 }
@@ -292,7 +329,8 @@ void begin() {
     server.on("/seatalk/test-lamp", HTTP_GET, handleTestLamp);
     server.on("/seatalk/test-nav-data/start", HTTP_GET, handleTestNavDataStart);
     server.on("/seatalk/test-nav-data/stop", HTTP_GET, handleTestNavDataStop);
-    server.on("/demo/start", HTTP_POST, handleDemoStart);
+    server.on("/demo/start-cycling", HTTP_POST, handleDemoStartCycling);
+    server.on("/demo/start-manual", HTTP_POST, handleDemoStartManual);
     server.on("/demo/stop", HTTP_GET, handleDemoStop);
     server.begin();
     DebugLog::logf("web: config server listening on port 80");
