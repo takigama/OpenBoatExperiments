@@ -3,6 +3,7 @@
 
 #include "debug_log.h"
 #include "demo_mode.h"
+#include "mqtt_manager.h"
 #include "ota_manager.h"
 #include "seatalk_bus.h"
 #include "seatalk_decode.h"
@@ -75,12 +76,14 @@ void setup() {
     WifiManager::begin();
     WebConfig::begin();
     SeatalkBus::begin(kSeatalkPin);
+    MqttManager::begin();
 }
 
 void loop() {
     WebConfig::handleClient();
     WebConfig::tick();
     DemoMode::tick();
+    MqttManager::tick();
 
     if (!s_loopbackTestDone && millis() > kLoopbackTestDelayMs) {
         s_loopbackTestDone = true;
@@ -100,14 +103,16 @@ void loop() {
         // Every received datagram gets hex-dumped, decoded or not - once
         // this is on a real bus this is the only view into traffic we
         // don't (yet) have a decoder for, and worth having regardless
-        // even for ones we do decode (TODO: also publish this over MQTT
-        // on a raw-hex topic once the MQTT layer exists - priority 3,
-        // not built yet).
+        // even for ones we do decode. Same story over MQTT: raw always
+        // goes out on its own topic (see MqttManager::publishRaw()),
+        // decoded values additionally go to their SignalK-style path.
         String hex = hexDump(dg);
+        MqttManager::publishRaw(dg);
         SeatalkDecode::Event ev;
         if (SeatalkDecode::decode(dg, &ev)) {
             DebugLog::logf("seatalk: %s-> type=%d value=%.3f value2=%.3f", hex.c_str(), (int)ev.type,
                             ev.value, ev.value2);
+            MqttManager::publishDecoded(dg, ev);
         } else {
             DebugLog::logf("seatalk: %s-> undecoded", hex.c_str());
         }

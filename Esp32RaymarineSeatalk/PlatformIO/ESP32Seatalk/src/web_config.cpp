@@ -6,6 +6,7 @@
 
 #include "debug_log.h"
 #include "demo_mode.h"
+#include "mqtt_manager.h"
 #include "ota_manager.h"
 #include "seatalk_bus.h"
 #include "wifi_manager.h"
@@ -83,6 +84,27 @@ String otaSection() {
     return body;
 }
 
+String mqttSection() {
+    String body = "<hr><h3>MQTT</h3>";
+    if (!MqttManager::configHost().isEmpty()) {
+        body += "<p>" + MqttManager::configHost() + ":" + String(MqttManager::configPort()) + ", base topic \"" +
+                htmlEscape(MqttManager::configBaseTopic()) + "\" - " +
+                (MqttManager::isConnected() ? "<b>connected</b>" : "not connected") + "</p>";
+    } else {
+        body += "<p>Not configured.</p>";
+    }
+    body += "<form method='POST' action='/mqtt/save'>";
+    body += "<input name='host' placeholder='Broker host/IP' value='" + htmlEscape(MqttManager::configHost()) +
+            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
+    body += "<input name='port' type='number' placeholder='Port' value='" + String(MqttManager::configPort()) +
+            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
+    body += "<input name='base' placeholder='Base topic' value='" + htmlEscape(MqttManager::configBaseTopic()) +
+            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
+    body += "<button type='submit' style='width:100%;padding:.6em'>Save</button>";
+    body += "</form>";
+    return body;
+}
+
 String demoSection() {
     String body = "<hr><h3>Demo mode</h3>";
     DemoMode::Mode mode = DemoMode::currentMode();
@@ -132,6 +154,7 @@ void handleRoot() {
     } else {
         body = "<p>Joined WiFi. IP: <b>" + WiFi.localIP().toString() + "</b></p>";
         body += otaSection();
+        body += mqttSection();
     }
     if (WifiManager::currentMode() == WifiManager::Mode::STA) {
         body += "<hr><p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
@@ -248,6 +271,15 @@ void handleDemoStop() {
     server.send(303);
 }
 
+void handleMqttSave() {
+    String host = server.hasArg("host") ? server.arg("host") : "";
+    uint16_t port = server.hasArg("port") ? (uint16_t)server.arg("port").toInt() : 1883;
+    String base = server.hasArg("base") ? server.arg("base") : "";
+    MqttManager::saveConfig(host, port, base);
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
 void handleWifiSave() {
     if (!server.hasArg("ssid") || server.arg("ssid").isEmpty()) {
         server.send(400, "text/plain", "missing ssid");
@@ -322,6 +354,7 @@ void handleOtaUploadChunk() {
 void begin() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/wifi/save", HTTP_POST, handleWifiSave);
+    server.on("/mqtt/save", HTTP_POST, handleMqttSave);
     server.on("/ota/check", HTTP_GET, handleOtaCheck);
     server.on("/ota/apply", HTTP_GET, handleOtaApply);
     server.on("/ota/upload", HTTP_POST, handleOtaUploadDone, handleOtaUploadChunk);
