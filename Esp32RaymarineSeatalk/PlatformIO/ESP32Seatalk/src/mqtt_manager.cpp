@@ -5,7 +5,9 @@
 #include <WiFi.h>
 
 #include "debug_log.h"
+#include "n2k_manager.h"
 #include "route_config.h"
+#include "signalk_manager.h"
 
 namespace MqttManager {
 
@@ -27,6 +29,32 @@ uint32_t s_lastReconnectAttempt = 0;
 // subscribing to "{base}/set/#" can never pick up our own outbound
 // messages and bounce them back in as if they were external commands.
 String setTopicFilter() { return s_baseTopic + "/set/#"; }
+
+// Raw hex passthrough - "{base}/raw/{source}" is where we publish (see
+// publishRawBus()), "{base}/raw/{source}/send" is where we listen, so the
+// two can never collide with each other even though they share a prefix
+// (subscribing to a wildcard one level below what we publish to).
+String rawSendTopicFilter() { return s_baseTopic + "/raw/+/send"; }
+
+size_t hexDecode(const String &hex, uint8_t *out, size_t maxLen) {
+    size_t n = 0;
+    int hi = -1;
+    for (size_t i = 0; i < (size_t)hex.length() && n < maxLen; i++) {
+        char c = hex[i];
+        int v;
+        if (c >= '0' && c <= '9') v = c - '0';
+        else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') v = c - 'A' + 10;
+        else continue;  // skip spaces and any other separator
+        if (hi < 0) {
+            hi = v;
+        } else {
+            out[n++] = (uint8_t)((hi << 4) | v);
+            hi = -1;
+        }
+    }
+    return n;
+}
 
 // Same RX-side heading/rudder combining N2kManager does - MQTT keeps
 // them as two separate topics (matching how they're published), but
@@ -79,8 +107,44 @@ void publishValue(const String &subPath, const String &payload) {
     s_client.publish(topic.c_str(), payload.c_str());
 }
 
+// Raw hex payload -> straight onto the matching bus/connection, no
+// Event/PGN/delta parsing and no RouteConfig gating - see mqtt_manager.h.
+// `rawSource` is "seatalk", "can", or "signalk" (the segment between
+// "raw/" and "/send" in the topic).
+void handleRawSend(const String &rawSource, const String &payloadStr) {
+    uint8_t buf[256];
+    size_t n = hexDecode(payloadStr, buf, sizeof(buf));
+    DebugLog::logf("mqtt: rx raw/%s/send (%u bytes)", rawSource.c_str(), (unsigned)n);
+
+    if (rawSource == "seatalk") {
+        if (n < 1) return;  // need at least a command byte
+        SeatalkBus::send(buf[0], buf + 1, (uint8_t)(n - 1));
+    } else if (rawSource == "can") {
+        if (n < 4) return;  // need at least the 4-byte PGN header
+        unsigned long pgn = ((unsigned long)buf[0] << 24) | ((unsigned long)buf[1] << 16) |
+                             ((unsigned long)buf[2] << 8) | buf[3];
+        N2kManager::sendRaw(pgn, buf + 4, (uint8_t)(n - 4));
+    } else if (rawSource == "signalk") {
+        String text;
+        text.reserve(n);
+        for (size_t i = 0; i < n; i++) text += (char)buf[i];
+        SignalKManager::sendRaw(text);
+    }
+}
+
 void handleMessage(char *topic, uint8_t *payload, unsigned int length) {
     String topicStr(topic);
+
+    String rawPrefix = s_baseTopic + "/raw/";
+    if (topicStr.startsWith(rawPrefix) && topicStr.endsWith("/send")) {
+        String rawSource = topicStr.substring(rawPrefix.length(), topicStr.length() - 5);  // strip "/send"
+        String payloadStr;
+        payloadStr.reserve(length);
+        for (unsigned int i = 0; i < length; i++) payloadStr += (char)payload[i];
+        handleRawSend(rawSource, payloadStr);
+        return;
+    }
+
     String prefix = s_baseTopic + "/set/";
     if (!topicStr.startsWith(prefix)) return;
     String subPath = topicStr.substring(prefix.length());  // e.g. "navigation/speedThroughWater"
@@ -164,6 +228,7 @@ void tick() {
     if (s_client.connect(clientId.c_str())) {
         DebugLog::logf("mqtt: connected to %s:%u", s_host.c_str(), s_port);
         s_client.subscribe(setTopicFilter().c_str());
+        s_client.subscribe(rawSendTopicFilter().c_str());
     } else {
         DebugLog::logf("mqtt: connect failed, state=%d", s_client.state());
     }
@@ -207,17 +272,16 @@ void publishDecoded(const SeatalkDecode::Event &ev) {
     publishValue(path, String(ev.value, 4));
 }
 
-void publishRaw(const SeatalkBus::Datagram &dg) {
-    if (dg.length == 0) return;
+void publishRawBus(const char *source, const uint8_t *data, size_t len) {
+    if (len == 0) return;
     String hex;
-    for (int i = 0; i < dg.length; i++) {
-        if (dg.bytes[i] < 0x10) hex += '0';
-        hex += String(dg.bytes[i], HEX);
+    hex.reserve(len * 3);
+    for (size_t i = 0; i < len; i++) {
+        if (data[i] < 0x10) hex += '0';
+        hex += String(data[i], HEX);
         hex += ' ';
     }
-    char cmdHex[3];
-    snprintf(cmdHex, sizeof(cmdHex), "%02X", dg.bytes[0]);
-    publishValue(String("raw/") + cmdHex, hex);
+    publishValue(String("raw/") + source, hex);
 }
 
 }  // namespace MqttManager

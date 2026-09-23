@@ -2,8 +2,10 @@
 
 #include <N2kMessages.h>
 #include <NMEA2000.h>
+#include <string.h>
 
 #include "debug_log.h"
+#include "mqtt_manager.h"
 #include "n2k_twai_driver.h"
 #include "route_config.h"
 
@@ -69,7 +71,24 @@ void relaySimple(SeatalkDecode::Type type, double value) {
     relay(ev);
 }
 
+// Raw dump goes out over MQTT for every parsed N2K message regardless of
+// whether the PGN switch below understands it - see mqtt_manager.h. The
+// wire format is a 4-byte big-endian PGN followed by the message's data
+// bytes (same shape N2kManager::sendRaw() expects back).
+void publishRawCan(const tN2kMsg &N2kMsg) {
+    uint8_t buf[4 + tN2kMsg::MaxDataLen];
+    buf[0] = (uint8_t)(N2kMsg.PGN >> 24);
+    buf[1] = (uint8_t)(N2kMsg.PGN >> 16);
+    buf[2] = (uint8_t)(N2kMsg.PGN >> 8);
+    buf[3] = (uint8_t)N2kMsg.PGN;
+    int dataLen = N2kMsg.DataLen;
+    if (dataLen > tN2kMsg::MaxDataLen) dataLen = tN2kMsg::MaxDataLen;
+    memcpy(buf + 4, N2kMsg.Data, dataLen);
+    MqttManager::publishRawBus("can", buf, 4 + dataLen);
+}
+
 void handleN2kMsg(const tN2kMsg &N2kMsg) {
+    publishRawCan(N2kMsg);
     unsigned char sid;
     switch (N2kMsg.PGN) {
         case 128259UL: {  // Speed (water referenced)
@@ -238,6 +257,13 @@ void begin() {
 void tick() { s_n2k.ParseMessages(); }
 
 bool isOpen() { return s_open; }
+
+void sendRaw(unsigned long pgn, const uint8_t *data, uint8_t len) {
+    tN2kMsg msg;
+    msg.SetPGN(pgn);
+    for (uint8_t i = 0; i < len; i++) msg.AddByte(data[i]);
+    s_n2k.SendMsg(msg);
+}
 
 void publishDecoded(const SeatalkDecode::Event &ev) {
     switch (ev.type) {

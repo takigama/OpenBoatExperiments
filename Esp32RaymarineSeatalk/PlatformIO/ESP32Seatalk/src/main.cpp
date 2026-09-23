@@ -112,12 +112,10 @@ void loop() {
         // this is on a real bus this is the only view into traffic we
         // don't (yet) have a decoder for, and worth having regardless
         // even for ones we do decode. Same story over MQTT: raw always
-        // goes out on its own topic (see MqttManager::publishRaw()),
+        // goes out on its own topic (see MqttManager::publishRawBus()),
         // decoded values additionally go to their SignalK-style path.
-        // SignalK has no raw-hex equivalent (its data model is
-        // structured, not a byte stream), so it only gets decoded events.
         String hex = hexDump(dg);
-        MqttManager::publishRaw(dg);
+        MqttManager::publishRawBus("seatalk", dg.bytes, dg.length);
         SeatalkDecode::Event ev;
         if (SeatalkDecode::decode(dg, &ev)) {
             DebugLog::logf("seatalk: %s-> type=%d value=%.3f value2=%.3f", hex.c_str(), (int)ev.type,

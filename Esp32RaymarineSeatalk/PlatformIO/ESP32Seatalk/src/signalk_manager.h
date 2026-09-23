@@ -8,9 +8,7 @@
 // delta stream (ws://<host>:<port>/signalk/v1/stream) - the officially
 // documented mechanism for an external device to push data into a
 // SignalK server's data model, distinct from MqttManager's flatter
-// slash-topic publishing. No raw/undecoded publishing here (unlike MQTT) -
-// SignalK's structured data model has no equivalent of "dump the
-// undecoded hex somewhere", so only decode()'d events get sent.
+// slash-topic publishing.
 //
 // Anonymous/unauthenticated writes only for now, verified against a
 // security-disabled dev SignalK instance - a real boat server with
@@ -27,6 +25,12 @@
 // server rebroadcasts every delta to every subscriber, including the one
 // that sent it, so without this filter our own outbound values would
 // bounce straight back in as if an external client had sent them).
+//
+// Every raw incoming WS text frame - understood or not - also gets
+// hex-dumped to MQTT's raw/signalk topic (see mqtt_manager.h), and
+// sendRaw() is how a raw hex payload published to raw/signalk/send goes
+// straight out over the WS connection as a text frame, no JSON building
+// or RouteConfig gating involved.
 namespace SignalKManager {
 
 void begin();
@@ -49,5 +53,10 @@ uint16_t configPort();
 // cached internally and a combined delta goes out whenever either
 // updates, once both are known at least once.
 void publishDecoded(const SeatalkDecode::Event &ev);
+
+// Sends `text` as a raw WS text frame - bypasses the delta-building
+// helpers entirely, since a raw hex payload from MQTT is arbitrary bytes,
+// not necessarily even valid SignalK JSON.
+void sendRaw(const String &text);
 
 }  // namespace SignalKManager

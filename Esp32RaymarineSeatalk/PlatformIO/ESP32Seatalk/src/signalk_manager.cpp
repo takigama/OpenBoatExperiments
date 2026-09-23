@@ -6,6 +6,7 @@
 #include <WiFi.h>
 
 #include "debug_log.h"
+#include "mqtt_manager.h"
 #include "route_config.h"
 
 namespace SignalKManager {
@@ -136,6 +137,7 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
             DebugLog::logf("signalk: disconnected");
             break;
         case WStype_TEXT:
+            MqttManager::publishRawBus("signalk", payload, length);
             handleDelta(payload, length);
             break;
         default:
@@ -242,6 +244,8 @@ void tick() {
 }
 
 bool isConnected() { return s_connected; }
+
+void sendRaw(const String &text) { send(text); }
 
 void saveConfig(const String &host, uint16_t port) {
     Preferences p = prefs();

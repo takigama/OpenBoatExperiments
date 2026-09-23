@@ -23,6 +23,15 @@
 // and/or CAN. Deliberately a separate topic tree from our own outbound
 // publishes, so subscribing can never pick up and re-process our own
 // published values as if they were external commands.
+//
+// Separately, "{base}/raw/{seatalk,can,signalk}" carries a plain hex dump
+// of every message seen on that bus/connection, decoded or not - the
+// only view into traffic none of the structured Event/PGN/delta handling
+// understands. "{base}/raw/{source}/send" is the reverse: publish hex
+// there and it gets injected straight onto that bus/connection, bypassing
+// SeatalkDecode/N2K-PGN/SignalK-delta parsing and RouteConfig entirely -
+// a low-level debug/replay channel, not a source RouteConfig's matrix
+// knows about.
 namespace MqttManager {
 
 void begin();
@@ -45,9 +54,12 @@ String configBaseTopic();
 // Event (no Datagram) so any source can feed it, not only SeaTalk RX; see
 // N2kManager, which relays parsed N2K PGNs through this same sink.
 void publishDecoded(const SeatalkDecode::Event &ev);
-// Raw hex dump to the raw-message topic - SeaTalk-specific (N2K has no
-// undecoded-bytes equivalent worth dumping this way), called from
-// main.cpp's RX loop for every datagram received, decoded or not.
-void publishRaw(const SeatalkBus::Datagram &dg);
+
+// Hex-dumps `len` bytes from `data` to "{base}/raw/{source}" - `source`
+// should be one of "seatalk", "can", "signalk" (matches the topics
+// handleMessage() listens for on the send side). Called from main.cpp
+// (SeaTalk RX), N2kManager (every parsed N2K message), and SignalKManager
+// (every raw incoming WS text frame).
+void publishRawBus(const char *source, const uint8_t *data, size_t len);
 
 }  // namespace MqttManager

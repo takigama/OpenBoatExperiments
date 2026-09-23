@@ -26,6 +26,11 @@
 //    SeaTalk bus too (see SeatalkEncode). Never re-sent back out as N2K
 //    (would just echo a device's own data back at it).
 //
+// Separately, every parsed N2K message (understood or not) gets hex-
+// dumped to MQTT's raw/can topic, and sendRaw() is how a raw hex payload
+// published to raw/can/send gets injected back onto the bus - both
+// bypass the whole Event/PGN-switch/RouteConfig pipeline above.
+//
 // UNTESTED: there is no CAN transceiver or NMEA2000 bus available to
 // verify any of this against, unlike every other module in this project
 // (which all got real-hardware or real-server verification before being
@@ -56,5 +61,12 @@ bool isOpen();
 // skipped - see .cpp) so this silently no-ops for those rather than
 // guessing at an encoding.
 void publishDecoded(const SeatalkDecode::Event &ev);
+
+// Sends `len` raw data bytes as PGN `pgn`, bypassing SeatalkDecode/PGN
+// helper functions and RouteConfig entirely - MqttManager's raw hex
+// passthrough calls this for "{base}/raw/can/send" (see mqtt_manager.h).
+// tNMEA2000 still handles the actual framing/fast-packet splitting, so
+// this only needs a PGN + payload, not a full 29-bit CAN ID.
+void sendRaw(unsigned long pgn, const uint8_t *data, uint8_t len);
 
 }  // namespace N2kManager
