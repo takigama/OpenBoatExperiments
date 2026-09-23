@@ -5,6 +5,7 @@
 #include <WiFi.h>
 
 #include "debug_log.h"
+#include "demo_mode.h"
 #include "ota_manager.h"
 #include "seatalk_bus.h"
 #include "wifi_manager.h"
@@ -15,6 +16,8 @@ namespace {
 
 WebServer server(80);
 OtaManager::UpdateInfo s_lastCheck;  // result of the last /ota/check, consumed by /ota/apply
+bool s_navCycling = false;           // see sendNavTestValues()/tick()
+uint32_t s_lastNavSend = 0;
 
 String htmlEscape(const String &s) {
     String out = s;
@@ -80,6 +83,25 @@ String otaSection() {
     return body;
 }
 
+String demoSection() {
+    String body = "<hr><h3>Demo mode</h3>";
+    if (DemoMode::isRunning()) {
+        body += "<p>Running - sending checked objects once/sec.</p>";
+        body += "<a href='/demo/stop'><button style='width:100%;padding:.6em'>Stop demo</button></a>";
+        return body;
+    }
+    body += "<form method='POST' action='/demo/start'>";
+    for (int i = 0; i < (int)DemoMode::Object::Count; i++) {
+        auto obj = (DemoMode::Object)i;
+        String name = "obj" + String(i);
+        body += "<label style='display:block;margin:.2em 0'><input type='checkbox' name='" + name + "'" +
+                (DemoMode::isEnabled(obj) ? " checked" : "") + "> " + DemoMode::objectName(obj) + "</label>";
+    }
+    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Start demo</button>";
+    body += "</form>";
+    return body;
+}
+
 void handleRoot() {
     String body;
     if (WifiManager::currentMode() == WifiManager::Mode::AP) {
@@ -91,8 +113,14 @@ void handleRoot() {
     if (WifiManager::currentMode() == WifiManager::Mode::STA) {
         body += "<hr><p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
                 "Test: cycle instrument lamp</button></a></p>";
-        body += "<p><a href='/seatalk/test-nav-data'><button style='width:100%;padding:.6em'>"
-                "Test: send wind/speed/depth</button></a></p>";
+        if (s_navCycling) {
+            body += "<p><a href='/seatalk/test-nav-data/stop'><button style='width:100%;padding:.6em'>"
+                    "Stop: sending wind/speed/depth</button></a></p>";
+        } else {
+            body += "<p><a href='/seatalk/test-nav-data/start'><button style='width:100%;padding:.6em'>"
+                    "Test: cycle wind/speed/depth</button></a></p>";
+        }
+        body += demoSection();
     }
     // No USB once this is plugged into a real SeaTalk bus (it shares 3.3V
     // with the bus itself) - this page is the only diagnostic surface
@@ -130,33 +158,57 @@ void handleTestLamp() {
 // there, it confirms both our TX encoding *and* the reference formulas
 // against a real second implementation (not just our own decoder talking
 // to itself, which self-loopback can't tell apart from "we encoded and
-// decoded the same wrong thing").
-void handleTestNavData() {
-    server.send(200, "text/html",
-                pageWrap("Testing nav data", "<p>Sending test values - watch the instruments...</p>"));
-
+// decoded the same wrong thing"). Sent as a continuous ~1/sec cycle (see
+// tick()) rather than a one-shot burst - real transducers stream
+// continuously, and a lone datagram may just get timed out by the
+// display before it's even noticed (a single send showed wind speed but
+// not the other three, first time this ran).
+void sendNavTestValues() {
     // Apparent wind angle 45.0deg: "10 01 XX YY", XXYY/2 - raw=90=0x005A
     uint8_t wind_angle[] = {0x01, 0x5A, 0x00};
     SeatalkBus::send(0x10, wind_angle, sizeof(wind_angle));
-    DebugLog::logf("seatalk: sent apparent wind angle 45.0deg");
-    delay(500);
 
     // Apparent wind speed 12.5kn: "11 01 XX 0Y", (XX&0x7F)+Y/10
     uint8_t wind_speed[] = {0x01, 0x0C, 0x05};
     SeatalkBus::send(0x11, wind_speed, sizeof(wind_speed));
-    DebugLog::logf("seatalk: sent apparent wind speed 12.5kn");
-    delay(500);
 
     // Speed through water 6.5kn: "20 01 XX XX", XXXX/10 - raw=65=0x0041
     uint8_t boat_speed[] = {0x01, 0x41, 0x00};
     SeatalkBus::send(0x20, boat_speed, sizeof(boat_speed));
-    DebugLog::logf("seatalk: sent boat speed 6.5kn");
-    delay(500);
 
     // Depth below transducer 15.5ft: "00 02 YZ XX XX", XXXX/10 - raw=155=0x009B
     uint8_t depth[] = {0x02, 0x00, 0x9B, 0x00};
     SeatalkBus::send(0x00, depth, sizeof(depth));
-    DebugLog::logf("seatalk: sent depth 15.5ft");
+
+    DebugLog::logf("seatalk: sent nav test cycle (wind 45.0deg/12.5kn, speed 6.5kn, depth 15.5ft)");
+}
+
+void handleTestNavDataStart() {
+    s_navCycling = true;
+    s_lastNavSend = 0;  // fire immediately rather than waiting a full interval
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleTestNavDataStop() {
+    s_navCycling = false;
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleDemoStart() {
+    for (int i = 0; i < (int)DemoMode::Object::Count; i++) {
+        DemoMode::setEnabled((DemoMode::Object)i, server.hasArg("obj" + String(i)));
+    }
+    DemoMode::start();
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
+void handleDemoStop() {
+    DemoMode::stop();
+    server.sendHeader("Location", "/");
+    server.send(303);
 }
 
 void handleWifiSave() {
@@ -238,11 +290,21 @@ void begin() {
     server.on("/ota/upload", HTTP_POST, handleOtaUploadDone, handleOtaUploadChunk);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/seatalk/test-lamp", HTTP_GET, handleTestLamp);
-    server.on("/seatalk/test-nav-data", HTTP_GET, handleTestNavData);
+    server.on("/seatalk/test-nav-data/start", HTTP_GET, handleTestNavDataStart);
+    server.on("/seatalk/test-nav-data/stop", HTTP_GET, handleTestNavDataStop);
+    server.on("/demo/start", HTTP_POST, handleDemoStart);
+    server.on("/demo/stop", HTTP_GET, handleDemoStop);
     server.begin();
     DebugLog::logf("web: config server listening on port 80");
 }
 
 void handleClient() { server.handleClient(); }
+
+void tick() {
+    if (!s_navCycling) return;
+    if (millis() - s_lastNavSend < 1000) return;
+    s_lastNavSend = millis();
+    sendNavTestValues();
+}
 
 }  // namespace WebConfig

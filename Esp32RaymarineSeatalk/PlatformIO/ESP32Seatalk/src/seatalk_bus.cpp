@@ -34,7 +34,10 @@ uint8_t s_rxExpectedLen;  // 0 = not yet known (still waiting on the attribute b
 // queue plus always re-arming immediately (see the bottom of
 // sampleBitCallback()) fixes this independent of whatever the consumer
 // happens to be doing.
-constexpr int kQueueSize = 8;
+constexpr int kQueueSize = 20;  // demo mode alone can enqueue 9 self-echoed
+                                  // datagrams in one blocking tick() - see
+                                  // main.cpp's loop() comment - so 8 wasn't
+                                  // enough headroom even with proper draining
 Datagram s_queue[kQueueSize];
 uint8_t s_queueHead = 0;  // next slot poll() will read
 uint8_t s_queueTail = 0;  // next slot the timer callback will write

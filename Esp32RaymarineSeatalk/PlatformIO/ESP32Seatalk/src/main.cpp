@@ -2,6 +2,7 @@
 #include <math.h>
 
 #include "debug_log.h"
+#include "demo_mode.h"
 #include "ota_manager.h"
 #include "seatalk_bus.h"
 #include "seatalk_decode.h"
@@ -78,14 +79,24 @@ void setup() {
 
 void loop() {
     WebConfig::handleClient();
+    WebConfig::tick();
+    DemoMode::tick();
 
     if (!s_loopbackTestDone && millis() > kLoopbackTestDelayMs) {
         s_loopbackTestDone = true;
         runLoopbackTest();
     }
 
+    // Drain everything queued, not just one per iteration - demo mode
+    // alone can enqueue 9 self-echoed datagrams in a single blocking
+    // tick() call (the RX queue is only 8 deep), and a single poll()
+    // here let a real backlog build up: the queue filled faster than it
+    // drained, so what looked like "one tick's worth" of log lines was
+    // actually a stale/current mix - caught because a speed reading
+    // jumped 22.7kn -> 4.0kn between consecutive log lines, which the
+    // 0.5kn/sec ramp makes physically impossible in one tick.
     SeatalkBus::Datagram dg;
-    if (SeatalkBus::poll(&dg)) {
+    while (SeatalkBus::poll(&dg)) {
         // Every received datagram gets hex-dumped, decoded or not - once
         // this is on a real bus this is the only view into traffic we
         // don't (yet) have a decoder for, and worth having regardless
