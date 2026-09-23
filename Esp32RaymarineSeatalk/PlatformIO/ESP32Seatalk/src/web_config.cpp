@@ -1,5 +1,6 @@
 #include "web_config.h"
 
+#include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
 
@@ -63,6 +64,19 @@ String otaSection() {
     } else {
         body += "<a href='/ota/check'><button style='width:100%;padding:.6em'>Check for updates</button></a>";
     }
+    // Direct local upload, alongside the GitHub-manifest path above, not
+    // instead of it - GitHub Releases stays the real distribution
+    // mechanism (and the only one once this is out of dev and unattended
+    // on a boat), this is purely a fast path for iterating during
+    // development without a publish+CDN-cache round trip each time. No
+    // MD5 check on this path - it's a direct, deliberate local upload
+    // over the LAN, not a fetch from the open internet, so the same
+    // integrity concern the GitHub path (see ota_manager.cpp) exists for
+    // doesn't really apply here.
+    body += "<form method='POST' action='/ota/upload' enctype='multipart/form-data' style='margin-top:.5em'>";
+    body += "<input type='file' name='firmware' accept='.bin' style='width:100%'>";
+    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Upload firmware directly</button>";
+    body += "</form>";
     return body;
 }
 
@@ -139,6 +153,44 @@ void handleOtaApply() {
     s_lastCheck = OtaManager::UpdateInfo{};
 }
 
+// Runs once the whole upload request has been received - just reports
+// what handleOtaUploadChunk() below already did and reboots on success.
+void handleOtaUploadDone() {
+    if (Update.hasError()) {
+        server.send(200, "text/html",
+                     pageWrap("Upload failed", "<p>Nothing was changed - still running build " +
+                                                    String(FW_BUILD) + ".</p>"));
+        return;
+    }
+    server.send(200, "text/html", pageWrap("Upload OK", "<p>Flashed OK, restarting...</p>"));
+    delay(500);
+    ESP.restart();
+}
+
+// Streams in as the upload arrives - WebServer's two-callback upload
+// pattern (see begin()'s server.on() call below): this one fires
+// repeatedly as chunks come in, handleOtaUploadDone() above fires once
+// after the full request completes.
+void handleOtaUploadChunk() {
+    HTTPUpload &upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+        DebugLog::logf("ota: direct upload starting: %s", upload.filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+            DebugLog::logf("ota: Update.begin() failed: %s", Update.errorString());
+        }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+            DebugLog::logf("ota: Update.write() failed: %s", Update.errorString());
+        }
+    } else if (upload.status == UPLOAD_FILE_END) {
+        if (Update.end(true)) {
+            DebugLog::logf("ota: direct upload OK, %u bytes, restarting", upload.totalSize);
+        } else {
+            DebugLog::logf("ota: Update.end() failed: %s", Update.errorString());
+        }
+    }
+}
+
 }  // namespace
 
 void begin() {
@@ -146,6 +198,7 @@ void begin() {
     server.on("/wifi/save", HTTP_POST, handleWifiSave);
     server.on("/ota/check", HTTP_GET, handleOtaCheck);
     server.on("/ota/apply", HTTP_GET, handleOtaApply);
+    server.on("/ota/upload", HTTP_POST, handleOtaUploadDone, handleOtaUploadChunk);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/seatalk/test-lamp", HTTP_GET, handleTestLamp);
     server.begin();
