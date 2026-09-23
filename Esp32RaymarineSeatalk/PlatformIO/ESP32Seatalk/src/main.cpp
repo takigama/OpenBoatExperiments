@@ -18,6 +18,16 @@ bool s_bootCheckDone = false;
 
 constexpr int kSeatalkPin = 4;  // LV_SEATALK, per the schematic - GPIO4 through the BSS138 shifter
 
+String hexDump(const SeatalkBus::Datagram &dg) {
+    String out;
+    for (int i = 0; i < dg.length; i++) {
+        if (dg.bytes[i] < 0x10) out += '0';
+        out += String(dg.bytes[i], HEX);
+        out += ' ';
+    }
+    return out;
+}
+
 // No live SeaTalk bus connected yet (see seatalk_bus.h) - this is the only
 // validation the RX path has had so far: transmit a known depth datagram
 // and confirm our own decoder reconstructs exactly the value we sent,
@@ -39,8 +49,7 @@ void runLoopbackTest() {
     SeatalkBus::Datagram dg;
     while (millis() - start < 200) {
         if (SeatalkBus::poll(&dg)) {
-            String rawHex;
-            for (int i = 0; i < dg.length; i++) rawHex += String(dg.bytes[i], HEX) + " ";
+            String rawHex = hexDump(dg);
             SeatalkDecode::Event ev;
             if (SeatalkDecode::decode(dg, &ev) && ev.type == SeatalkDecode::Type::Depth &&
                 fabs(ev.value - 12.3) < 0.05) {
@@ -77,11 +86,19 @@ void loop() {
 
     SeatalkBus::Datagram dg;
     if (SeatalkBus::poll(&dg)) {
+        // Every received datagram gets hex-dumped, decoded or not - once
+        // this is on a real bus this is the only view into traffic we
+        // don't (yet) have a decoder for, and worth having regardless
+        // even for ones we do decode (TODO: also publish this over MQTT
+        // on a raw-hex topic once the MQTT layer exists - priority 3,
+        // not built yet).
+        String hex = hexDump(dg);
         SeatalkDecode::Event ev;
         if (SeatalkDecode::decode(dg, &ev)) {
-            DebugLog::logf("seatalk: type=%d value=%.3f value2=%.3f", (int)ev.type, ev.value, ev.value2);
+            DebugLog::logf("seatalk: %s-> type=%d value=%.3f value2=%.3f", hex.c_str(), (int)ev.type,
+                            ev.value, ev.value2);
         } else {
-            DebugLog::logf("seatalk: undecoded cmd=0x%02X len=%d", dg.bytes[0], dg.length);
+            DebugLog::logf("seatalk: %s-> undecoded", hex.c_str());
         }
     }
 
