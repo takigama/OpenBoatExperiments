@@ -91,6 +91,34 @@ void sendHeadingAndRudder(double headingDeg, double rudderDeg) {
     SeatalkBus::send(0x9C, data, sizeof(data));
 }
 
+// "54 T1 RS HH" - inverts seatalk_decode.cpp's 0x54 formula exactly:
+// minutes = (RS&0xFC)>>2, seconds = (((RS&0x0F)<<4)|T)&0x3F. Working
+// backwards, that means (as a 6-bit value) seconds = (RS_bits[1:0]<<4)|T,
+// i.e. T holds seconds' low 4 bits and RS's own low 2 bits hold seconds'
+// top 2 bits, with RS's remaining high 6 bits holding minutes directly -
+// verified against the decoder with a worked numeric example (45s/30min
+// round-trips exactly) before trusting it, same standard this project
+// holds every other inverted formula to.
+void sendGnssTime(double secondsSinceMidnight) {
+    uint32_t total = (uint32_t)(secondsSinceMidnight + 0.5) % 86400;
+    uint8_t hours = (total / 3600) % 24;
+    uint8_t minutes = (total / 60) % 60;
+    uint8_t seconds = total % 60;
+    uint8_t t = seconds & 0x0F;
+    uint8_t rsLow2 = (seconds >> 4) & 0x03;
+    uint8_t rs = (minutes << 2) | rsLow2;
+    uint8_t attribute = (t << 4) | 0x1;
+    uint8_t data[] = {attribute, rs, hours};
+    SeatalkBus::send(0x54, data, sizeof(data));
+}
+
+void sendGnssDate(int year, int month, int day) {
+    uint8_t attribute = ((uint8_t)(month & 0x0F) << 4) | 0x1;
+    uint8_t yy = (uint8_t)((year - 2000) & 0xFF);
+    uint8_t data[] = {attribute, (uint8_t)day, yy};
+    SeatalkBus::send(0x56, data, sizeof(data));
+}
+
 void encodeAndSend(const SeatalkDecode::Event &ev) {
     switch (ev.type) {
         case SeatalkDecode::Type::Depth:
@@ -127,8 +155,14 @@ void encodeAndSend(const SeatalkDecode::Event &ev) {
         case SeatalkDecode::Type::HeadingAndRudder:
             sendHeadingAndRudder(ev.value * kRadToDeg, ev.value2 * kRadToDeg);
             return;
+        case SeatalkDecode::Type::GnssTime:
+            sendGnssTime(ev.value);
+            return;
+        case SeatalkDecode::Type::GnssDate:
+            sendGnssDate(ev.year, ev.month, ev.day);
+            return;
         default:
-            return;  // TripLog, TotalLog, GnssTime, GnssDate, SatelliteCount, MagneticVariation - no SeaTalk encoding
+            return;  // TripLog, TotalLog, SatelliteCount, MagneticVariation - no SeaTalk encoding
     }
 }
 

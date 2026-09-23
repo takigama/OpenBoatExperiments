@@ -44,15 +44,17 @@ void tick();
 bool isOpen();
 
 // Re-encodes one decoded SeaTalk event as the matching N2K PGN and sends
-// it. Latitude/Longitude and Heading/MagneticVariation are cached and
-// combined the same way SignalKManager combines lat/lon, since SeaTalk
-// delivers them as separate datagrams but N2K's PGNs want them together
-// (or, for variation, folded into the Heading PGN rather than sent as
-// its own PGN 127258, which would need a days-since-1970 timestamp this
-// board has no reliable source for). Not every SeatalkDecode::Type has a
-// PGN mapped (trip/total log, satellite count, GNSS time/date are
-// deliberately skipped - see .cpp) so this silently no-ops for those
-// rather than guessing at an encoding.
+// it. Latitude/Longitude, Heading/MagneticVariation, and GnssDate/
+// GnssTime are each cached and combined the same way SignalKManager
+// combines lat/lon, since SeaTalk delivers them as separate datagrams but
+// their N2K PGNs want them together (position -> PGN 129025, heading+
+// variation -> PGN 127250 rather than a separate PGN 127258, date+time ->
+// PGN 126992's System Time, which is also where GnssDate/GnssTime's own
+// days-since-1970 timestamp comes from on the receive side - see
+// daysSince1970()/its inverse in the .cpp). Not every SeatalkDecode::Type
+// has a PGN mapped (trip/total log, satellite count are deliberately
+// skipped - see .cpp) so this silently no-ops for those rather than
+// guessing at an encoding.
 void publishDecoded(const SeatalkDecode::Event &ev);
 
 }  // namespace N2kManager

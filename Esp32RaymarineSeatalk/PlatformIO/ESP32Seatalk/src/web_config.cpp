@@ -33,11 +33,11 @@ struct RouteColumn {
     const char *label;
 };
 const RouteColumn kRouteColumns[] = {
-    {RouteConfig::Bus::SeaTalk, RouteConfig::Bus::Can, "SeaTalk&rarr;CAN"},
-    {RouteConfig::Bus::Can, RouteConfig::Bus::SeaTalk, "CAN&rarr;SeaTalk"},
     {RouteConfig::Bus::Mqtt, RouteConfig::Bus::SeaTalk, "MQTT&rarr;SeaTalk"},
-    {RouteConfig::Bus::Mqtt, RouteConfig::Bus::Can, "MQTT&rarr;CAN"},
     {RouteConfig::Bus::SignalK, RouteConfig::Bus::SeaTalk, "SignalK&rarr;SeaTalk"},
+    {RouteConfig::Bus::Can, RouteConfig::Bus::SeaTalk, "CAN&rarr;SeaTalk"},
+    {RouteConfig::Bus::SeaTalk, RouteConfig::Bus::Can, "SeaTalk&rarr;CAN"},
+    {RouteConfig::Bus::Mqtt, RouteConfig::Bus::Can, "MQTT&rarr;CAN"},
     {RouteConfig::Bus::SignalK, RouteConfig::Bus::Can, "SignalK&rarr;CAN"},
 };
 constexpr int kRouteColumnCount = sizeof(kRouteColumns) / sizeof(kRouteColumns[0]);
@@ -57,6 +57,8 @@ const RouteRow kRouteRows[] = {
     {"Course over ground", SeatalkDecode::Type::CourseOverGround, false},
     {"Speed over ground", SeatalkDecode::Type::SpeedOverGround, false},
     {"Heading + rudder", SeatalkDecode::Type::HeadingAndRudder, false},
+    {"GNSS time (UTC)", SeatalkDecode::Type::GnssTime, false},
+    {"GNSS date (UTC)", SeatalkDecode::Type::GnssDate, false},
 };
 constexpr int kRouteRowCount = sizeof(kRouteRows) / sizeof(kRouteRows[0]);
 

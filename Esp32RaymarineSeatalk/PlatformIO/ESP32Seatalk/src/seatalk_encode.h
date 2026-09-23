@@ -22,14 +22,16 @@ void sendWaterTemperature(double celsius);
 void sendPosition(double lat, double lon);  // decimal degrees, no conversion needed
 void sendCourseOverGround(double cog);      // degrees
 void sendHeadingAndRudder(double headingDeg, double rudderDeg);
+void sendGnssTime(double secondsSinceMidnight);
+void sendGnssDate(int year, int month, int day);
 
 // Latitude/Longitude are cached and combined into one sendPosition() call
 // once both are known - SeaTalk needs them together as two datagrams, but
 // they arrive as separate Events (same reasoning as SignalKManager's and
 // N2kManager's position caching). Silently no-ops for event types with no
-// SeaTalk encoding (TripLog, TotalLog, GnssTime, GnssDate, SatelliteCount,
-// MagneticVariation - none of these have a standalone SeaTalk command
-// implemented here, matching demo_mode.cpp's existing Object list).
+// SeaTalk encoding (TripLog, TotalLog, SatelliteCount, MagneticVariation -
+// none of these have a standalone SeaTalk command implemented here,
+// matching demo_mode.cpp's existing Object list).
 void encodeAndSend(const SeatalkDecode::Event &ev);
 
 }  // namespace SeatalkEncode

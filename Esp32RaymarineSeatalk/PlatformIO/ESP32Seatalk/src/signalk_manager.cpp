@@ -89,7 +89,21 @@ void handleDelta(uint8_t *payload, size_t length) {
                 if (val["longitude"].is<double>()) relayValue(SeatalkDecode::Type::Longitude, val["longitude"].as<double>());
                 continue;
             }
-            if (!v["value"].is<double>()) continue;  // skip non-numeric values (e.g. our own date string path)
+            if (pathStr == SeatalkDecode::kPathDatetimeDate) {
+                const char *dateStr = v["value"] | "";
+                int year, month, day;
+                if (sscanf(dateStr, "%d-%d-%d", &year, &month, &day) == 3) {
+                    SeatalkDecode::Event ev;
+                    ev.type = SeatalkDecode::Type::GnssDate;
+                    ev.year = year;
+                    ev.month = month;
+                    ev.day = day;
+                    DebugLog::logf("signalk: rx date = %s", dateStr);
+                    RouteConfig::relay(RouteConfig::Bus::SignalK, ev);
+                }
+                continue;
+            }
+            if (!v["value"].is<double>()) continue;  // skip other non-numeric values
             double value = v["value"].as<double>();
 
             if (pathStr == SeatalkDecode::kPathHeadingMagnetic) {

@@ -25,6 +25,10 @@ double s_txLat = 0, s_txLon = 0;
 bool s_txHasLat = false, s_txHasLon = false;
 double s_txVariation = 0;
 bool s_txHasVariation = false;
+int s_txYear = 0, s_txMonth = 0, s_txDay = 0;
+bool s_txHasDate = false;
+double s_txSecondsSinceMidnight = 0;
+bool s_txHasTime = false;
 
 // RX-side cache: N2K keeps heading (PGN 127250) and rudder (PGN 127245)
 // as two separate messages, but SeatalkDecode::Type::HeadingAndRudder -
@@ -33,6 +37,21 @@ bool s_txHasVariation = false;
 // being relayed onward.
 double s_rxHeading = 0, s_rxRudder = 0;
 bool s_rxHasHeading = false, s_rxHasRudder = false;
+
+// Days since 1970-01-01 (proleptic Gregorian) - Howard Hinnant's public-
+// domain days_from_civil algorithm, the standard integer formula for
+// exactly this, not something invented here. PGN 126992 (System Time)
+// wants the date in this form; SeaTalk/our own Event model carries plain
+// year/month/day, so this converts between them for the TX side (see
+// sendSystemTime() below). Valid for any date this board will ever see.
+int32_t daysSince1970(int y, int m, int d) {
+    y -= m <= 2;
+    int32_t era = (y >= 0 ? y : y - 399) / 400;
+    uint32_t yoe = (uint32_t)(y - era * 400);
+    uint32_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    uint32_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (int32_t)doe - 719468;
+}
 
 // Routes one already-decoded event through RouteConfig::relay(), which
 // decides the rest: MQTT/SignalK always (fixed leg), plus SeaTalk TX if
@@ -136,6 +155,36 @@ void handleN2kMsg(const tN2kMsg &N2kMsg) {
             }
             break;
         }
+        case 126992UL: {  // System date/time
+            unsigned char sidUnused;
+            uint16_t systemDate;
+            double systemTime;
+            tN2kTimeSource timeSource;
+            if (ParseN2kSystemTime(N2kMsg, sidUnused, systemDate, systemTime, timeSource)) {
+                if (systemTime != N2kDoubleNA) relaySimple(SeatalkDecode::Type::GnssTime, systemTime);
+                if (systemDate != N2kUInt16NA) {
+                    // Inverse of daysSince1970() via civil_from_days - same
+                    // Hinnant algorithm family, not a separate guess.
+                    int32_t z = (int32_t)systemDate + 719468;
+                    int32_t era = (z >= 0 ? z : z - 146096) / 146097;
+                    uint32_t doe = (uint32_t)(z - era * 146097);
+                    uint32_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+                    int32_t y = (int32_t)yoe + era * 400;
+                    uint32_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+                    uint32_t mp = (5 * doy + 2) / 153;
+                    uint32_t d = doy - (153 * mp + 2) / 5 + 1;
+                    uint32_t m = mp + (mp < 10 ? 3 : -9);
+                    y += (m <= 2);
+                    SeatalkDecode::Event ev;
+                    ev.type = SeatalkDecode::Type::GnssDate;
+                    ev.year = (int)y;
+                    ev.month = (int)m;
+                    ev.day = (int)d;
+                    relay(ev);
+                }
+            }
+            break;
+        }
         default:
             break;  // PGN we don't map yet - not logged individually, would drown out everything else
     }
@@ -155,6 +204,13 @@ void sendHeading(double headingRad) {
     tN2kMsg msg;
     double variation = s_txHasVariation ? s_txVariation : N2kDoubleNA;
     SetN2kPGN127250(msg, 0, headingRad, N2kDoubleNA, variation, N2khr_magnetic);
+    s_n2k.SendMsg(msg);
+}
+
+void sendSystemTime() {
+    tN2kMsg msg;
+    uint16_t days = (uint16_t)daysSince1970(s_txYear, s_txMonth, s_txDay);
+    SetN2kSystemTime(msg, 0, days, s_txSecondsSinceMidnight);
     s_n2k.SendMsg(msg);
 }
 
@@ -256,8 +312,20 @@ void publishDecoded(const SeatalkDecode::Event &ev) {
             s_txVariation = ev.value;
             s_txHasVariation = true;
             return;
+        case SeatalkDecode::Type::GnssTime:
+            s_txSecondsSinceMidnight = ev.value;
+            s_txHasTime = true;
+            if (s_txHasDate) sendSystemTime();
+            return;
+        case SeatalkDecode::Type::GnssDate:
+            s_txYear = ev.year;
+            s_txMonth = ev.month;
+            s_txDay = ev.day;
+            s_txHasDate = true;
+            if (s_txHasTime) sendSystemTime();
+            return;
         default:
-            return;  // TripLog, TotalLog, GnssTime, GnssDate, SatelliteCount - deliberately not mapped yet
+            return;  // TripLog, TotalLog, SatelliteCount - deliberately not mapped yet
     }
 }
 

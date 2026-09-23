@@ -116,6 +116,19 @@ void handleMessage(char *topic, uint8_t *payload, unsigned int length) {
         }
         return;
     }
+    if (subPath == slashify(SeatalkDecode::kPathDatetimeDate)) {
+        int year, month, day;
+        if (sscanf(payloadStr.c_str(), "%d-%d-%d", &year, &month, &day) == 3) {
+            SeatalkDecode::Event ev;
+            ev.type = SeatalkDecode::Type::GnssDate;
+            ev.year = year;
+            ev.month = month;
+            ev.day = day;
+            DebugLog::logf("mqtt: rx %s = %s", topic, payloadStr.c_str());
+            RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
+        }
+        return;
+    }
 
     String dotPath = subPath;
     dotPath.replace('/', '.');
