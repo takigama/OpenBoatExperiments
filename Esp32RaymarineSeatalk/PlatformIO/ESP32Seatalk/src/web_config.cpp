@@ -5,6 +5,7 @@
 
 #include "debug_log.h"
 #include "ota_manager.h"
+#include "seatalk_bus.h"
 #include "wifi_manager.h"
 
 namespace WebConfig {
@@ -73,6 +74,10 @@ void handleRoot() {
         body = "<p>Joined WiFi. IP: <b>" + WiFi.localIP().toString() + "</b></p>";
         body += otaSection();
     }
+    if (WifiManager::currentMode() == WifiManager::Mode::STA) {
+        body += "<hr><p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
+                "Test: cycle instrument lamp</button></a></p>";
+    }
     // No USB once this is plugged into a real SeaTalk bus (it shares 3.3V
     // with the bus itself) - this page is the only diagnostic surface
     // that'll exist in the field, so the log link belongs on every page,
@@ -83,6 +88,24 @@ void handleRoot() {
 
 void handleLog() {
     server.send(200, "text/plain; charset=utf-8", DebugLog::recentLines());
+}
+
+// Quick physical-confirmation trigger for testing TX against a real
+// instrument: cycles the lamp through off/1/2/3 with pauses, so a visible
+// change happens regardless of whatever level it started at. Command 0x30
+// "Set Lamp Intensity" - see seatalk_decode.cpp's reference-doc comment
+// convention; this one isn't decoded (it's a command we send, not receive)
+// so it's not in that module, just sent directly here.
+void handleTestLamp() {
+    server.send(200, "text/html",
+                pageWrap("Testing lamp", "<p>Cycling lamp levels - watch the instrument...</p>"));
+    const uint8_t levels[] = {0x00, 0x04, 0x08, 0x0C, 0x00};
+    for (uint8_t level : levels) {
+        uint8_t data[] = {0x00, level};
+        SeatalkBus::send(0x30, data, sizeof(data));
+        DebugLog::logf("seatalk: sent lamp level 0x%02X", level);
+        delay(1200);
+    }
 }
 
 void handleWifiSave() {
@@ -124,6 +147,7 @@ void begin() {
     server.on("/ota/check", HTTP_GET, handleOtaCheck);
     server.on("/ota/apply", HTTP_GET, handleOtaApply);
     server.on("/log", HTTP_GET, handleLog);
+    server.on("/seatalk/test-lamp", HTTP_GET, handleTestLamp);
     server.begin();
     DebugLog::logf("web: config server listening on port 80");
 }
