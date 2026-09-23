@@ -4,9 +4,8 @@
 #include <NMEA2000.h>
 
 #include "debug_log.h"
-#include "mqtt_manager.h"
 #include "n2k_twai_driver.h"
-#include "signalk_manager.h"
+#include "route_config.h"
 
 namespace N2kManager {
 
@@ -35,14 +34,13 @@ bool s_txHasVariation = false;
 double s_rxHeading = 0, s_rxRudder = 0;
 bool s_rxHasHeading = false, s_rxHasRudder = false;
 
-// Relays one already-decoded event through the same sinks SeaTalk RX
-// uses in main.cpp - deliberately not back through N2kManager itself
-// (would just echo a device's own PGN back at it) and not onto the
-// physical SeaTalk bus (out of scope - see header comment).
+// Routes one already-decoded event through RouteConfig::relay(), which
+// decides the rest: MQTT/SignalK always (fixed leg), plus SeaTalk TX if
+// the user's enabled Can->SeaTalk for this object type - never back onto
+// CAN itself (would just echo a device's own PGN back at it).
 void relay(const SeatalkDecode::Event &ev) {
     DebugLog::logf("n2k: rx type=%d value=%.3f value2=%.3f", (int)ev.type, ev.value, ev.value2);
-    MqttManager::publishDecoded(ev);
-    SignalKManager::publishDecoded(ev);
+    RouteConfig::relay(RouteConfig::Bus::Can, ev);
 }
 
 void relaySimple(SeatalkDecode::Type type, double value) {

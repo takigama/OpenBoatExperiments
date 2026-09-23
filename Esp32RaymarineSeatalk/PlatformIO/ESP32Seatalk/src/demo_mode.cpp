@@ -3,7 +3,7 @@
 #include <math.h>
 
 #include "debug_log.h"
-#include "seatalk_bus.h"
+#include "seatalk_encode.h"
 
 namespace DemoMode {
 
@@ -83,84 +83,18 @@ void advanceSimulation() {
     s_waterTempC = 10.0 + triangle(s_secondsElapsed, 120.0, 15.0);
 }
 
-// ---- Encoders, parametrized on the value(s) to send rather than reading
-// module state directly - shared between Cycling and Manual, each of
-// which passes its own state in (see tick()). ----
-
-void sendDepth(double ft) {
-    uint16_t raw = (uint16_t)(ft * 10.0 + 0.5);
-    uint8_t data[] = {0x02, 0x00, (uint8_t)(raw & 0xFF), (uint8_t)(raw >> 8)};
-    SeatalkBus::send(0x00, data, sizeof(data));
-}
-
-void sendSpeedThroughWater(double kn) {
-    uint16_t raw = (uint16_t)(kn * 10.0 + 0.5);
-    uint8_t data[] = {0x01, (uint8_t)(raw & 0xFF), (uint8_t)(raw >> 8)};
-    SeatalkBus::send(0x20, data, sizeof(data));
-}
-
-void sendSpeedOverGround(double kn) {
-    uint16_t raw = (uint16_t)(kn * 10.0 + 0.5);
-    uint8_t data[] = {0x01, (uint8_t)(raw & 0xFF), (uint8_t)(raw >> 8)};
-    SeatalkBus::send(0x52, data, sizeof(data));
-}
-
-void sendApparentWindAngle(double deg) {
-    uint16_t raw = (uint16_t)(deg * 2.0 + 0.5);
-    uint8_t data[] = {0x01, (uint8_t)(raw & 0xFF), (uint8_t)(raw >> 8)};
-    SeatalkBus::send(0x10, data, sizeof(data));
-}
-
-void sendApparentWindSpeed(double kn) {
-    uint8_t whole = (uint8_t)kn & 0x7F;
-    uint8_t tenths = (uint8_t)((kn - (int)kn) * 10.0) & 0x0F;
-    uint8_t data[] = {0x01, whole, tenths};
-    SeatalkBus::send(0x11, data, sizeof(data));
-}
-
-void sendWaterTemperature(double celsius) {
-    uint8_t data[] = {0x01, (uint8_t)(int8_t)lround(celsius),
-                       (uint8_t)(int8_t)lround(celsius * 9.0 / 5.0 + 32.0)};
-    SeatalkBus::send(0x23, data, sizeof(data));
-}
-
-void sendPosition(double lat, double lon) {
-    // Mirrors seatalk_decode.cpp's 0x50/0x51 formulas exactly, inverted.
-    double latAbs = fabs(lat);
-    uint8_t latDeg = (uint8_t)latAbs;
-    uint16_t latMinRaw = (uint16_t)((latAbs - latDeg) * 60.0 * 100.0 + 0.5);
-    if (lat < 0) latMinRaw |= 0x8000;  // south
-    uint8_t latData[] = {0x02, latDeg, (uint8_t)(latMinRaw & 0xFF), (uint8_t)(latMinRaw >> 8)};
-    SeatalkBus::send(0x50, latData, sizeof(latData));
-
-    double lonAbs = fabs(lon);
-    uint8_t lonDeg = (uint8_t)lonAbs;
-    uint16_t lonMinRaw = (uint16_t)((lonAbs - lonDeg) * 60.0 * 100.0 + 0.5);
-    if (lon >= 0) lonMinRaw |= 0x8000;  // east
-    uint8_t lonData[] = {0x02, lonDeg, (uint8_t)(lonMinRaw & 0xFF), (uint8_t)(lonMinRaw >> 8)};
-    SeatalkBus::send(0x51, lonData, sizeof(lonData));
-}
-
-void sendCourseOverGround(double cog) {
-    // "53 U0 VW" = (U&0x3)*90 + (VW&0x3F)*2 + (U&0xC)/8 - the last term
-    // (sub-2-degree refinement) is left at 0 here, not worth the fiddly
-    // inverse math for demo-mode precision.
-    uint8_t uLow = (uint8_t)(cog / 90.0) & 0x3;
-    uint8_t vw = (uint8_t)((cog - uLow * 90.0) / 2.0) & 0x3F;
-    uint8_t data[] = {(uint8_t)(uLow << 4), vw};  // attribute byte (U in high nibble), then VW
-    SeatalkBus::send(0x53, data, sizeof(data));
-}
-
-void sendHeadingAndRudder(double headingDeg, double rudderDeg) {
-    // "9C U1 VW RR" - same simplification as COG above (skip the
-    // popcount sub-2-degree refinement term).
-    uint8_t uLow = (uint8_t)(headingDeg / 90.0) & 0x3;
-    uint8_t vw = (uint8_t)((headingDeg - uLow * 90.0) / 2.0) & 0x3F;
-    uint8_t attribute = (uLow << 4) | 0x1;
-    int8_t rudder = (int8_t)lround(rudderDeg);
-    uint8_t data[] = {attribute, vw, (uint8_t)rudder};
-    SeatalkBus::send(0x9C, data, sizeof(data));
-}
+// ---- Encoders now live in seatalk_encode.h, shared with RouteConfig for
+// bridging real CAN/MQTT/SignalK data onto SeaTalk - pulled in via a set
+// of using-declarations so the call sites below don't need touching. ----
+using SeatalkEncode::sendApparentWindAngle;
+using SeatalkEncode::sendApparentWindSpeed;
+using SeatalkEncode::sendCourseOverGround;
+using SeatalkEncode::sendDepth;
+using SeatalkEncode::sendHeadingAndRudder;
+using SeatalkEncode::sendPosition;
+using SeatalkEncode::sendSpeedOverGround;
+using SeatalkEncode::sendSpeedThroughWater;
+using SeatalkEncode::sendWaterTemperature;
 
 void sendEnabledFromSimulation() {
     if (s_enabled[(int)Object::Depth]) sendDepth(s_depthFt);

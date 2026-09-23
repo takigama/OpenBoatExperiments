@@ -68,6 +68,14 @@ bool decode(const SeatalkBus::Datagram &dg, Event *out);
 // destination paths) rather than a single 1:1 mapping.
 const char *canonicalPath(Type type);
 
+// The reverse of canonicalPath() - given a dot-path, finds the Type it
+// maps to (linear scan over canonicalPath()'s table; called rarely enough
+// - once per inbound MQTT/SignalK message - that this isn't worth a
+// lookup table). Returns false for paths with no 1:1 Type (HeadingAndRudder,
+// GnssDate - see kPathHeadingMagnetic etc. below) or that canonicalPath()
+// doesn't produce at all.
+bool typeForCanonicalPath(const String &path, Type *out);
+
 // HeadingAndRudder and GnssDate each need multiple/combined paths, so they
 // fall outside canonicalPath()'s 1:1 mapping - these constants are the
 // shared literal paths for them, so MqttManager and SignalKManager agree

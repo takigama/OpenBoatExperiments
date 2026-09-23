@@ -6,6 +6,7 @@
 #include "mqtt_manager.h"
 #include "n2k_manager.h"
 #include "ota_manager.h"
+#include "route_config.h"
 #include "seatalk_bus.h"
 #include "seatalk_decode.h"
 #include "signalk_manager.h"
@@ -81,6 +82,7 @@ void setup() {
     MqttManager::begin();
     SignalKManager::begin();
     N2kManager::begin();
+    RouteConfig::begin();
 }
 
 void loop() {
@@ -120,9 +122,7 @@ void loop() {
         if (SeatalkDecode::decode(dg, &ev)) {
             DebugLog::logf("seatalk: %s-> type=%d value=%.3f value2=%.3f", hex.c_str(), (int)ev.type,
                             ev.value, ev.value2);
-            MqttManager::publishDecoded(ev);
-            SignalKManager::publishDecoded(ev);
-            N2kManager::publishDecoded(ev);
+            RouteConfig::relay(RouteConfig::Bus::SeaTalk, ev);
         } else {
             DebugLog::logf("seatalk: %s-> undecoded", hex.c_str());
         }

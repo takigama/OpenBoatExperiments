@@ -182,4 +182,22 @@ const char *canonicalPath(Type type) {
     }
 }
 
+bool typeForCanonicalPath(const String &path, Type *out) {
+    static constexpr Type kAllTypes[] = {
+        Type::Depth,     Type::SpeedThroughWater, Type::TripLog,     Type::TotalLog,
+        Type::ApparentWindAngle, Type::ApparentWindSpeed, Type::WaterTemperature,
+        Type::Latitude,  Type::Longitude,         Type::SpeedOverGround, Type::CourseOverGround,
+        Type::GnssTime,  Type::GnssDate,          Type::SatelliteCount, Type::HeadingAndRudder,
+        Type::MagneticVariation,
+    };
+    for (Type t : kAllTypes) {
+        const char *p = canonicalPath(t);
+        if (p && path == p) {
+            *out = t;
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace SeatalkDecode

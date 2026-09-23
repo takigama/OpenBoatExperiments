@@ -16,6 +16,13 @@
 // "boat/seatalk/navigation/speedThroughWater". One mapping table (see
 // mqtt_manager.cpp) drives this rather than maintaining a second naming
 // scheme separately from the eventual SignalK layer.
+//
+// Also subscribes to "{base}/set/#" for inbound commands - a value
+// published there gets picked up and routed via RouteConfig::relay(),
+// which decides (per the web UI's matrix) whether it goes on to SeaTalk
+// and/or CAN. Deliberately a separate topic tree from our own outbound
+// publishes, so subscribing can never pick up and re-process our own
+// published values as if they were external commands.
 namespace MqttManager {
 
 void begin();

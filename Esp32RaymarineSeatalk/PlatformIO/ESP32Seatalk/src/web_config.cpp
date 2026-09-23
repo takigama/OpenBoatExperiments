@@ -8,7 +8,9 @@
 #include "demo_mode.h"
 #include "mqtt_manager.h"
 #include "ota_manager.h"
+#include "route_config.h"
 #include "seatalk_bus.h"
+#include "seatalk_decode.h"
 #include "signalk_manager.h"
 #include "wifi_manager.h"
 
@@ -20,6 +22,43 @@ WebServer server(80);
 OtaManager::UpdateInfo s_lastCheck;  // result of the last /ota/check, consumed by /ota/apply
 bool s_navCycling = false;           // see sendNavTestValues()/tick()
 uint32_t s_lastNavSend = 0;
+
+// The routing matrix's columns (the 6 configurable RouteConfig pairs) and
+// rows (the object types SeatalkEncode can actually put onto SeaTalk -
+// same list as DemoMode::Object, "Position" standing in for Latitude+
+// Longitude together - see routeSection()/handleRouteSave()).
+struct RouteColumn {
+    RouteConfig::Bus source;
+    RouteConfig::Bus dest;
+    const char *label;
+};
+const RouteColumn kRouteColumns[] = {
+    {RouteConfig::Bus::SeaTalk, RouteConfig::Bus::Can, "SeaTalk&rarr;CAN"},
+    {RouteConfig::Bus::Can, RouteConfig::Bus::SeaTalk, "CAN&rarr;SeaTalk"},
+    {RouteConfig::Bus::Mqtt, RouteConfig::Bus::SeaTalk, "MQTT&rarr;SeaTalk"},
+    {RouteConfig::Bus::Mqtt, RouteConfig::Bus::Can, "MQTT&rarr;CAN"},
+    {RouteConfig::Bus::SignalK, RouteConfig::Bus::SeaTalk, "SignalK&rarr;SeaTalk"},
+    {RouteConfig::Bus::SignalK, RouteConfig::Bus::Can, "SignalK&rarr;CAN"},
+};
+constexpr int kRouteColumnCount = sizeof(kRouteColumns) / sizeof(kRouteColumns[0]);
+
+struct RouteRow {
+    const char *label;
+    SeatalkDecode::Type type;
+    bool isPosition;  // also toggles Longitude alongside Latitude - see handleRouteSave()
+};
+const RouteRow kRouteRows[] = {
+    {"Depth", SeatalkDecode::Type::Depth, false},
+    {"Speed through water", SeatalkDecode::Type::SpeedThroughWater, false},
+    {"Apparent wind angle", SeatalkDecode::Type::ApparentWindAngle, false},
+    {"Apparent wind speed", SeatalkDecode::Type::ApparentWindSpeed, false},
+    {"Water temperature", SeatalkDecode::Type::WaterTemperature, false},
+    {"Position (lat/lon)", SeatalkDecode::Type::Latitude, true},
+    {"Course over ground", SeatalkDecode::Type::CourseOverGround, false},
+    {"Speed over ground", SeatalkDecode::Type::SpeedOverGround, false},
+    {"Heading + rudder", SeatalkDecode::Type::HeadingAndRudder, false},
+};
+constexpr int kRouteRowCount = sizeof(kRouteRows) / sizeof(kRouteRows[0]);
 
 String htmlEscape(const String &s) {
     String out = s;
@@ -124,6 +163,35 @@ String signalkSection() {
     return body;
 }
 
+String routeSection() {
+    String body = "<hr><h3>Routing</h3>";
+    body += "<p style='font-size:.85em;color:#666'>SeaTalk and CAN always relay to MQTT/SignalK when "
+            "connected. Check a box below to also inject that data onto SeaTalk and/or CAN, from a given "
+            "source.</p>";
+    body += "<form method='POST' action='/route/save'>";
+    body += "<div style='overflow-x:auto'><table style='border-collapse:collapse;font-size:.8em;width:100%'>";
+    body += "<tr><th style='text-align:left;padding:.3em'>Object</th>";
+    for (int c = 0; c < kRouteColumnCount; c++) {
+        body += "<th style='padding:.3em'>" + String(kRouteColumns[c].label) + "</th>";
+    }
+    body += "</tr>";
+    for (int r = 0; r < kRouteRowCount; r++) {
+        body += "<tr><td style='padding:.3em;border-top:1px solid #ddd'>" + String(kRouteRows[r].label) + "</td>";
+        for (int c = 0; c < kRouteColumnCount; c++) {
+            bool checked = RouteConfig::isAllowed(kRouteColumns[c].source, kRouteColumns[c].dest, kRouteRows[r].type);
+            String name = "r" + String(r) + "_" + String(c);
+            body += "<td style='text-align:center;padding:.3em;border-top:1px solid #ddd'><input "
+                    "type='checkbox' name='" +
+                    name + "'" + (checked ? " checked" : "") + "></td>";
+        }
+        body += "</tr>";
+    }
+    body += "</table></div>";
+    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.5em'>Save routing</button>";
+    body += "</form>";
+    return body;
+}
+
 String demoSection() {
     String body = "<hr><h3>Demo mode</h3>";
     DemoMode::Mode mode = DemoMode::currentMode();
@@ -175,6 +243,7 @@ void handleRoot() {
         body += otaSection();
         body += mqttSection();
         body += signalkSection();
+        body += routeSection();
     }
     if (WifiManager::currentMode() == WifiManager::Mode::STA) {
         body += "<hr><p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
@@ -308,6 +377,23 @@ void handleSignalkSave() {
     server.send(303);
 }
 
+void handleRouteSave() {
+    for (int r = 0; r < kRouteRowCount; r++) {
+        for (int c = 0; c < kRouteColumnCount; c++) {
+            String name = "r" + String(r) + "_" + String(c);
+            bool checked = server.hasArg(name);
+            RouteConfig::setAllowed(kRouteColumns[c].source, kRouteColumns[c].dest, kRouteRows[r].type, checked);
+            if (kRouteRows[r].isPosition) {
+                RouteConfig::setAllowed(kRouteColumns[c].source, kRouteColumns[c].dest, SeatalkDecode::Type::Longitude,
+                                         checked);
+            }
+        }
+    }
+    RouteConfig::persist();
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
 void handleWifiSave() {
     if (!server.hasArg("ssid") || server.arg("ssid").isEmpty()) {
         server.send(400, "text/plain", "missing ssid");
@@ -384,6 +470,7 @@ void begin() {
     server.on("/wifi/save", HTTP_POST, handleWifiSave);
     server.on("/mqtt/save", HTTP_POST, handleMqttSave);
     server.on("/signalk/save", HTTP_POST, handleSignalkSave);
+    server.on("/route/save", HTTP_POST, handleRouteSave);
     server.on("/ota/check", HTTP_GET, handleOtaCheck);
     server.on("/ota/apply", HTTP_GET, handleOtaApply);
     server.on("/ota/upload", HTTP_POST, handleOtaUploadDone, handleOtaUploadChunk);

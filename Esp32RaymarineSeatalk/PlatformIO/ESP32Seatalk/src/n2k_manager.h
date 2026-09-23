@@ -15,15 +15,16 @@
 // only supports the classic ESP32's CAN peripheral (predates the C3).
 //
 // Two independent directions, deliberately not looped into each other:
-//  - publishDecoded(): decoded SeaTalk events additionally go out as N2K
-//    PGNs, so N2K plotters/instruments can see SeaTalk-sourced data.
+//  - publishDecoded(): called by RouteConfig for any source (SeaTalk,
+//    MQTT, SignalK) whose routing matrix allows it - re-encodes the
+//    event as the matching N2K PGN and sends it, so N2K plotters/
+//    instruments can see that data.
 //  - tick()'s internal message handler: incoming N2K PGNs we understand
-//    get parsed into the same SeatalkDecode::Event model and relayed
-//    through DebugLog/MqttManager/SignalKManager - NOT re-sent back out
-//    as N2K (would just echo a device's own data back at it) and NOT
-//    forwarded onto the physical SeaTalk bus (that reverse-relay path
-//    doesn't exist yet for MQTT/SignalK sources either - seatalk TX from
-//    an external source is still a deferred feature project-wide).
+//    get parsed into the same SeatalkDecode::Event model and passed to
+//    RouteConfig::relay(), which always forwards to MQTT/SignalK and -
+//    per the web UI's matrix - optionally re-encodes onto the physical
+//    SeaTalk bus too (see SeatalkEncode). Never re-sent back out as N2K
+//    (would just echo a device's own data back at it).
 //
 // UNTESTED: there is no CAN transceiver or NMEA2000 bus available to
 // verify any of this against, unlike every other module in this project

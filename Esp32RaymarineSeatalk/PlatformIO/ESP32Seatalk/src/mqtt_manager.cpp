@@ -5,6 +5,7 @@
 #include <WiFi.h>
 
 #include "debug_log.h"
+#include "route_config.h"
 
 namespace MqttManager {
 
@@ -20,6 +21,20 @@ String s_host;
 uint16_t s_port = 1883;
 String s_baseTopic = "esp32seatalk";
 uint32_t s_lastReconnectAttempt = 0;
+
+// Inbound commands live under their own "set/" prefix, entirely separate
+// from the "{base}/{path}" tree our own publishValue() writes to - so
+// subscribing to "{base}/set/#" can never pick up our own outbound
+// messages and bounce them back in as if they were external commands.
+String setTopicFilter() { return s_baseTopic + "/set/#"; }
+
+// Same RX-side heading/rudder combining N2kManager does - MQTT keeps
+// them as two separate topics (matching how they're published), but
+// SeatalkDecode::Type::HeadingAndRudder needs both in one Event.
+double s_rxHeading = 0, s_rxRudder = 0;
+bool s_rxHasHeading = false, s_rxHasRudder = false;
+
+void handleMessage(char *topic, uint8_t *payload, unsigned int length);
 
 Preferences prefs() {
     Preferences p;
@@ -38,6 +53,7 @@ void loadConfig() {
 void applyConfig() {
     if (s_host.isEmpty()) return;
     s_client.setServer(s_host.c_str(), s_port);
+    s_client.setCallback(handleMessage);
 }
 
 // MQTT topics mirror SeatalkDecode::canonicalPath()'s SignalK-style
@@ -63,6 +79,56 @@ void publishValue(const String &subPath, const String &payload) {
     s_client.publish(topic.c_str(), payload.c_str());
 }
 
+void handleMessage(char *topic, uint8_t *payload, unsigned int length) {
+    String topicStr(topic);
+    String prefix = s_baseTopic + "/set/";
+    if (!topicStr.startsWith(prefix)) return;
+    String subPath = topicStr.substring(prefix.length());  // e.g. "navigation/speedThroughWater"
+
+    String payloadStr;
+    payloadStr.reserve(length);
+    for (unsigned int i = 0; i < length; i++) payloadStr += (char)payload[i];
+    double value = payloadStr.toDouble();
+
+    if (subPath == slashify(SeatalkDecode::kPathHeadingMagnetic)) {
+        s_rxHeading = value;
+        s_rxHasHeading = true;
+        if (s_rxHasRudder) {
+            SeatalkDecode::Event ev;
+            ev.type = SeatalkDecode::Type::HeadingAndRudder;
+            ev.value = s_rxHeading;
+            ev.value2 = s_rxRudder;
+            DebugLog::logf("mqtt: rx %s = %.3f", topic, value);
+            RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
+        }
+        return;
+    }
+    if (subPath == slashify(SeatalkDecode::kPathRudderAngle)) {
+        s_rxRudder = value;
+        s_rxHasRudder = true;
+        if (s_rxHasHeading) {
+            SeatalkDecode::Event ev;
+            ev.type = SeatalkDecode::Type::HeadingAndRudder;
+            ev.value = s_rxHeading;
+            ev.value2 = s_rxRudder;
+            DebugLog::logf("mqtt: rx %s = %.3f", topic, value);
+            RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
+        }
+        return;
+    }
+
+    String dotPath = subPath;
+    dotPath.replace('/', '.');
+    SeatalkDecode::Type type;
+    if (!SeatalkDecode::typeForCanonicalPath(dotPath, &type)) return;  // not one we recognize - ignored
+
+    SeatalkDecode::Event ev;
+    ev.type = type;
+    ev.value = value;
+    DebugLog::logf("mqtt: rx %s = %.3f", topic, value);
+    RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
+}
+
 }  // namespace
 
 void begin() {
@@ -84,6 +150,7 @@ void tick() {
     String clientId = "esp32seatalk-" + String((uint32_t)ESP.getEfuseMac(), HEX);
     if (s_client.connect(clientId.c_str())) {
         DebugLog::logf("mqtt: connected to %s:%u", s_host.c_str(), s_port);
+        s_client.subscribe(setTopicFilter().c_str());
     } else {
         DebugLog::logf("mqtt: connect failed, state=%d", s_client.state());
     }

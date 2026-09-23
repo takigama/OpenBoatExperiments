@@ -6,6 +6,7 @@
 #include <WiFi.h>
 
 #include "debug_log.h"
+#include "route_config.h"
 
 namespace SignalKManager {
 
@@ -13,6 +14,7 @@ namespace {
 
 constexpr const char *kPrefsNamespace = "signalk";
 constexpr uint32_t kReconnectIntervalMs = 5000;
+constexpr const char *kOwnSourceLabel = "esp32seatalk";
 
 WebSocketsClient s_ws;
 String s_host;
@@ -21,6 +23,11 @@ bool s_connected = false;
 
 double s_lastLat = 0, s_lastLon = 0;
 bool s_hasLat = false, s_hasLon = false;
+
+// RX-side heading/rudder combining, same reasoning as MqttManager/
+// N2kManager - SignalK keeps them as two separate delta paths.
+double s_rxHeading = 0, s_rxRudder = 0;
+bool s_rxHasHeading = false, s_rxHasRudder = false;
 
 Preferences prefs() {
     Preferences p;
@@ -35,6 +42,75 @@ void loadConfig() {
     p.end();
 }
 
+// One value from an incoming delta, resolved to a Type - routes it
+// through RouteConfig::relay() same as every other source. Heading and
+// rudder are cached and combined before relaying (see the s_rx* fields
+// above); everything else relays immediately.
+void relayValue(SeatalkDecode::Type type, double value) {
+    if (type == SeatalkDecode::Type::HeadingAndRudder) return;  // never resolved directly - see caller
+    SeatalkDecode::Event ev;
+    ev.type = type;
+    ev.value = value;
+    DebugLog::logf("signalk: rx type=%d value=%.3f", (int)type, value);
+    RouteConfig::relay(RouteConfig::Bus::SignalK, ev);
+}
+
+void relayHeadingAndRudder() {
+    SeatalkDecode::Event ev;
+    ev.type = SeatalkDecode::Type::HeadingAndRudder;
+    ev.value = s_rxHeading;
+    ev.value2 = s_rxRudder;
+    DebugLog::logf("signalk: rx heading=%.3f rudder=%.3f", s_rxHeading, s_rxRudder);
+    RouteConfig::relay(RouteConfig::Bus::SignalK, ev);
+}
+
+// Parses one incoming delta message and relays whatever it understands.
+// Deltas whose source is our own label are skipped - the server
+// rebroadcasts every delta (including our own outbound ones) to every
+// subscriber of a context, this connection included, so without this
+// check our own published values would come straight back in as if an
+// external client had sent them (an immediate feedback loop).
+void handleDelta(uint8_t *payload, size_t length) {
+    JsonDocument doc;
+    if (deserializeJson(doc, payload, length)) return;
+
+    for (JsonVariant upd : doc["updates"].as<JsonArray>()) {
+        const char *sourceLabel = upd["source"]["label"] | "";
+        if (String(sourceLabel) == kOwnSourceLabel) continue;
+
+        for (JsonVariant v : upd["values"].as<JsonArray>()) {
+            const char *path = v["path"] | "";
+            if (!path[0]) continue;
+            String pathStr(path);
+
+            if (pathStr == "navigation.position") {
+                JsonVariant val = v["value"];
+                if (val["latitude"].is<double>()) relayValue(SeatalkDecode::Type::Latitude, val["latitude"].as<double>());
+                if (val["longitude"].is<double>()) relayValue(SeatalkDecode::Type::Longitude, val["longitude"].as<double>());
+                continue;
+            }
+            if (!v["value"].is<double>()) continue;  // skip non-numeric values (e.g. our own date string path)
+            double value = v["value"].as<double>();
+
+            if (pathStr == SeatalkDecode::kPathHeadingMagnetic) {
+                s_rxHeading = value;
+                s_rxHasHeading = true;
+                if (s_rxHasRudder) relayHeadingAndRudder();
+                continue;
+            }
+            if (pathStr == SeatalkDecode::kPathRudderAngle) {
+                s_rxRudder = value;
+                s_rxHasRudder = true;
+                if (s_rxHasHeading) relayHeadingAndRudder();
+                continue;
+            }
+
+            SeatalkDecode::Type type;
+            if (SeatalkDecode::typeForCanonicalPath(pathStr, &type)) relayValue(type, value);
+        }
+    }
+}
+
 void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
     switch (type) {
         case WStype_CONNECTED:
@@ -45,14 +121,21 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
             s_connected = false;
             DebugLog::logf("signalk: disconnected");
             break;
+        case WStype_TEXT:
+            handleDelta(payload, length);
+            break;
         default:
-            break;  // not interested in incoming deltas/errors for now
+            break;
     }
 }
 
 void applyConfig() {
     if (s_host.isEmpty()) return;
-    s_ws.begin(s_host, s_port, "/signalk/v1/stream?subscribe=none");
+    // subscribe=self - only our own vessel's context, not every AIS
+    // target the server might be tracking. Needed for the inbound
+    // direction (see handleDelta()); the module worked fine without it
+    // when it only ever pushed data, but never received any.
+    s_ws.begin(s_host, s_port, "/signalk/v1/stream?subscribe=self");
     s_ws.onEvent(onWsEvent);
     s_ws.setReconnectInterval(kReconnectIntervalMs);
 }

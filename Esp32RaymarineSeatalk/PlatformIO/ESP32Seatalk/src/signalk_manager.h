@@ -19,6 +19,14 @@
 // nothing here has exercised it against a real security-enabled server.
 // Adding a stored token to the WS connection later is additive, not a
 // rearchitecture.
+//
+// Also subscribes (subscribe=self) so it can receive deltas, not just
+// send them - an incoming delta gets routed via RouteConfig::relay(),
+// which decides (per the web UI's matrix) whether it goes on to SeaTalk
+// and/or CAN. Deltas tagged with our own source label are ignored (the
+// server rebroadcasts every delta to every subscriber, including the one
+// that sent it, so without this filter our own outbound values would
+// bounce straight back in as if an external client had sent them).
 namespace SignalKManager {
 
 void begin();
