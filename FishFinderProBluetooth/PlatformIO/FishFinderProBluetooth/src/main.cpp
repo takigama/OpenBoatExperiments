@@ -40,7 +40,13 @@ constexpr uint32_t kMqttReconnectIntervalMs = 5000;
 bool s_mqttServerSet = false;
 
 NimBLEClient *s_bleClient = nullptr;
-const NimBLEAdvertisedDevice *s_targetDevice = nullptr;
+// A plain address, not a pointer into the scan result: NimBLEAdvertisedDevice
+// objects are owned/reused by the scan internals and can be gone or
+// overwritten by the time loop() gets to act on s_doConnect - storing a raw
+// pointer to one made every connect() attempt fail instantly (a dangling-
+// pointer connect, not a real radio-level failure), confirmed via serial
+// logs showing sub-millisecond "connect failed" turnaround on every try.
+NimBLEAddress s_targetAddress;
 bool s_doConnect = false;
 bool s_bleConnected = false;
 uint32_t s_frameCount = 0;
@@ -130,7 +136,7 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         if (device->getName() != kDeviceName) return;
         DebugLog::logf("ble: found %s (%s)", kDeviceName, device->getAddress().toString().c_str());
         NimBLEDevice::getScan()->stop();
-        s_targetDevice = device;
+        s_targetAddress = device->getAddress();
         s_doConnect = true;
     }
 };
@@ -171,7 +177,7 @@ void connectToFishFinder() {
         s_bleClient->setClientCallbacks(&connCallbacks, false);
     }
     DebugLog::logf("ble: connecting...");
-    if (!s_bleClient->connect(s_targetDevice)) {
+    if (!s_bleClient->connect(s_targetAddress)) {
         DebugLog::logf("ble: connect failed, rescanning");
         NimBLEDevice::getScan()->start(0, onScanComplete, false);
         return;
