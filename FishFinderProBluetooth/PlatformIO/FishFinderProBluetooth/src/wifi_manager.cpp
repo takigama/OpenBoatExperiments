@@ -43,13 +43,16 @@ bool joinSaved() {
     DebugLog::logf("wifi: joining \"%s\"...", ssid.c_str());
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
-    // Fixes a real join failure found on this board: AP clearly visible
-    // in scans (RX fine, RSSI -57) but association never completed with
-    // power-save enabled - stuck at WL_DISCONNECTED indefinitely,
-    // confirmed via isolation testing to be unrelated to BLE coexistence.
     WiFi.setSleep(false);
     delay(100);
     WiFi.begin(ssid.c_str(), pass.c_str());
+    // Some ESP32-C3 modules (this board's batch included) have a marginal
+    // antenna match that causes reflections back into the PA at full TX
+    // power, breaking association/broadcast entirely even though RX is
+    // fine - confirmed via isolation testing (scans/RSSI always good,
+    // association/AP-broadcast both fail at default power, both work
+    // reliably capped here). Not a dead radio, just can't run at max power.
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);
 
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
@@ -67,7 +70,10 @@ bool joinSaved() {
 void startAp() {
     s_apSsid = computeApSsid();
     WiFi.mode(WIFI_AP);
-    WiFi.softAP(s_apSsid.c_str());
+    delay(100);  // let the mode switch settle before softAP() - same reasoning as the STA-side fix
+    bool ok = WiFi.softAP(s_apSsid.c_str());
+    WiFi.setTxPower(WIFI_POWER_8_5dBm);  // see the matching comment in joinSaved() - same fix, same reason
+    DebugLog::logf("wifi: softAP() returned %s, mode=%d", ok ? "true" : "false", (int)WiFi.getMode());
     DebugLog::logf("wifi: AP mode - SSID \"%s\", IP %s", s_apSsid.c_str(),
                     WiFi.softAPIP().toString().c_str());
 }
