@@ -1,9 +1,13 @@
 # FishFinderProBluetooth
 
-ESP32 bridge for a cheap castable BLE sonar fish finder → MQTT (later
-possibly SignalK / NMEA 0183 DPT/MTW). The ESP32 acts as a BLE **central**,
-connects to the fish finder's GATT service, and republishes whatever it
-sends - raw hex first, structured values once the frame format is decoded.
+ESP32 bridge for a cheap castable BLE sonar fish finder → Serial (later
+possibly SignalK / NMEA 0183 DPT/MTW, once the frame format is decoded).
+The ESP32 acts as a BLE **central**, connects to the fish finder's GATT
+service, and republishes whatever it sends over its USB serial link - raw
+hex first, structured values once the frame format is decoded. The real
+deployment target is a wired link straight into an RPi running
+OpenPlotter, not WiFi - see "Firmware" below for why WiFi and BLE aren't
+used together at all.
 
 ## Device
 
@@ -71,8 +75,8 @@ but this needs a real bottom echo to confirm against.
 2. **Android HCI snoop** of the Fish Helper Pro app while changing range
    and sensitivity, to capture what gets written to FFF2.
 3. Read the Device Information (`0x180A`) strings.
-4. **This firmware**: NimBLE + WiFi + MQTT - publish raw frames as hex
-   first (see below), so 1 and 2 can happen against real logged data;
+4. **This firmware**: NimBLE + Serial - emit raw frames as hex over USB
+   serial (see below), so 1 and 2 can happen against real logged data;
    write the decoder offline in Python against that log, then port it
    back into this firmware once trusted.
 
@@ -80,32 +84,49 @@ but this needs a real bottom echo to confirm against.
 
 `PlatformIO/FishFinderProBluetooth/` - connects to the fish finder as a
 BLE central, reassembles the 140-byte frames from FFF1's notifications,
-and publishes each complete frame as hex to MQTT (`{base}/raw`, same
-lowercase space-separated hex convention as the ESP32Seatalk project) for
-offline logging/analysis. No decoding on-device yet - that's step 4 above,
-deliberately sequenced after a real wet capture exists to decode against
-rather than guessing at the header fields now.
+and prints each complete frame as one line of space-separated hex to
+Serial (same convention the MQTT raw topics use elsewhere in this repo)
+for offline logging/analysis. No decoding on-device yet - that's step 4
+above, deliberately sequenced after a real wet capture exists to decode
+against rather than guessing at the header fields now.
 
 Build/flash via the Dockerfile in that directory (same reproducible-image
 pattern as ESP32Seatalk - see its header comment for the exact commands).
 
-**WiFi/MQTT config is entirely runtime, not compiled in** - same pattern
-as ESP32Seatalk, and deliberately so: this project does GitHub-hosted OTA,
+**WiFi and BLE are mutually exclusive, chosen once per boot.** The
+ESP32-C3 (like every ESP32 with WiFi+BT) has a single radio shared
+between the two - confirmed via isolation testing that they can't run
+reliably at once: WiFi TX becomes unreliable the moment BLE is actively
+streaming, even after sequencing BLE to only start after WiFi joins. This
+also matches how the device will actually be deployed - wired via USB
+into an RPi running OpenPlotter, not on WiFi at all in normal use - so
+**BLE mode is the default/production path**: connects to the fish finder
+and streams frames to Serial only, no WiFi involved. **WiFi mode** exists
+purely for occasional admin (config, OTA updates) and is chosen via:
+
+- A line typed into the serial monitor - `wifi` or `ble` - which saves the
+  choice to NVS and reboots. This is the *only* way back into WiFi mode,
+  since there's no web UI reachable once WiFi is off.
+- The web UI's "Switch to BLE mode" button, from within WiFi mode.
+
+**WiFi config is entirely runtime, not compiled in** - same pattern as
+ESP32Seatalk, and deliberately so: this project does GitHub-hosted OTA,
 which means the compiled `.bin` itself gets published as a Release asset.
 An earlier version of this firmware used a `secrets.h`/`no_secrets.h`
 compile-time split (gitignoring the real one); that keeps credentials out
 of *source control*, but they'd still ship in plaintext inside every
 published binary, recoverable with a plain `strings firmware.bin` -
-gitignoring the source doesn't protect the built artifact. So instead:
+gitignoring the source doesn't protect the built artifact. So instead: no
+saved WiFi credentials → WiFi mode boots a SoftAP (`FishFinder-XXXX`,
+open, at `192.168.4.1`) serving a join form - pick a network, enter its
+password, it saves to NVS and reboots to join. Nothing network-related is
+baked into the firmware image at all, so the `.bin` is safe to publish.
 
-- No saved WiFi credentials → boots a SoftAP (`FishFinder-XXXX`, open, at
-  `192.168.4.1`) serving a join form - pick a network, enter its
-  password, it saves to NVS and reboots to join.
-- MQTT broker host/port/base topic are entered via the same web UI once
-  on your network (`/` when in STA mode), also saved to NVS.
-
-Nothing network-related is baked into the firmware image at all, so the
-`.bin` is safe to publish.
+Some ESP32-C3 modules (this project's original test boards included) also
+have a marginal antenna match that causes reflections back into the PA at
+full TX power, breaking WiFi entirely (RX/scanning stays fine, only TX
+fails) even outside of the WiFi/BLE coexistence issue above -
+`wifi_manager.cpp` caps TX power to work around it.
 
 ## Notes
 

@@ -5,7 +5,6 @@
 #include <WiFi.h>
 
 #include "debug_log.h"
-#include "net_config.h"
 #include "op_mode.h"
 #include "ota_manager.h"
 #include "wifi_manager.h"
@@ -74,26 +73,6 @@ String wifiJoinForm() {
     return body;
 }
 
-String mqttSection() {
-    String body = "<hr><h3>MQTT</h3>";
-    if (!NetConfig::mqttHost().isEmpty()) {
-        body += "<p>" + NetConfig::mqttHost() + ":" + String(NetConfig::mqttPort()) + ", base topic \"" +
-                htmlEscape(NetConfig::mqttBaseTopic()) + "\"</p>";
-    } else {
-        body += "<p>Not configured.</p>";
-    }
-    body += "<form method='POST' action='/mqtt/save'>";
-    body += "<input name='host' placeholder='Broker host/IP' value='" + htmlEscape(NetConfig::mqttHost()) +
-            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
-    body += "<input name='port' type='number' placeholder='Port' value='" + String(NetConfig::mqttPort()) +
-            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
-    body += "<input name='base' placeholder='Base topic' value='" + htmlEscape(NetConfig::mqttBaseTopic()) +
-            "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
-    body += "<button type='submit' style='width:100%;padding:.6em'>Save</button>";
-    body += "</form>";
-    return body;
-}
-
 String otaSection() {
     String body = "<hr><h3>Firmware</h3><p>Running build " + String(FW_BUILD) + "</p>";
     if (s_lastCheck.available) {
@@ -119,7 +98,6 @@ void handleRoot() {
         // nothing BLE-related to report here, just the mode switch itself.
         body = "<p>WiFi: <b>" + WiFi.localIP().toString() + "</b></p>";
         body += "<a href='/mode/ble'><button style='width:100%;padding:.6em;margin:.3em 0'>Switch to BLE mode</button></a>";
-        body += mqttSection();
         body += otaSection();
     }
     body += "<hr><p><a href='/log'>View debug log</a></p>";
@@ -143,15 +121,6 @@ void handleWifiSave() {
 void handleModeBle() {
     server.send(200, "text/html", pageWrap("Switching...", "<p>Switching to BLE mode, restarting...</p>"));
     OpMode::switchTo(OpMode::Mode::Ble);  // does not return
-}
-
-void handleMqttSave() {
-    String host = server.hasArg("host") ? server.arg("host") : "";
-    uint16_t port = server.hasArg("port") ? (uint16_t)server.arg("port").toInt() : 1883;
-    String base = server.hasArg("base") ? server.arg("base") : "";
-    NetConfig::saveMqtt(host, port, base);
-    server.sendHeader("Location", "/");
-    server.send(303);
 }
 
 void handleOtaCheck() {
@@ -211,7 +180,6 @@ void begin() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/mode/ble", HTTP_GET, handleModeBle);
     server.on("/wifi/save", HTTP_POST, handleWifiSave);
-    server.on("/mqtt/save", HTTP_POST, handleMqttSave);
     server.on("/log", HTTP_GET, handleLog);
     server.on("/ota/check", HTTP_GET, handleOtaCheck);
     server.on("/ota/apply", HTTP_GET, handleOtaApply);

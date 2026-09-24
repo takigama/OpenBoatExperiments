@@ -9,6 +9,11 @@
 // choice to NVS and reboots, exactly like WifiManager's credential-save
 // flow, so setup() always starts from a clean slate with only the one
 // radio subsystem it actually needs ever initialized.
+//
+// Defaults to BLE (not WiFi): the real deployment is a wired serial link
+// into an RPi running OpenPlotter, so a fresh/unconfigured board should
+// go straight to streaming sonar data. WiFi mode is opt-in, entered via
+// the serial "wifi" command, for occasional admin (config/OTA) only.
 namespace OpMode {
 
 enum class Mode { Wifi, Ble };

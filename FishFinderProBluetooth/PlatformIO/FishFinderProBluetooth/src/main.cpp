@@ -1,11 +1,9 @@
 #include <Arduino.h>
 #include <NimBLEDevice.h>
-#include <PubSubClient.h>
 #include <WiFi.h>
 #include <string.h>
 
 #include "debug_log.h"
-#include "net_config.h"
 #include "op_mode.h"
 #include "ota_manager.h"
 #include "web_config.h"
@@ -13,9 +11,9 @@
 
 // GATT layout of the "Fish Helper Pro" castable sonar - see ../README.md.
 // FFF1 is the only thing this firmware touches so far: subscribe, receive
-// notifications, reassemble frames, publish raw hex. FFF2 (probably the
-// command/settings channel) and the device-information strings are next
-// steps, not implemented here yet.
+// notifications, reassemble frames, print raw hex to Serial. FFF2
+// (probably the command/settings channel) and the device-information
+// strings are next steps, not implemented here yet.
 constexpr const char *kDeviceName = "Fish Helper Pro";
 constexpr const char *kServiceUuid = "0000fff0-0000-1000-8000-00805f9b34fb";
 constexpr const char *kDataCharUuid = "0000fff1-0000-1000-8000-00805f9b34fb";
@@ -33,12 +31,6 @@ constexpr size_t kFrameLen = 140;
 constexpr uint32_t kBootCheckDelayMs = 30000;
 bool s_bootCheckDone = false;
 
-WiFiClient s_wifiClient;
-PubSubClient s_mqtt(s_wifiClient);
-uint32_t s_lastMqttAttempt = 0;
-constexpr uint32_t kMqttReconnectIntervalMs = 5000;
-bool s_mqttServerSet = false;
-
 NimBLEClient *s_bleClient = nullptr;
 // A plain address, not a pointer into the scan result: NimBLEAdvertisedDevice
 // objects are owned/reused by the scan internals and can be gone or
@@ -50,6 +42,12 @@ NimBLEAddress s_targetAddress;
 bool s_doConnect = false;
 bool s_bleConnected = false;
 uint32_t s_frameCount = 0;
+// Whether scanning/connection is currently wanted, independent of WiFi/BLE
+// mode (see op_mode.h) - lets "stop"/"start" pause and resume streaming
+// live, without a reboot, while staying in BLE mode. Distinct from
+// s_bleConnected, which tracks whether a GATT connection actually exists
+// right now.
+bool s_bleActive = false;
 
 // Rolling reassembly buffer - BLE notifications arrive as 20-byte chunks
 // with no framing of their own, so frames get pieced back together here
@@ -60,18 +58,20 @@ constexpr size_t kBufCap = 512;
 uint8_t s_buf[kBufCap];
 size_t s_bufLen = 0;
 
-void publishRawFrame(const uint8_t *data, size_t len) {
+// One line per frame, space-separated hex bytes - the real deployment
+// target is a serial link straight into an RPi (running OpenPlotter),
+// not WiFi/MQTT, so this is the only output path now. DebugLog's lines
+// always start with "[" (a bracketed timestamp); frame lines never do,
+// which is enough for anything reading this stream to tell the two
+// apart without a dedicated marker.
+void emitFrame(const uint8_t *data, size_t len) {
     s_frameCount++;
-    if (!s_mqtt.connected()) return;
-    String hex;
-    hex.reserve(len * 3);
     for (size_t i = 0; i < len; i++) {
-        if (data[i] < 0x10) hex += '0';
-        hex += String(data[i], HEX);
-        hex += ' ';
+        if (data[i] < 0x10) Serial.print('0');
+        Serial.print(data[i], HEX);
+        Serial.print(' ');
     }
-    String topic = NetConfig::mqttBaseTopic() + "/raw";
-    s_mqtt.publish(topic.c_str(), hex.c_str());
+    Serial.println();
 }
 
 // Finds the next "SF" occurrence in s_buf starting at `from`, returns
@@ -103,7 +103,7 @@ void tryExtractFrames() {
         bool trailerOk = s_buf[135] == 0xAA && s_buf[136] == 0x55 && s_buf[137] == 0xAA &&
                           s_buf[138] == 0x55 && s_buf[139] == 0xAA;
         if (trailerOk) {
-            publishRawFrame(s_buf, kFrameLen);
+            emitFrame(s_buf, kFrameLen);
             discardTo(kFrameLen);
             continue;
         }
@@ -122,7 +122,7 @@ void tryExtractFrames() {
 void onNotify(NimBLERemoteCharacteristic *, uint8_t *data, size_t length, bool) {
     if (s_bufLen + length > kBufCap) {
         // Overflow guard - shouldn't happen at this data rate (~630B/s),
-        // but don't corrupt memory if something stalls MQTT/publish and
+        // but don't corrupt memory if something stalls Serial output and
         // notifications keep arriving.
         s_bufLen = 0;
     }
@@ -143,10 +143,17 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 
 class ConnCallbacks : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient *) override {
-        DebugLog::logf("ble: disconnected, rescanning");
         s_bleConnected = false;
         s_bufLen = 0;  // don't try to stitch a frame across a reconnect
-        NimBLEDevice::getScan()->start(0, nullptr, false);
+        // A "stop" command disconnects deliberately, which fires this same
+        // callback - only auto-rescan for an unexpected drop, not our own
+        // requested stop, or "stop" would just immediately undo itself.
+        if (s_bleActive) {
+            DebugLog::logf("ble: disconnected, rescanning");
+            NimBLEDevice::getScan()->start(0, nullptr, false);
+        } else {
+            DebugLog::logf("ble: disconnected (stopped)");
+        }
     }
 };
 
@@ -159,6 +166,7 @@ class ConnCallbacks : public NimBLEClientCallbacks {
 void onScanComplete(NimBLEScanResults) { DebugLog::logf("ble: scan completed unexpectedly, restarting"); }
 
 void startScan() {
+    s_bleActive = true;
     NimBLEScan *scan = NimBLEDevice::getScan();
     static ScanCallbacks scanCallbacks;
     scan->setAdvertisedDeviceCallbacks(&scanCallbacks);
@@ -167,6 +175,23 @@ void startScan() {
     scan->setActiveScan(true);
     scan->start(0, onScanComplete, false);
     DebugLog::logf("ble: scanning...");
+}
+
+// Live pause, no reboot - stops scanning/disconnects but stays in BLE mode
+// (NimBLE itself stays initialized), so "start" can resume without paying
+// for a full mode-switch reboot.
+void stopBle() {
+    if (!s_bleActive) {
+        DebugLog::logf("ble: already stopped");
+        return;
+    }
+    s_bleActive = false;
+    NimBLEDevice::getScan()->stop();
+    if (s_bleClient && s_bleClient->isConnected()) {
+        s_bleClient->disconnect();  // fires ConnCallbacks::onDisconnect(), which checks s_bleActive
+    } else {
+        DebugLog::logf("ble: stopped");
+    }
 }
 
 void connectToFishFinder() {
@@ -199,33 +224,13 @@ void connectToFishFinder() {
     DebugLog::logf("ble: connected, subscribed to fff1");
 }
 
-void mqttTick() {
-    if (NetConfig::mqttHost().isEmpty()) return;  // not configured yet
-    if (!s_mqttServerSet) {
-        s_mqtt.setServer(NetConfig::mqttHost().c_str(), NetConfig::mqttPort());
-        s_mqttServerSet = true;
-    }
-    if (s_mqtt.connected()) {
-        s_mqtt.loop();
-        return;
-    }
-    if (millis() - s_lastMqttAttempt < kMqttReconnectIntervalMs) return;
-    s_lastMqttAttempt = millis();
+OpMode::Mode s_opMode = OpMode::Mode::Ble;
 
-    String clientId = "fishfinder-" + String((uint32_t)ESP.getEfuseMac(), HEX);
-    if (s_mqtt.connect(clientId.c_str())) {
-        DebugLog::logf("mqtt: connected");
-    } else {
-        DebugLog::logf("mqtt: connect failed, state=%d", s_mqtt.state());
-    }
-}
-
-OpMode::Mode s_opMode = OpMode::Mode::Wifi;
-
-// Reads a line typed into the serial monitor ("wifi" or "ble") and, on a
-// match, hands off to OpMode::switchTo() - the one channel guaranteed to
-// work regardless of which radio is currently up, which matters most for
-// BLE->WiFi since there's no web UI reachable while WiFi is off.
+// Reads a line typed into the serial monitor. "wifi"/"ble" switch modes
+// (see op_mode.h) - the one channel guaranteed to work regardless of which
+// radio is currently up, which matters most for BLE->WiFi since there's no
+// web UI reachable while WiFi is off. "start"/"stop" control streaming
+// live within BLE mode, no reboot.
 void handleSerialCommand() {
     if (!Serial.available()) return;
     String cmd = Serial.readStringUntil('\n');
@@ -235,8 +240,20 @@ void handleSerialCommand() {
         OpMode::switchTo(OpMode::Mode::Wifi);  // does not return
     } else if (cmd == "ble") {
         OpMode::switchTo(OpMode::Mode::Ble);  // does not return
+    } else if (cmd == "start" || cmd == "stop") {
+        if (s_opMode != OpMode::Mode::Ble) {
+            DebugLog::logf("ble: not available in WiFi mode (try \"ble\" first)");
+        } else if (cmd == "start") {
+            if (s_bleActive) {
+                DebugLog::logf("ble: already running");
+            } else {
+                startScan();
+            }
+        } else {
+            stopBle();
+        }
     } else if (cmd.length()) {
-        DebugLog::logf("mode: unknown serial command \"%s\" (try \"wifi\" or \"ble\")", cmd.c_str());
+        DebugLog::logf("unknown serial command \"%s\" (try \"wifi\", \"ble\", \"start\", or \"stop\")", cmd.c_str());
     }
 }
 
@@ -250,11 +267,11 @@ void setup() {
     // needs ever gets initialized this boot.
     s_opMode = OpMode::current();
     if (s_opMode == OpMode::Mode::Ble) {
+        // Idle, not streaming, until a "start" command - see handleSerialCommand().
         NimBLEDevice::init("");
-        startScan();
+        DebugLog::logf("ble: idle, waiting for \"start\"");
     } else {
         WifiManager::begin();
-        NetConfig::begin();
         WebConfig::begin();
     }
 }
@@ -264,7 +281,6 @@ void loop() {
 
     if (s_opMode == OpMode::Mode::Wifi) {
         WebConfig::handleClient();
-        mqttTick();
         if (!s_bootCheckDone && WifiManager::currentMode() == WifiManager::Mode::STA &&
             millis() > kBootCheckDelayMs) {
             s_bootCheckDone = true;
@@ -280,8 +296,8 @@ void loop() {
     static uint32_t lastStatus = 0;
     if (millis() - lastStatus >= 5000) {
         lastStatus = millis();
-        DebugLog::logf("status: mode=%s wifi=%d ble=%d mqtt=%d frames=%u heap=%u",
-                        s_opMode == OpMode::Mode::Wifi ? "wifi" : "ble", WiFi.status(), s_bleConnected,
-                        s_mqtt.connected(), s_frameCount, ESP.getFreeHeap());
+        DebugLog::logf("status: mode=%s wifi=%d ble_active=%d ble_connected=%d frames=%u heap=%u",
+                        s_opMode == OpMode::Mode::Wifi ? "wifi" : "ble", WiFi.status(), s_bleActive,
+                        s_bleConnected, s_frameCount, ESP.getFreeHeap());
     }
 }
