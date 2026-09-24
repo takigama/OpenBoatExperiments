@@ -6,8 +6,8 @@
 
 #include "debug_log.h"
 #include "net_config.h"
+#include "op_mode.h"
 #include "ota_manager.h"
-#include "status.h"
 #include "web_config.h"
 #include "wifi_manager.h"
 
@@ -220,37 +220,58 @@ void mqttTick() {
     }
 }
 
-namespace Status {
-bool bleConnected() { return s_bleConnected; }
-uint32_t frameCount() { return s_frameCount; }
-}  // namespace Status
+OpMode::Mode s_opMode = OpMode::Mode::Wifi;
+
+// Reads a line typed into the serial monitor ("wifi" or "ble") and, on a
+// match, hands off to OpMode::switchTo() - the one channel guaranteed to
+// work regardless of which radio is currently up, which matters most for
+// BLE->WiFi since there's no web UI reachable while WiFi is off.
+void handleSerialCommand() {
+    if (!Serial.available()) return;
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    cmd.toLowerCase();
+    if (cmd == "wifi") {
+        OpMode::switchTo(OpMode::Mode::Wifi);  // does not return
+    } else if (cmd == "ble") {
+        OpMode::switchTo(OpMode::Mode::Ble);  // does not return
+    } else if (cmd.length()) {
+        DebugLog::logf("mode: unknown serial command \"%s\" (try \"wifi\" or \"ble\")", cmd.c_str());
+    }
+}
 
 void setup() {
     Serial.begin(115200);
     delay(500);
     DebugLog::logf("FishFinderProBluetooth build %d booted", FW_BUILD);
 
-    // BLE before WiFi - see WifiManager/wifi_manager.cpp's own comment on
-    // the setSleep(false) fix; init order here doesn't matter for that
-    // specific bug, but there's no reason to reorder now that it's fixed.
-    NimBLEDevice::init("");
-    startScan();
-
-    WifiManager::begin();
-    NetConfig::begin();
-
-    WebConfig::begin();
+    // WiFi and BLE are mutually exclusive per boot, not live-switched - see
+    // op_mode.h for why. Only the radio subsystem the current mode actually
+    // needs ever gets initialized this boot.
+    s_opMode = OpMode::current();
+    if (s_opMode == OpMode::Mode::Ble) {
+        NimBLEDevice::init("");
+        startScan();
+    } else {
+        WifiManager::begin();
+        NetConfig::begin();
+        WebConfig::begin();
+    }
 }
 
 void loop() {
-    WebConfig::handleClient();
-    mqttTick();
-    if (s_doConnect) connectToFishFinder();
+    handleSerialCommand();
 
-    if (!s_bootCheckDone && WifiManager::currentMode() == WifiManager::Mode::STA &&
-        millis() > kBootCheckDelayMs) {
-        s_bootCheckDone = true;
-        OtaManager::checkForUpdate();  // logged only for now; web UI drives the actual apply step
+    if (s_opMode == OpMode::Mode::Wifi) {
+        WebConfig::handleClient();
+        mqttTick();
+        if (!s_bootCheckDone && WifiManager::currentMode() == WifiManager::Mode::STA &&
+            millis() > kBootCheckDelayMs) {
+            s_bootCheckDone = true;
+            OtaManager::checkForUpdate();  // logged only for now; web UI drives the actual apply step
+        }
+    } else {
+        if (s_doConnect) connectToFishFinder();
     }
 
     // Periodic liveness line - a board that's silently stuck (or just has
@@ -259,7 +280,8 @@ void loop() {
     static uint32_t lastStatus = 0;
     if (millis() - lastStatus >= 5000) {
         lastStatus = millis();
-        DebugLog::logf("status: wifi=%d ble=%d mqtt=%d frames=%u heap=%u", WiFi.status(), s_bleConnected,
+        DebugLog::logf("status: mode=%s wifi=%d ble=%d mqtt=%d frames=%u heap=%u",
+                        s_opMode == OpMode::Mode::Wifi ? "wifi" : "ble", WiFi.status(), s_bleConnected,
                         s_mqtt.connected(), s_frameCount, ESP.getFreeHeap());
     }
 }

@@ -6,8 +6,8 @@
 
 #include "debug_log.h"
 #include "net_config.h"
+#include "op_mode.h"
 #include "ota_manager.h"
-#include "status.h"
 #include "wifi_manager.h"
 
 namespace WebConfig {
@@ -115,9 +115,10 @@ void handleRoot() {
     if (WifiManager::currentMode() == WifiManager::Mode::AP) {
         body = wifiJoinForm();
     } else {
+        // BLE is never initialized during a WiFi-mode boot (see op_mode.h) -
+        // nothing BLE-related to report here, just the mode switch itself.
         body = "<p>WiFi: <b>" + WiFi.localIP().toString() + "</b></p>";
-        body += "<p>BLE: " + String(Status::bleConnected() ? "<b>connected</b>" : "scanning") + "</p>";
-        body += "<p>Frames published: " + String(Status::frameCount()) + "</p>";
+        body += "<a href='/mode/ble'><button style='width:100%;padding:.6em;margin:.3em 0'>Switch to BLE mode</button></a>";
         body += mqttSection();
         body += otaSection();
     }
@@ -137,6 +138,11 @@ void handleWifiSave() {
     server.send(200, "text/html",
                 pageWrap("Restarting...", "<p>Saved. Restarting to join <b>" + htmlEscape(ssid) + "</b>...</p>"));
     WifiManager::saveCredentialsAndReboot(ssid, pass);  // does not return
+}
+
+void handleModeBle() {
+    server.send(200, "text/html", pageWrap("Switching...", "<p>Switching to BLE mode, restarting...</p>"));
+    OpMode::switchTo(OpMode::Mode::Ble);  // does not return
 }
 
 void handleMqttSave() {
@@ -203,6 +209,7 @@ void handleOtaUploadChunk() {
 
 void begin() {
     server.on("/", HTTP_GET, handleRoot);
+    server.on("/mode/ble", HTTP_GET, handleModeBle);
     server.on("/wifi/save", HTTP_POST, handleWifiSave);
     server.on("/mqtt/save", HTTP_POST, handleMqttSave);
     server.on("/log", HTTP_GET, handleLog);
