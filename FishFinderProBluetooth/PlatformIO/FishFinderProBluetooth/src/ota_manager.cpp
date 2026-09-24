@@ -127,12 +127,27 @@ bool applyUpdate(const UpdateInfo &info) {
     DebugLog::logf("ota: downloading build %u from %s (%d bytes)", info.build, info.url.c_str(),
                     contentLength);
 
+    // No data at all for this long means the connection has effectively
+    // stalled (seen in practice on marginal-RF boards under BLE+WiFi
+    // coexistence: the download just goes silent, http.connected() stays
+    // true, and the old unbounded loop spun forever with no way out -
+    // needed a manual power cycle to recover). Bail out and let the
+    // two-partition scheme's normal "update failed" path handle it
+    // instead of hanging indefinitely.
+    constexpr uint32_t kStallTimeoutMs = 20000;
     WiFiClient *stream = http.getStreamPtr();
     uint8_t buf[1024];
     int written = 0;
+    uint32_t lastDataAt = millis();
     while (http.connected() && written < contentLength) {
         size_t avail = stream->available();
         if (!avail) {
+            if (millis() - lastDataAt > kStallTimeoutMs) {
+                DebugLog::logf("ota: download stalled (%d of %d bytes) - aborting", written, contentLength);
+                Update.abort();
+                http.end();
+                return false;
+            }
             delay(2);
             continue;
         }
@@ -140,6 +155,7 @@ bool applyUpdate(const UpdateInfo &info) {
         Update.write(buf, n);
         md5.add(buf, n);
         written += n;
+        lastDataAt = millis();
     }
     http.end();
 
