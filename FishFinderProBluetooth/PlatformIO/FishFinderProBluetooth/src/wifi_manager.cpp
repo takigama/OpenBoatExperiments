@@ -43,9 +43,16 @@ bool joinSaved() {
     DebugLog::logf("wifi: joining \"%s\"...", ssid.c_str());
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);
     delay(100);
     WiFi.begin(ssid.c_str(), pass.c_str());
+    // setSleep(false) used to be here as a workaround for what looked
+    // like a power-save-related join failure - removed because it's
+    // actively incompatible with this project's BLE scanning running
+    // concurrently: ESP-IDF hard-aborts ("Should enable WiFi modem sleep
+    // when both WiFi and Bluetooth are enabled") the instant a join is
+    // attempted with modem sleep disabled while BLE is active. The real
+    // join-failure cause turned out to be TX power/reflections (see
+    // below), not power-save, so this wasn't needed for that fix anyway.
     // Some ESP32-C3 modules (this board's batch included) have a marginal
     // antenna match that causes reflections back into the PA at full TX
     // power, breaking association/broadcast entirely even though RX is
