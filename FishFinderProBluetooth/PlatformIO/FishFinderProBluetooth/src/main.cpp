@@ -10,19 +10,23 @@
 #include "wifi_manager.h"
 
 // GATT layout of the "Fish Helper Pro" castable sonar - see ../README.md.
-// FFF1 is the only thing this firmware touches so far: subscribe, receive
-// notifications, reassemble frames, print raw hex to Serial. FFF2
-// (probably the command/settings channel) and the device-information
-// strings are next steps, not implemented here yet.
+// FFF1: subscribe, receive notifications, reassemble frames, decode
+// depth/temperature to NMEA 0183 and print alongside the raw hex to
+// Serial. FFF2: the command/settings channel - sensitivity and range are
+// sent continuously (see sendSonarSettings()), mirroring the vendor
+// app's own behavior exactly rather than a one-shot write. The
+// device-information strings are still a next step.
 constexpr const char *kDeviceName = "Fish Helper Pro";
 constexpr const char *kServiceUuid = "0000fff0-0000-1000-8000-00805f9b34fb";
 constexpr const char *kDataCharUuid = "0000fff1-0000-1000-8000-00805f9b34fb";
+constexpr const char *kCmdCharUuid = "0000fff2-0000-1000-8000-00805f9b34fb";
 
-// One frame: "SF" sync, header, 115 amplitude bins, AA 55 AA 55 AA
-// trailer - see ../README.md's "Frame format" section for the byte
-// layout. Nothing here decodes the header/bins yet - that's step 4 in the
-// README, deliberately deferred until there's a real wet capture to
-// decode against.
+// One frame: "SF" sync, 13-byte header (depth/fish/battery/temperature/
+// range - see emitDecoded() below), checksum, a fixed 0x55 sentinel, 120
+// amplitude bins (not decoded yet), AA 55 AA 55 AA trailer - see
+// ../README.md's "Frame format" section for the full byte layout,
+// reverse-engineered from the vendor app's decompiled source and
+// confirmed against real captured frames.
 constexpr size_t kFrameLen = 140;
 
 // Check for an OTA update once, ~30s after boot (WiFi needs a moment to
@@ -48,6 +52,43 @@ uint32_t s_frameCount = 0;
 // s_bleConnected, which tracks whether a GATT connection actually exists
 // right now.
 bool s_bleActive = false;
+NimBLERemoteCharacteristic *s_writeChar = nullptr;  // FFF2, null until connected
+
+// Device-side sonar settings. The vendor app re-sends these on every
+// single received frame (writeDataToBluetooth(), called unconditionally
+// from its receive path) - tried mirroring that exactly here and it
+// stalled the connection hard, frames dropping from ~4.5/sec to about 1
+// every 10-15s, whether the write was issued from inside the BLE notify
+// callback or deferred to loop() - a GATT write competing with the
+// notification stream on this cheap peripheral's connection seems to
+// cost far more than the app (running on a phone's much more capable
+// BLE stack) ever lets on. So instead: send once right after connecting,
+// and again only when "sens"/"range" actually changes something -
+// there's no real need for a continuous re-sync the device doesn't ask
+// for. Defaults are guesses; the sensitivity scale (0-100) is confirmed
+// from the app's own slider range, but the range byte's real-world units
+// aren't confirmed yet - adjust live via "sens <0-100>" / "range
+// <0-255>" and watch the decoded Depth Range debug line to calibrate
+// against a known distance.
+uint8_t s_sensitivity = 50;
+uint8_t s_noiseFilter = 0;
+uint8_t s_range = 0;
+
+// The actual GATT write happens from loop() (see sendSonarSettingsIfDue()
+// below), not here, to keep it well clear of the BLE notify callback path.
+bool s_settingsSendPending = false;
+void requestSendSonarSettings() { s_settingsSendPending = true; }
+
+void sendSonarSettingsIfDue() {
+    if (!s_settingsSendPending) return;
+    s_settingsSendPending = false;
+    if (!s_writeChar) return;
+    uint8_t buf[10] = {0x53, 0x46, 0x01, s_noiseFilter, s_sensitivity, 0x00, s_range, 0x00, 0x00, 0x55};
+    uint16_t sum = 0;
+    for (int i = 0; i < 8; i++) sum += buf[i];
+    buf[8] = (uint8_t)sum;
+    s_writeChar->writeValue(buf, sizeof(buf), false);  // write without response, matches the app
+}
 
 // Rolling reassembly buffer - BLE notifications arrive as 20-byte chunks
 // with no framing of their own, so frames get pieced back together here
@@ -58,20 +99,79 @@ constexpr size_t kBufCap = 512;
 uint8_t s_buf[kBufCap];
 size_t s_bufLen = 0;
 
-// One line per frame, space-separated hex bytes - the real deployment
-// target is a serial link straight into an RPi (running OpenPlotter),
-// not WiFi/MQTT, so this is the only output path now. DebugLog's lines
-// always start with "[" (a bracketed timestamp); frame lines never do,
-// which is enough for anything reading this stream to tell the two
-// apart without a dedicated marker.
-void emitFrame(const uint8_t *data, size_t len) {
-    s_frameCount++;
+// One line per frame, space-separated hex bytes - kept alongside the
+// decoded NMEA output below since the 120 amplitude bins (offsets
+// 15-134) aren't decoded yet. DebugLog's lines always start with "["
+// (a bracketed timestamp); neither hex nor NMEA lines do, which is
+// enough for anything reading this stream to tell log lines apart from
+// data lines without a dedicated marker.
+void emitRawHex(const uint8_t *data, size_t len) {
     for (size_t i = 0; i < len; i++) {
         if (data[i] < 0x10) Serial.print('0');
         Serial.print(data[i], HEX);
         Serial.print(' ');
     }
     Serial.println();
+}
+
+// NMEA 0183 checksum is the XOR of every character between (not
+// including) the leading '$' and trailing '*'. `body` is everything
+// after the '$' and before the '*', e.g. "SDDPT,2.9,0.0".
+void emitNmeaSentence(const String &body) {
+    uint8_t cs = 0;
+    for (size_t i = 0; i < body.length(); i++) cs ^= (uint8_t)body[i];
+    Serial.print('$');
+    Serial.print(body);
+    Serial.print('*');
+    if (cs < 0x10) Serial.print('0');
+    Serial.println(cs, HEX);
+}
+
+// Frame layout and every formula here (units, checksum, valid-range
+// gating) were pulled directly from the vendor app's decompiled source
+// (com.xudaxin.sonarhelper, MainInterfaceActivity.bluetoothReceiveDataAnalysis()/
+// mainTimerTask()) and cross-checked against real captured frames: the
+// checksum formula reproduces our own captured checksum byte exactly,
+// and the temperature formula reproduces the exact 25.2C the vendor app
+// showed live against the same raw bytes. Depth/temperature are raw
+// tenths-of-a-foot / tenths-of-a-Fahrenheit-degree on the wire
+// regardless of the app's own display unit setting.
+void emitDecoded(const uint8_t *data) {
+    uint16_t sum = 0;
+    for (int i = 0; i < 13; i++) sum += data[i];
+    if ((uint8_t)sum != data[13]) return;  // corrupt header - raw hex line still has the bytes
+
+    uint16_t rawDepthTenthsFt = (data[3] << 8) | data[4];
+    uint16_t rawTempTenthsF = (data[9] << 8) | data[10];
+
+    if (rawDepthTenthsFt >= 20 && rawDepthTenthsFt <= 2000) {
+        float depthM = (rawDepthTenthsFt / 10.0f) * 0.3048f;
+        char buf[16];
+        dtostrf(depthM, 0, 1, buf);
+        emitNmeaSentence(String("SDDPT,") + buf + ",0.0");
+    }
+    if (rawTempTenthsF > 0 && rawTempTenthsF <= 2000) {
+        float tempC = ((int)rawTempTenthsF - 320) / 18.0f;
+        char buf[16];
+        dtostrf(tempC, 0, 1, buf);
+        emitNmeaSentence(String("YXMTW,") + buf + ",C");
+    }
+
+    // Depth Range's real-world units aren't confirmed yet (see
+    // sendSonarSettings()) - logged only on change, to help calibrate
+    // what a given "range <n>" command actually does to this field,
+    // without spamming a line for every single frame.
+    static int16_t lastDepthRange = -1;
+    if (data[12] != lastDepthRange) {
+        lastDepthRange = data[12];
+        DebugLog::logf("sonar: device depth range now %d", data[12]);
+    }
+}
+
+void emitFrame(const uint8_t *data, size_t len) {
+    s_frameCount++;
+    emitRawHex(data, len);
+    emitDecoded(data);
 }
 
 // Finds the next "SF" occurrence in s_buf starting at `from`, returns
@@ -144,6 +244,7 @@ class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 class ConnCallbacks : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient *) override {
         s_bleConnected = false;
+        s_writeChar = nullptr;
         s_bufLen = 0;  // don't try to stitch a frame across a reconnect
         // A "stop" command disconnects deliberately, which fires this same
         // callback - only auto-rescan for an unexpected drop, not our own
@@ -220,6 +321,12 @@ void connectToFishFinder() {
         return;
     }
     chr->subscribe(true, onNotify);
+    s_writeChar = service->getCharacteristic(kCmdCharUuid);
+    if (!s_writeChar) {
+        DebugLog::logf("ble: characteristic fff2 not found - settings won't be sent");
+    } else {
+        requestSendSonarSettings();  // establish current sensitivity/range once, on connect
+    }
     s_bleConnected = true;
     DebugLog::logf("ble: connected, subscribed to fff1");
 }
@@ -252,8 +359,32 @@ void handleSerialCommand() {
         } else {
             stopBle();
         }
+    } else if (cmd.startsWith("sens ") || cmd.startsWith("range ")) {
+        if (s_opMode != OpMode::Mode::Ble) {
+            DebugLog::logf("ble: not available in WiFi mode (try \"ble\" first)");
+            return;
+        }
+        bool isSens = cmd.startsWith("sens ");
+        int v = cmd.substring(isSens ? 5 : 6).toInt();
+        // Range is an index into the device's preset list (0=auto,
+        // 1..8=10/20/30/60/90/120/150/200ft), not a raw distance - confirmed
+        // by testing (index 5 -> device reports 90ft).
+        int maxV = isSens ? 100 : 8;
+        if (v < 0) v = 0;
+        if (v > maxV) v = maxV;
+        if (isSens) {
+            s_sensitivity = (uint8_t)v;
+            DebugLog::logf("ble: sensitivity set to %d, sending", s_sensitivity);
+        } else {
+            s_range = (uint8_t)v;
+            DebugLog::logf("ble: range set to %d, sending", s_range);
+        }
+        requestSendSonarSettings();
     } else if (cmd.length()) {
-        DebugLog::logf("unknown serial command \"%s\" (try \"wifi\", \"ble\", \"start\", or \"stop\")", cmd.c_str());
+        DebugLog::logf(
+            "unknown serial command \"%s\" (try \"wifi\", \"ble\", \"start\", \"stop\", \"sens <0-100>\", or "
+            "\"range <0-8>\")",
+            cmd.c_str());
     }
 }
 
@@ -288,6 +419,7 @@ void loop() {
         }
     } else {
         if (s_doConnect) connectToFishFinder();
+        sendSonarSettingsIfDue();
     }
 
     // Periodic liveness line - a board that's silently stuck (or just has
