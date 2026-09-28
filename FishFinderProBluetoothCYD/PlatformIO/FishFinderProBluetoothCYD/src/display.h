@@ -23,6 +23,10 @@ bool isUpdateButtonAt(int x, int y);
 bool isModeButtonAt(int x, int y);
 void cycleViewMode();
 
+// True when the waterfall view is active - main.cpp uses this to pick a
+// faster display refresh interval for it than the table view needs.
+bool isWaterfallMode();
+
 // One-off diagnostic: draws labeled reference lines across the full
 // nominal 320x240 landscape canvas so the true physical edge of this
 // panel can be measured directly against a photo, instead of guessed at

@@ -47,10 +47,13 @@ void loop() {
     }
 
     // loop() itself runs far faster than the sonar's ~4.5Hz frame rate -
-    // redrawing on every single iteration was pure waste. Once every
-    // 500ms is plenty for a display meant to be glanced at.
+    // redrawing on every single iteration was pure waste. The table view
+    // is meant to be glanced at, so 500ms is plenty there; the waterfall
+    // reads better closer to the sonar's own frame rate, so it gets a
+    // shorter interval.
     static uint32_t lastDisplayUpdate = 0;
-    if (millis() - lastDisplayUpdate >= 500) {
+    uint32_t displayIntervalMs = Display::isWaterfallMode() ? 200 : 500;
+    if (millis() - lastDisplayUpdate >= displayIntervalMs) {
         lastDisplayUpdate = millis();
         Display::update(SonarBle::latest(), SonarBle::connected());
     }

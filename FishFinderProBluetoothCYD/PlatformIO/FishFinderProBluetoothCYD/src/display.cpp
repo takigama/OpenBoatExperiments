@@ -253,6 +253,13 @@ void drawWaterfall() {
             int y = kWaterfallTop + (int)((h.depthM / maxDepth) * kWaterfallH);
             y = constrain(y, kWaterfallTop, kWaterfallBottom);
             tft.drawFastVLine(x, y, kWaterfallBottom - y, kSeafloor);
+        } else {
+            // No reading for this column (out-of-water frame, or just not
+            // filled in yet) - mark it rather than leaving it visually
+            // identical to a column that simply hasn't scrolled in yet at
+            // full depth. A dim dot at the very top reads as a gap in the
+            // seafloor trace without competing with it for attention.
+            tft.drawPixel(x, kWaterfallTop, kLabel);
         }
         if (h.fishValid) {
             int fy = kWaterfallTop + (int)((h.fishM / maxDepth) * kWaterfallH);
@@ -271,6 +278,11 @@ void drawWaterfall() {
 }
 
 void drawModeButton() {
+    // "Sonar"/"Table" aren't the same pixel width in this proportional
+    // font, so drawString()'s own glyph-bounds erase can leave a sliver of
+    // the previous label behind at the edge - clear the whole interior
+    // first rather than trusting that erase to cover a narrower string.
+    tft.fillRect(kModeBtnX + 1, kModeBtnY + 1, kModeBtnW - 2, kModeBtnH - 2, kBg);
     tft.drawRoundRect(kModeBtnX, kModeBtnY, kModeBtnW, kModeBtnH, 4, kLabel);
     tft.setTextDatum(MC_DATUM);
     tft.setTextFont(2);
@@ -339,6 +351,8 @@ void cycleViewMode() {
     s_viewMode = s_viewMode == ViewMode::Table ? ViewMode::Waterfall : ViewMode::Table;
     s_needsFullRedraw = true;
 }
+
+bool isWaterfallMode() { return s_viewMode == ViewMode::Waterfall; }
 
 void drawCalibrationGrid() {
     tft.fillScreen(kBg);
