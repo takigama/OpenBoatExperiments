@@ -291,6 +291,21 @@ uint16_t depthGradientColor(int y) {
     return tft.color565(r, g, b);
 }
 
+// Deliberately wider than one column (each waterfall column is a single
+// pixel) and drawn centered on the reading's own column - so consecutive
+// fish detections, one column apart as the sweep advances, draw
+// overlapping X's rather than a string of separate dots, building up
+// into a solid mark the longer a fish stays in range. The half drawn
+// into not-yet-swept columns gets naturally overwritten the moment the
+// sweep reaches them (drawWaterfallColumn() always erases its own column
+// first), so only the trailing half persists between readings - that's
+// fine, it's what makes the overlap visible.
+constexpr int kFishMarkSize = 2;  // a 5x5px X (x-2..x+2, y-2..y+2)
+void drawFishMark(int x, int y) {
+    tft.drawLine(x - kFishMarkSize, y - kFishMarkSize, x + kFishMarkSize, y + kFishMarkSize, kValue);
+    tft.drawLine(x - kFishMarkSize, y + kFishMarkSize, x + kFishMarkSize, y - kFishMarkSize, kValue);
+}
+
 void drawWaterfallLegend() {
     tft.fillRect(0, kWaterfallTop, kLegendW, kWaterfallH, kBg);
     tft.setTextDatum(TL_DATUM);
@@ -318,9 +333,9 @@ void drawWaterfallColumn(int col) {
         // identical to an on-screen reading of exactly 0.
         tft.drawPixel(x, kWaterfallTop, kLabel);
     }
-    // White fish dot - yellow would blend into the shallow end of the
-    // depth gradient now that the seafloor trace isn't a flat colour.
-    if (c.fishValid) tft.fillCircle(x, waterfallY(c.fishM), 2, kValue);
+    // White - yellow would blend into the shallow end of the depth
+    // gradient now that the seafloor trace isn't a flat colour.
+    if (c.fishValid) drawFishMark(x, waterfallY(c.fishM));
 }
 
 void drawWaterfallSweepLine() { tft.drawFastVLine(kLegendW + s_waterfallHead, kWaterfallTop, kWaterfallH, kSweep); }
