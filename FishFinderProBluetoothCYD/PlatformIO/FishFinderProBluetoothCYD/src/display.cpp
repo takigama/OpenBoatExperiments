@@ -128,17 +128,16 @@ void drawStatusBar(const SonarBle::Reading &reading, bool bleConnected) {
     tft.drawFastHLine(0, kStatusBarH, 320, kLabel);
 }
 
-// --- Depth/fish-depth rolling history -------------------------------------
+// --- Depth/fish-depth rolling history table --------------------------------
 //
-// Shared by both view modes: the table (10 columns per block, 4 blocks
-// stacked, newest at top-left) and the waterfall (one column of history
-// per pixel across its drawable width - see further down). Sized for the
-// waterfall's needs (the larger of the two); the table just reads the
-// first kColsPerBlock*kBlocks entries of the same buffer.
-constexpr int kHistoryLen = 300;
-
+// Table view only - a shifting array of entries, one per column position
+// (10 per block, 4 blocks stacked, newest at top-left). The waterfall
+// view (further down) keeps its own separate buffer instead of sharing
+// this one, since it's addressed by fixed screen position rather than
+// age - see that section for why.
 constexpr int kColsPerBlock = 10;
 constexpr int kBlocks = 4;
+constexpr int kHistoryLen = kColsPerBlock * kBlocks;
 constexpr int kLabelColW = 22;
 constexpr int kColW = (320 - kLabelColW) / kColsPerBlock;
 constexpr int kHeaderY = kStatusBarH + 4;
@@ -188,6 +187,12 @@ void drawHistoryRow(int y, const char *label, bool isFish, int histOffset) {
     tft.setTextDatum(TL_DATUM);
     tft.drawString(label, 2, y);
 
+    // Font 1 (the compact fixed 6x8 GLCD font), not font 2, for the
+    // values themselves - one decimal place needs a 4th character
+    // ("12.3") and font 2's digits are too wide for that to fit an
+    // ~29px column without overlapping the neighbor. Centered vertically
+    // in the row by eye (font 1 is 8px tall vs the 20px row height).
+    tft.setTextFont(1);
     tft.setTextDatum(TC_DATUM);
     for (int i = 0; i < kColsPerBlock; i++) {
         const HistEntry &h = s_history[histOffset + i];
@@ -197,7 +202,7 @@ void drawHistoryRow(int y, const char *label, bool isFish, int histOffset) {
         tft.setTextColor(isCurrent ? kCurrent : kValue, kBg);
         int cx = kLabelColW + i * kColW + kColW / 2;
         tft.fillRect(kLabelColW + i * kColW, y, kColW, kRowH, kBg);
-        tft.drawString(valid ? String(m, 0) : "--", cx, y);
+        tft.drawString(valid ? String(m, 1) : "--", cx, y + 6);
     }
     tft.setTextDatum(TL_DATUM);
 }
@@ -213,13 +218,21 @@ void drawHistoryBlocks() {
 
 // --- Sonar "waterfall" view ------------------------------------------------
 //
-// The classic scrolling fish-finder look: newest reading at the right
-// edge, older readings scroll left as time passes, depth traced as a
-// filled "seafloor" from the bottom of the screen up to the reading, fish
-// drawn as a small dot at their own depth when detected. One history
-// column per pixel across the drawable width - reuses the same
-// s_history[] the table view does (see above), just reading further into
-// it and drawing it differently.
+// Classic sweep-style fish-finder display: a write head advances one
+// column per NEW sonar reading (not once per display-timer tick) and
+// redraws only that single column - depth traced as a filled "seafloor"
+// from the bottom up to the reading, fish as a small dot at their own
+// depth - then a bright sweep line is drawn one column ahead of it. It
+// wraps back to the left edge on reaching the right, overwriting the
+// oldest column first, like a radar sweep. Next reading's column-redraw
+// naturally erases that sweep line along with whatever old data was
+// there, so nothing needs separate erasing.
+//
+// An earlier version instead kept one shared, shifting history array and
+// redrew the whole ~300-column plot from scratch every ~200ms - visibly
+// flickery even after adding a double-buffered sprite, since the image
+// itself was being rebuilt every frame, not just torn. Touching one
+// column instead of three hundred is both simpler and the actual fix.
 
 enum class ViewMode { Table, Waterfall };
 ViewMode s_viewMode = ViewMode::Table;
@@ -229,82 +242,109 @@ constexpr int kLegendW = 22;
 constexpr int kWaterfallTop = kStatusBarH + 1;
 constexpr int kWaterfallBottom = 239;
 constexpr int kWaterfallH = kWaterfallBottom - kWaterfallTop;
-constexpr int kWaterfallCols = 320 - kLegendW;  // <= kHistoryLen, checked with a static_assert below
-static_assert(kWaterfallCols <= kHistoryLen, "history buffer too small for the waterfall's drawable width");
+constexpr int kWaterfallCols = 320 - kLegendW;
+constexpr uint16_t kSweep = TFT_GREEN;
 
-// Redrawing straight to the panel (clear the whole area, then ~300
-// drawFastVLine/fillCircle calls over SPI) is visibly slow enough at
-// 200ms that the clear-to-black shows through as flicker before the new
-// frame finishes. Building the same frame in an off-screen sprite first
-// and pushing it in one burst hides that - the panel only ever shows
-// "old frame" or "new frame", never the half-drawn gap between them.
-// Sized full-width (320) so the legend column is covered by the same
-// single clear+push as the plot itself.
-TFT_eSprite waterfallSprite(&tft);
-bool s_waterfallSpriteReady = false;
+struct WaterfallCol {
+    bool depthValid;
+    float depthM;
+    bool fishValid;
+    float fishM;
+};
+WaterfallCol s_waterfallCols[kWaterfallCols] = {};
+int s_waterfallHead = 0;  // column about to be (over)written next, in [0, kWaterfallCols)
 
-// Shared by both draw paths below - `canvas` is either the sprite or
-// `tft` itself (the fallback path if the sprite failed to allocate), and
-// y-coordinates are relative to kWaterfallTop (0 = the top of the
-// waterfall area) so the same code works whether `canvas` is the
-// full-screen tft (needs +kWaterfallTop) or the sprite (doesn't, it
-// starts at the waterfall's top edge) - hence the yOffset parameter.
-template <typename Canvas>
-void drawWaterfallFrame(Canvas &canvas, int yOffset) {
-    // Auto-scaled to whatever's actually in view, not the device's
-    // configured range setting - simpler than trusting the range-index
-    // mapping, and adapts naturally as the boat moves into deeper/
-    // shallower water. Floor + headroom keep it from zooming in too hard
-    // on a handful of very shallow readings.
-    float maxDepth = 5.0f;
-    for (int i = 0; i < kWaterfallCols; i++) {
-        if (s_history[i].depthValid && s_history[i].depthM > maxDepth) maxDepth = s_history[i].depthM;
-    }
-    maxDepth *= 1.1f;
+// Committed vertical scale, in meters - persists across readings and is
+// only reconsidered once per full sweep (see maybeShrinkWaterfallScale())
+// rather than recomputed from scratch on every column. Grown immediately
+// by any single reading that needs more headroom (never clips), but only
+// ever shrunk at the wrap point - otherwise ordinary frame-to-frame noise
+// in the depth readings would rescale, and so visibly reshape, columns
+// that were already drawn.
+float s_waterfallScaleMax = 5.0f;
 
-    for (int i = 0; i < kWaterfallCols; i++) {
-        const HistEntry &h = s_history[i];
-        int x = 319 - i;
-        if (h.depthValid) {
-            int y = yOffset + (int)((h.depthM / maxDepth) * kWaterfallH);
-            y = constrain(y, yOffset, yOffset + kWaterfallH);
-            canvas.drawFastVLine(x, y, yOffset + kWaterfallH - y, kSeafloor);
-        } else {
-            // No reading for this column (out-of-water frame, or just not
-            // filled in yet) - mark it rather than leaving it visually
-            // identical to a column that simply hasn't scrolled in yet at
-            // full depth. A dim dot at the very top reads as a gap in the
-            // seafloor trace without competing with it for attention.
-            canvas.drawPixel(x, yOffset, kLabel);
-        }
-        if (h.fishValid) {
-            int fy = yOffset + (int)((h.fishM / maxDepth) * kWaterfallH);
-            fy = constrain(fy, yOffset, yOffset + kWaterfallH);
-            canvas.fillCircle(x, fy, 2, kWarn);
-        }
-    }
-
-    canvas.setTextDatum(TL_DATUM);
-    canvas.setTextFont(1);
-    canvas.setTextColor(kLabel, kBg);
-    canvas.drawString("0", 2, yOffset);
-    canvas.drawString(String(maxDepth, 0), 2, yOffset + kWaterfallH - 8);
-    canvas.setTextDatum(TL_DATUM);
+int waterfallY(float m) {
+    int y = kWaterfallTop + (int)((m / s_waterfallScaleMax) * kWaterfallH);
+    return constrain(y, kWaterfallTop, kWaterfallBottom);
 }
 
-void drawWaterfallDirect() {
-    tft.fillRect(0, kWaterfallTop, 320, kWaterfallH, kBg);
-    drawWaterfallFrame(tft, kWaterfallTop);
+void drawWaterfallLegend() {
+    tft.fillRect(0, kWaterfallTop, kLegendW, kWaterfallH, kBg);
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextFont(1);
+    tft.setTextColor(kLabel, kBg);
+    tft.drawString("0", 2, kWaterfallTop);
+    tft.drawString(String(s_waterfallScaleMax, 0), 2, kWaterfallBottom - 8);
 }
 
-void drawWaterfall() {
-    if (!s_waterfallSpriteReady) {
-        drawWaterfallDirect();
-        return;
+// Redraws just column `col`'s data (not the sweep line) - shared by the
+// per-reading incremental draw and the one-time full redraw below.
+void drawWaterfallColumn(int col) {
+    int x = kLegendW + col;
+    const WaterfallCol &c = s_waterfallCols[col];
+    tft.drawFastVLine(x, kWaterfallTop, kWaterfallH, kBg);  // erase whatever was here before
+    if (c.depthValid) {
+        int y = waterfallY(c.depthM);
+        tft.drawFastVLine(x, y, kWaterfallBottom - y, kSeafloor);
+    } else {
+        // No reading for this column (out-of-water frame, or just not
+        // filled in yet) - mark it rather than leaving it visually
+        // identical to an on-screen reading of exactly 0.
+        tft.drawPixel(x, kWaterfallTop, kLabel);
     }
-    waterfallSprite.fillSprite(kBg);
-    drawWaterfallFrame(waterfallSprite, 0);
-    waterfallSprite.pushSprite(0, kWaterfallTop);
+    if (c.fishValid) tft.fillCircle(x, waterfallY(c.fishM), 2, kWarn);
+}
+
+void drawWaterfallSweepLine() { tft.drawFastVLine(kLegendW + s_waterfallHead, kWaterfallTop, kWaterfallH, kSweep); }
+
+// Called once per full sweep (head wrapping back to 0, roughly once a
+// minute at the sonar's frame rate) - a natural, rare point to reconsider
+// whether the scale can shrink now that whatever needed the current one
+// has scrolled fully out of view.
+void maybeShrinkWaterfallScale() {
+    float rawMax = 5.0f;
+    for (int i = 0; i < kWaterfallCols; i++) {
+        if (s_waterfallCols[i].depthValid && s_waterfallCols[i].depthM > rawMax) rawMax = s_waterfallCols[i].depthM;
+    }
+    float neededMax = (float)ceil((rawMax * 1.1f) / 5.0f) * 5.0f;
+    if (neededMax < s_waterfallScaleMax) {
+        s_waterfallScaleMax = neededMax;
+        drawWaterfallLegend();
+    }
+}
+
+// Called on every new sonar reading (see update()), regardless of which
+// view is currently on screen - keeps the buffer current so switching
+// into Waterfall mid-trip shows real recent history instead of a blank
+// sweep. Only touches the panel when Waterfall is actually the one
+// visible right now.
+void pushWaterfallColumn(const SonarBle::Reading &reading) {
+    bool depthValid = reading.valid && !reading.outOfWater;
+    s_waterfallCols[s_waterfallHead] = {depthValid, reading.depthM, reading.fishValid, reading.fishDepthM};
+
+    bool visible = s_viewMode == ViewMode::Waterfall;
+    if (depthValid) {
+        float neededMax = (float)ceil((reading.depthM * 1.1f) / 5.0f) * 5.0f;
+        if (neededMax > s_waterfallScaleMax) {
+            s_waterfallScaleMax = neededMax;
+            if (visible) drawWaterfallLegend();
+        }
+    }
+    if (visible) drawWaterfallColumn(s_waterfallHead);
+
+    s_waterfallHead = (s_waterfallHead + 1) % kWaterfallCols;
+    if (s_waterfallHead == 0) maybeShrinkWaterfallScale();
+
+    if (visible) drawWaterfallSweepLine();
+}
+
+// One-time full repaint - on entering Waterfall mode and on reconnect
+// (see s_needsFullRedraw in update()). Every other frame only touches
+// the single column that just changed.
+void fullRedrawWaterfall() {
+    drawWaterfallLegend();
+    for (int i = 0; i < kWaterfallCols; i++) drawWaterfallColumn(i);
+    drawWaterfallSweepLine();
 }
 
 void drawModeButton() {
@@ -356,17 +396,21 @@ void update(const SonarBle::Reading &reading, bool bleConnected) {
     if (s_needsFullRedraw) {
         s_needsFullRedraw = false;
         tft.fillRect(0, kStatusBarH + 1, 320, 240 - kStatusBarH - 1, kBg);
-        if (s_viewMode == ViewMode::Table) drawHistoryHeader();
+        if (s_viewMode == ViewMode::Table) {
+            drawHistoryHeader();
+        } else {
+            fullRedrawWaterfall();
+        }
     }
     if (reading.frameCount != s_lastFrameCount) {
         s_lastFrameCount = reading.frameCount;
         pushHistory(reading);
+        pushWaterfallColumn(reading);
     }
-    if (s_viewMode == ViewMode::Table) {
-        drawHistoryBlocks();
-    } else {
-        drawWaterfall();
-    }
+    // Waterfall doesn't need a per-tick redraw here - pushWaterfallColumn()
+    // above already drew the new column (and moved the sweep line) the
+    // moment new data arrived, and does nothing when it didn't.
+    if (s_viewMode == ViewMode::Table) drawHistoryBlocks();
 }
 
 bool isUpdateButtonAt(int x, int y) {
@@ -380,16 +424,6 @@ bool isModeButtonAt(int x, int y) {
 void cycleViewMode() {
     s_viewMode = s_viewMode == ViewMode::Table ? ViewMode::Waterfall : ViewMode::Table;
     s_needsFullRedraw = true;
-
-    // Allocated lazily (only once, on first entry to Waterfall mode)
-    // rather than in begin() - no point reserving ~130KB of heap for
-    // boats that only ever use the table view. If it fails (heap
-    // fragmented/low), drawWaterfall() just falls back to drawing
-    // straight to the panel - flickery like before, but still correct.
-    if (s_viewMode == ViewMode::Waterfall && !s_waterfallSpriteReady) {
-        waterfallSprite.setColorDepth(16);
-        s_waterfallSpriteReady = waterfallSprite.createSprite(320, kWaterfallH) != nullptr;
-    }
 }
 
 bool isWaterfallMode() { return s_viewMode == ViewMode::Waterfall; }
