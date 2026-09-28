@@ -63,6 +63,10 @@ void decodeFrame(const uint8_t *data) {
     if (rawTempTenthsF > 0 && rawTempTenthsF <= 2000) {
         s_reading.tempC = ((int)rawTempTenthsF - 320) / 18.0f;
     }
+
+    DebugLog::logf("frame %u: depth=%.2fm%s fish=%.2fm%s temp=%.1fC outOfWater=%d", s_reading.frameCount,
+                    s_reading.depthM, s_reading.valid ? "" : "(invalid)", s_reading.fishDepthM,
+                    s_reading.fishValid ? "" : "(none)", s_reading.tempC, s_reading.outOfWater);
 }
 
 size_t findSync(size_t from) {

@@ -24,7 +24,6 @@ constexpr uint16_t kWarn = TFT_YELLOW;
 constexpr uint16_t kOk = TFT_GREEN;
 constexpr uint16_t kBad = TFT_RED;
 constexpr uint16_t kCurrent = TFT_CYAN;  // the single newest reading, column "t"
-constexpr uint16_t kSeafloor = 0x8A22;   // approx "saddle brown" in RGB565, for the waterfall view
 
 // setTextColor(fg, bg) makes TFT_eSPI erase the previous glyph pixels
 // automatically on redraw, as long as the new string is padded to at
@@ -268,6 +267,30 @@ int waterfallY(float m) {
     return constrain(y, kWaterfallTop, kWaterfallBottom);
 }
 
+// Colours the seafloor trace by absolute screen depth (yellow at the
+// surface, through red, down to blue at the bottom of the plot) rather
+// than a single flat colour - a straight yellow->blue blend passes
+// through a dull grey midpoint, so this goes via red instead to stay
+// vivid the whole way down. Based on screen position, not each column's
+// own fill fraction, so the colour at a given y means the same physical
+// depth band regardless of scale or which column it's in.
+uint16_t depthGradientColor(int y) {
+    float f = constrain((float)(y - kWaterfallTop) / kWaterfallH, 0.0f, 1.0f);
+    uint8_t r, g, b;
+    if (f < 0.5f) {
+        float t = f / 0.5f;
+        r = 255;
+        g = (uint8_t)(255 * (1 - t));
+        b = 0;
+    } else {
+        float t = (f - 0.5f) / 0.5f;
+        r = (uint8_t)(255 * (1 - t));
+        g = 0;
+        b = (uint8_t)(255 * t);
+    }
+    return tft.color565(r, g, b);
+}
+
 void drawWaterfallLegend() {
     tft.fillRect(0, kWaterfallTop, kLegendW, kWaterfallH, kBg);
     tft.setTextDatum(TL_DATUM);
@@ -285,14 +308,19 @@ void drawWaterfallColumn(int col) {
     tft.drawFastVLine(x, kWaterfallTop, kWaterfallH, kBg);  // erase whatever was here before
     if (c.depthValid) {
         int y = waterfallY(c.depthM);
-        tft.drawFastVLine(x, y, kWaterfallBottom - y, kSeafloor);
+        // Only one new column drawn per reading (see pushWaterfallColumn),
+        // so a per-pixel loop here is cheap - unlike the old design this
+        // isn't running ~300 times over on every redraw.
+        for (int py = y; py <= kWaterfallBottom; py++) tft.drawPixel(x, py, depthGradientColor(py));
     } else {
         // No reading for this column (out-of-water frame, or just not
         // filled in yet) - mark it rather than leaving it visually
         // identical to an on-screen reading of exactly 0.
         tft.drawPixel(x, kWaterfallTop, kLabel);
     }
-    if (c.fishValid) tft.fillCircle(x, waterfallY(c.fishM), 2, kWarn);
+    // White fish dot - yellow would blend into the shallow end of the
+    // depth gradient now that the seafloor trace isn't a flat colour.
+    if (c.fishValid) tft.fillCircle(x, waterfallY(c.fishM), 2, kValue);
 }
 
 void drawWaterfallSweepLine() { tft.drawFastVLine(kLegendW + s_waterfallHead, kWaterfallTop, kWaterfallH, kSweep); }
