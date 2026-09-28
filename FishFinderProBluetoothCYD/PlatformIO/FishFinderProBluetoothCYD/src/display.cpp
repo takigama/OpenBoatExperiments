@@ -24,6 +24,7 @@ constexpr uint16_t kWarn = TFT_YELLOW;
 constexpr uint16_t kOk = TFT_GREEN;
 constexpr uint16_t kBad = TFT_RED;
 constexpr uint16_t kCurrent = TFT_CYAN;  // the single newest reading, column "t"
+constexpr uint16_t kSeafloor = 0x8A22;   // approx "saddle brown" in RGB565, for the waterfall view
 
 // setTextColor(fg, bg) makes TFT_eSPI erase the previous glyph pixels
 // automatically on redraw, as long as the new string is padded to at
@@ -88,7 +89,14 @@ void drawSignalIcon(int x, int y, int bars) {
     }
 }
 
-constexpr int kUpdateBtnX = 90, kUpdateBtnY = 2, kUpdateBtnW = 140, kUpdateBtnH = 22;
+// Both buttons here use their exact drawn rects for hit-testing (see
+// isUpdateButtonAt()/isModeButtonAt()) - trusting the touch driver's real
+// 2-point calibration (see touch.cpp) rather than the padded/shifted
+// hit-zone hack an earlier version of this file needed before that
+// calibration existed. Proven reliable since via the keyboard/WiFi
+// picker screens, which already rely on exact-rect hits.
+constexpr int kUpdateBtnX = 68, kUpdateBtnY = 2, kUpdateBtnW = 95, kUpdateBtnH = 22;
+constexpr int kModeBtnX = 169, kModeBtnY = 2, kModeBtnW = 73, kModeBtnH = 22;
 
 void drawUpdateButton() {
     tft.drawRoundRect(kUpdateBtnX, kUpdateBtnY, kUpdateBtnW, kUpdateBtnH, 4, kLabel);
@@ -99,6 +107,11 @@ void drawUpdateButton() {
     tft.setTextDatum(TL_DATUM);
 }
 
+// Defined further down (after ViewMode/s_viewMode exist, see the "Sonar
+// waterfall view" section) - forward-declared so drawStatusBar() below
+// can call it.
+void drawModeButton();
+
 void drawStatusBar(const SonarBle::Reading &reading, bool bleConnected) {
     tft.setTextDatum(TL_DATUM);
     tft.setTextFont(2);
@@ -108,21 +121,24 @@ void drawStatusBar(const SonarBle::Reading &reading, bool bleConnected) {
     printPadded(String(reading.tempC, 1) + "C", 6);
 
     drawUpdateButton();
+    drawModeButton();
     drawBatteryIcon(248, 5, reading.battery);
     drawSignalIcon(294, 5, bleConnected ? rssiToBars(reading.rssi) : 0);
 
     tft.drawFastHLine(0, kStatusBarH, 320, kLabel);
 }
 
-// --- Depth/fish-depth rolling history table ------------------------------
+// --- Depth/fish-depth rolling history -------------------------------------
 //
-// 10 columns per block (newest on the left), stacked as 4 blocks going
-// further back in time top-to-bottom - the screen's free space below the
-// status bar fits 40 total samples this way instead of just 10.
+// Shared by both view modes: the table (10 columns per block, 4 blocks
+// stacked, newest at top-left) and the waterfall (one column of history
+// per pixel across its drawable width - see further down). Sized for the
+// waterfall's needs (the larger of the two); the table just reads the
+// first kColsPerBlock*kBlocks entries of the same buffer.
+constexpr int kHistoryLen = 300;
 
 constexpr int kColsPerBlock = 10;
 constexpr int kBlocks = 4;
-constexpr int kHistoryLen = kColsPerBlock * kBlocks;
 constexpr int kLabelColW = 22;
 constexpr int kColW = (320 - kLabelColW) / kColsPerBlock;
 constexpr int kHeaderY = kStatusBarH + 4;
@@ -195,6 +211,75 @@ void drawHistoryBlocks() {
     }
 }
 
+// --- Sonar "waterfall" view ------------------------------------------------
+//
+// The classic scrolling fish-finder look: newest reading at the right
+// edge, older readings scroll left as time passes, depth traced as a
+// filled "seafloor" from the bottom of the screen up to the reading, fish
+// drawn as a small dot at their own depth when detected. One history
+// column per pixel across the drawable width - reuses the same
+// s_history[] the table view does (see above), just reading further into
+// it and drawing it differently.
+
+enum class ViewMode { Table, Waterfall };
+ViewMode s_viewMode = ViewMode::Table;
+bool s_needsFullRedraw = true;
+
+constexpr int kLegendW = 22;
+constexpr int kWaterfallTop = kStatusBarH + 1;
+constexpr int kWaterfallBottom = 239;
+constexpr int kWaterfallH = kWaterfallBottom - kWaterfallTop;
+constexpr int kWaterfallCols = 320 - kLegendW;  // <= kHistoryLen, checked with a static_assert below
+static_assert(kWaterfallCols <= kHistoryLen, "history buffer too small for the waterfall's drawable width");
+
+void drawWaterfall() {
+    tft.fillRect(kLegendW, kWaterfallTop, kWaterfallCols, kWaterfallH, kBg);
+
+    // Auto-scaled to whatever's actually in view, not the device's
+    // configured range setting - simpler than trusting the range-index
+    // mapping, and adapts naturally as the boat moves into deeper/
+    // shallower water. Floor + headroom keep it from zooming in too hard
+    // on a handful of very shallow readings.
+    float maxDepth = 5.0f;
+    for (int i = 0; i < kWaterfallCols; i++) {
+        if (s_history[i].depthValid && s_history[i].depthM > maxDepth) maxDepth = s_history[i].depthM;
+    }
+    maxDepth *= 1.1f;
+
+    for (int i = 0; i < kWaterfallCols; i++) {
+        const HistEntry &h = s_history[i];
+        int x = 319 - i;
+        if (h.depthValid) {
+            int y = kWaterfallTop + (int)((h.depthM / maxDepth) * kWaterfallH);
+            y = constrain(y, kWaterfallTop, kWaterfallBottom);
+            tft.drawFastVLine(x, y, kWaterfallBottom - y, kSeafloor);
+        }
+        if (h.fishValid) {
+            int fy = kWaterfallTop + (int)((h.fishM / maxDepth) * kWaterfallH);
+            fy = constrain(fy, kWaterfallTop, kWaterfallBottom);
+            tft.fillCircle(x, fy, 2, kWarn);
+        }
+    }
+
+    tft.fillRect(0, kWaterfallTop, kLegendW, kWaterfallH, kBg);
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextFont(1);
+    tft.setTextColor(kLabel, kBg);
+    tft.drawString("0", 2, kWaterfallTop);
+    tft.drawString(String(maxDepth, 0), 2, kWaterfallBottom - 8);
+    tft.setTextDatum(TL_DATUM);
+}
+
+void drawModeButton() {
+    tft.drawRoundRect(kModeBtnX, kModeBtnY, kModeBtnW, kModeBtnH, 4, kLabel);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextFont(2);
+    tft.setTextColor(kLabel, kBg);
+    tft.drawString(s_viewMode == ViewMode::Table ? "Sonar" : "Table", kModeBtnX + kModeBtnW / 2,
+                    kModeBtnY + kModeBtnH / 2);
+    tft.setTextDatum(TL_DATUM);
+}
+
 }  // namespace
 
 void begin() {
@@ -222,33 +307,37 @@ void update(const SonarBle::Reading &reading, bool bleConnected) {
         tft.setTextColor(kWarn, kBg);
         tft.setCursor(10, 70);
         printPadded("Searching for sonar...", 20);
-        s_lastFrameCount = 0;  // next connect always redraws the table header fresh
+        s_needsFullRedraw = true;  // next connect always redraws fresh
         return;
     }
 
-    if (s_lastFrameCount == 0) {
+    if (s_needsFullRedraw) {
+        s_needsFullRedraw = false;
         tft.fillRect(0, kStatusBarH + 1, 320, 240 - kStatusBarH - 1, kBg);
-        drawHistoryHeader();
+        if (s_viewMode == ViewMode::Table) drawHistoryHeader();
     }
     if (reading.frameCount != s_lastFrameCount) {
         s_lastFrameCount = reading.frameCount;
         pushHistory(reading);
     }
-    drawHistoryBlocks();
+    if (s_viewMode == ViewMode::Table) {
+        drawHistoryBlocks();
+    } else {
+        drawWaterfall();
+    }
 }
 
 bool isUpdateButtonAt(int x, int y) {
-    // NOT the button's drawn bounds - the touch driver's raw-to-pixel
-    // mapping is a naive linear 0-4095 assumption (see touch.cpp) that
-    // turned out to have the wrong scale, not just an offset: repeated
-    // taps across this button's full ~140px drawn width only produced
-    // roughly a 50px spread in mapped coordinates, clustered around
-    // x=130-180, y=29-44 - well below the button's own drawn y=2-24.
-    // Rather than chase a proper calibration for one button, this hit
-    // zone is set directly from that measured cluster, generously
-    // padded, instead of from the button's own (differently-scaled)
-    // drawn rectangle.
-    return x >= 100 && x <= 220 && y >= 15 && y <= 60;
+    return x >= kUpdateBtnX && x <= kUpdateBtnX + kUpdateBtnW && y >= kUpdateBtnY && y <= kUpdateBtnY + kUpdateBtnH;
+}
+
+bool isModeButtonAt(int x, int y) {
+    return x >= kModeBtnX && x <= kModeBtnX + kModeBtnW && y >= kModeBtnY && y <= kModeBtnY + kModeBtnH;
+}
+
+void cycleViewMode() {
+    s_viewMode = s_viewMode == ViewMode::Table ? ViewMode::Waterfall : ViewMode::Table;
+    s_needsFullRedraw = true;
 }
 
 void drawCalibrationGrid() {

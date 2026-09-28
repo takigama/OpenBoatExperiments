@@ -38,8 +38,12 @@ void loop() {
     SonarBle::loop();
 
     int tx, ty;
-    if (Touch::pollTap(&tx, &ty) && Display::isUpdateButtonAt(tx, ty)) {
-        OpMode::switchTo(OpMode::Mode::Wifi);  // does not return
+    if (Touch::pollTap(&tx, &ty)) {
+        if (Display::isUpdateButtonAt(tx, ty)) {
+            OpMode::switchTo(OpMode::Mode::Wifi);  // does not return
+        } else if (Display::isModeButtonAt(tx, ty)) {
+            Display::cycleViewMode();
+        }
     }
 
     // loop() itself runs far faster than the sonar's ~4.5Hz frame rate -
