@@ -232,9 +232,25 @@ constexpr int kWaterfallH = kWaterfallBottom - kWaterfallTop;
 constexpr int kWaterfallCols = 320 - kLegendW;  // <= kHistoryLen, checked with a static_assert below
 static_assert(kWaterfallCols <= kHistoryLen, "history buffer too small for the waterfall's drawable width");
 
-void drawWaterfall() {
-    tft.fillRect(kLegendW, kWaterfallTop, kWaterfallCols, kWaterfallH, kBg);
+// Redrawing straight to the panel (clear the whole area, then ~300
+// drawFastVLine/fillCircle calls over SPI) is visibly slow enough at
+// 200ms that the clear-to-black shows through as flicker before the new
+// frame finishes. Building the same frame in an off-screen sprite first
+// and pushing it in one burst hides that - the panel only ever shows
+// "old frame" or "new frame", never the half-drawn gap between them.
+// Sized full-width (320) so the legend column is covered by the same
+// single clear+push as the plot itself.
+TFT_eSprite waterfallSprite(&tft);
+bool s_waterfallSpriteReady = false;
 
+// Shared by both draw paths below - `canvas` is either the sprite or
+// `tft` itself (the fallback path if the sprite failed to allocate), and
+// y-coordinates are relative to kWaterfallTop (0 = the top of the
+// waterfall area) so the same code works whether `canvas` is the
+// full-screen tft (needs +kWaterfallTop) or the sprite (doesn't, it
+// starts at the waterfall's top edge) - hence the yOffset parameter.
+template <typename Canvas>
+void drawWaterfallFrame(Canvas &canvas, int yOffset) {
     // Auto-scaled to whatever's actually in view, not the device's
     // configured range setting - simpler than trusting the range-index
     // mapping, and adapts naturally as the boat moves into deeper/
@@ -250,31 +266,45 @@ void drawWaterfall() {
         const HistEntry &h = s_history[i];
         int x = 319 - i;
         if (h.depthValid) {
-            int y = kWaterfallTop + (int)((h.depthM / maxDepth) * kWaterfallH);
-            y = constrain(y, kWaterfallTop, kWaterfallBottom);
-            tft.drawFastVLine(x, y, kWaterfallBottom - y, kSeafloor);
+            int y = yOffset + (int)((h.depthM / maxDepth) * kWaterfallH);
+            y = constrain(y, yOffset, yOffset + kWaterfallH);
+            canvas.drawFastVLine(x, y, yOffset + kWaterfallH - y, kSeafloor);
         } else {
             // No reading for this column (out-of-water frame, or just not
             // filled in yet) - mark it rather than leaving it visually
             // identical to a column that simply hasn't scrolled in yet at
             // full depth. A dim dot at the very top reads as a gap in the
             // seafloor trace without competing with it for attention.
-            tft.drawPixel(x, kWaterfallTop, kLabel);
+            canvas.drawPixel(x, yOffset, kLabel);
         }
         if (h.fishValid) {
-            int fy = kWaterfallTop + (int)((h.fishM / maxDepth) * kWaterfallH);
-            fy = constrain(fy, kWaterfallTop, kWaterfallBottom);
-            tft.fillCircle(x, fy, 2, kWarn);
+            int fy = yOffset + (int)((h.fishM / maxDepth) * kWaterfallH);
+            fy = constrain(fy, yOffset, yOffset + kWaterfallH);
+            canvas.fillCircle(x, fy, 2, kWarn);
         }
     }
 
-    tft.fillRect(0, kWaterfallTop, kLegendW, kWaterfallH, kBg);
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextFont(1);
-    tft.setTextColor(kLabel, kBg);
-    tft.drawString("0", 2, kWaterfallTop);
-    tft.drawString(String(maxDepth, 0), 2, kWaterfallBottom - 8);
-    tft.setTextDatum(TL_DATUM);
+    canvas.setTextDatum(TL_DATUM);
+    canvas.setTextFont(1);
+    canvas.setTextColor(kLabel, kBg);
+    canvas.drawString("0", 2, yOffset);
+    canvas.drawString(String(maxDepth, 0), 2, yOffset + kWaterfallH - 8);
+    canvas.setTextDatum(TL_DATUM);
+}
+
+void drawWaterfallDirect() {
+    tft.fillRect(0, kWaterfallTop, 320, kWaterfallH, kBg);
+    drawWaterfallFrame(tft, kWaterfallTop);
+}
+
+void drawWaterfall() {
+    if (!s_waterfallSpriteReady) {
+        drawWaterfallDirect();
+        return;
+    }
+    waterfallSprite.fillSprite(kBg);
+    drawWaterfallFrame(waterfallSprite, 0);
+    waterfallSprite.pushSprite(0, kWaterfallTop);
 }
 
 void drawModeButton() {
@@ -350,6 +380,16 @@ bool isModeButtonAt(int x, int y) {
 void cycleViewMode() {
     s_viewMode = s_viewMode == ViewMode::Table ? ViewMode::Waterfall : ViewMode::Table;
     s_needsFullRedraw = true;
+
+    // Allocated lazily (only once, on first entry to Waterfall mode)
+    // rather than in begin() - no point reserving ~130KB of heap for
+    // boats that only ever use the table view. If it fails (heap
+    // fragmented/low), drawWaterfall() just falls back to drawing
+    // straight to the panel - flickery like before, but still correct.
+    if (s_viewMode == ViewMode::Waterfall && !s_waterfallSpriteReady) {
+        waterfallSprite.setColorDepth(16);
+        s_waterfallSpriteReady = waterfallSprite.createSprite(320, kWaterfallH) != nullptr;
+    }
 }
 
 bool isWaterfallMode() { return s_viewMode == ViewMode::Waterfall; }
