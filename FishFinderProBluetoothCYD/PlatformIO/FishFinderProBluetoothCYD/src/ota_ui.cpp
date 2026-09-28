@@ -40,8 +40,9 @@ struct Btn {
     }
 };
 
-constexpr Btn kDoOtaBtn{60, 140, 200, 30};
-constexpr Btn kBackBtn{60, 185, 200, 30};
+constexpr Btn kDoOtaBtn{60, 132, 200, 26};
+constexpr Btn kBackBtn{60, 164, 200, 26};
+constexpr Btn kForgetWifiBtn{60, 196, 200, 26};
 
 void drawMessage(const String &line1, const String &line2, uint16_t color) {
     tft.fillRect(0, 40, 320, 90, kBg);
@@ -61,15 +62,18 @@ void redraw() {
         case State::Checking:
             drawMessage("Checking for update...", "", kLabel);
             kBackBtn.draw("Back to Sonar", kLabel);
+            kForgetWifiBtn.draw("Forget WiFi", kLabel);
             break;
         case State::UpdateAvailable:
             drawMessage("Update available", "build " + String(s_info.build), kOk);
             kDoOtaBtn.draw("Do OTA", kOk);
             kBackBtn.draw("Back to Sonar", kLabel);
+            kForgetWifiBtn.draw("Forget WiFi", kLabel);
             break;
         case State::UpToDate:
             drawMessage("Up to date", "running build " + String(FW_BUILD), kValue);
             kBackBtn.draw("Back to Sonar", kLabel);
+            kForgetWifiBtn.draw("Forget WiFi", kLabel);
             break;
     }
 }
@@ -124,31 +128,44 @@ void runWifiSetup() {
     tft.drawString("Scanning for WiFi...", 160, 120);
     tft.setTextDatum(TL_DATUM);
 
-    constexpr int kMaxShown = 4;  // leaves room for manual/phone/back buttons below without overflowing
+    // Only 3 rows actually fit alongside the prev/next/manual/phone/back
+    // controls below - scanNetworks() can easily find more than that, so
+    // this pages through them rather than just truncating the list.
+    constexpr int kPerPage = 3;
     int n = WiFi.scanNetworks();
-    if (n > kMaxShown) n = kMaxShown;
     if (n < 0) n = 0;
+    int totalPages = n == 0 ? 1 : (n + kPerPage - 1) / kPerPage;
+    int page = 0;
 
     for (;;) {
         tft.fillScreen(kBg);
         tft.setTextDatum(MC_DATUM);
         tft.setTextFont(2);
         tft.setTextColor(kValue, kBg);
-        tft.drawString("Select a WiFi network", 160, 10);
+        tft.drawString("Select a WiFi network (" + String(page + 1) + "/" + String(totalPages) + ")", 160, 10);
         tft.setTextDatum(TL_DATUM);
 
-        constexpr int kRowH = 28, kListTop = 24;
-        Btn rows[kMaxShown];
-        for (int i = 0; i < n; i++) {
+        constexpr int kRowH = 26, kListTop = 20;
+        int firstIdx = page * kPerPage;
+        int shownOnPage = min(kPerPage, n - firstIdx);
+        Btn rows[kPerPage];
+        for (int i = 0; i < shownOnPage; i++) {
             rows[i] = {10, kListTop + i * kRowH, 300, kRowH - 4};
-            String label = WiFi.SSID(i) + " (" + String(WiFi.RSSI(i)) + " dBm)";
+            String label = WiFi.SSID(firstIdx + i) + " (" + String(WiFi.RSSI(firstIdx + i)) + " dBm)";
             rows[i].draw(label.c_str(), kValue);
         }
-        Btn manualBtn{10, kListTop + n * kRowH + 6, 300, 28};
+
+        constexpr int kNavY = kListTop + kPerPage * kRowH + 4;
+        Btn prevBtn{10, kNavY, 145, 24};
+        Btn nextBtn{165, kNavY, 145, 24};
+        prevBtn.draw("< Prev", page > 0 ? kValue : kLabel);
+        nextBtn.draw("Next >", page < totalPages - 1 ? kValue : kLabel);
+
+        Btn manualBtn{10, kNavY + 30, 300, 26};
         manualBtn.draw("Enter manually", kLabel);
-        Btn phoneBtn{10, kListTop + (n + 1) * kRowH + 10, 300, 28};
+        Btn phoneBtn{10, kNavY + 60, 300, 26};
         phoneBtn.draw("Setup from phone", kLabel);
-        Btn backBtn{10, kListTop + (n + 2) * kRowH + 14, 300, 28};
+        Btn backBtn{10, kNavY + 90, 300, 26};
         backBtn.draw("Back to Sonar (skip WiFi setup)", kLabel);
 
         int x = -1, y = -1;
@@ -161,15 +178,23 @@ void runWifiSetup() {
         if (backBtn.hit(x, y)) {
             OpMode::switchTo(OpMode::Mode::Ble);  // does not return
         }
+        if (prevBtn.hit(x, y)) {
+            if (page > 0) page--;
+            continue;
+        }
+        if (nextBtn.hit(x, y)) {
+            if (page < totalPages - 1) page++;
+            continue;
+        }
 
         int hitRow = -1;
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < shownOnPage; i++) {
             if (rows[i].hit(x, y)) hitRow = i;
         }
 
         String ssid;
         if (hitRow >= 0) {
-            ssid = WiFi.SSID(hitRow);
+            ssid = WiFi.SSID(firstIdx + hitRow);
         } else if (manualBtn.hit(x, y)) {
             ssid = Keyboard::run(tft, "WiFi network name", "", false);
             if (ssid.isEmpty()) continue;  // cancelled - re-show the picker
@@ -180,7 +205,12 @@ void runWifiSetup() {
             continue;  // tap missed every control - redraw and wait again
         }
 
-        String pass = Keyboard::run(tft, "Password for \"" + ssid + "\"", "", true);
+        // Shown in plain text, not masked - this is entered on-screen via
+        // the keyboard widget below, with no one else around to shoulder-
+        // surf it, and being able to see what was actually typed matters
+        // more here than hiding it, given how easy it is to fat-finger a
+        // small on-screen key.
+        String pass = Keyboard::run(tft, "Password for \"" + ssid + "\"", "", false);
         WifiManager::saveCredentialsAndReboot(ssid, pass);  // does not return
     }
 }
@@ -227,6 +257,9 @@ void loop() {
     }
     if (kBackBtn.hit(x, y)) {  // drawn (and tappable) in every state - see redraw()
         OpMode::switchTo(OpMode::Mode::Ble);  // does not return
+    }
+    if (kForgetWifiBtn.hit(x, y)) {  // drawn (and tappable) in every state - see redraw()
+        WifiManager::forgetCredentialsAndReboot();  // does not return
     }
 }
 

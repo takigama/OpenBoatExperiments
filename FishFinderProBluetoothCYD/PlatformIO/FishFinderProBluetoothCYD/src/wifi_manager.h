@@ -23,6 +23,11 @@ Mode currentMode();
 // Persists new credentials and reboots to attempt joining them.
 void saveCredentialsAndReboot(const String &ssid, const String &password);
 
+// Clears saved credentials and reboots - the next WiFi-mode boot will
+// find nothing saved and fall back to AP mode (the on-device setup
+// picker), same as a never-configured board.
+void forgetCredentialsAndReboot();
+
 // AP-mode SSID, e.g. "FishFinderCYD-A4CF" (last two MAC bytes).
 String apSsid();
 

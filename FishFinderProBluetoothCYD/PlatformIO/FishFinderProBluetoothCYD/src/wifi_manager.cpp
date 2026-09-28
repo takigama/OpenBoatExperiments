@@ -96,6 +96,16 @@ void saveCredentialsAndReboot(const String &ssid, const String &password) {
     ESP.restart();
 }
 
+void forgetCredentialsAndReboot() {
+    Preferences p = prefs();
+    p.remove("ssid");
+    p.remove("pass");
+    p.end();
+    DebugLog::logf("wifi: credentials forgotten, rebooting");
+    delay(200);
+    ESP.restart();
+}
+
 String apSsid() { return s_apSsid; }
 
 }  // namespace WifiManager
