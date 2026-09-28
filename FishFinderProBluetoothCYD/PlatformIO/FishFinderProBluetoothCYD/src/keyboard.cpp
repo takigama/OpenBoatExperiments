@@ -44,20 +44,25 @@ void drawKey(TFT_eSPI &tft, Rect r, const String &label, uint16_t bg = kKeyBg) {
     tft.setTextDatum(TL_DATUM);
 }
 
-// Row of single-character keys, evenly dividing the full 320px width.
-void drawCharRow(TFT_eSPI &tft, const char *chars, int y, bool upper) {
+// Row of single-character keys, evenly dividing `width` px starting at
+// x=0. width defaults to the full screen (rows 1/2 always span it all);
+// row 3 in Symbols mode passes a narrower width to leave Backspace's
+// space untouched instead of drawing symbol keys underneath it - see the
+// comment above kBackBtn for why that overlap was a real bug, not just
+// visual.
+void drawCharRow(TFT_eSPI &tft, const char *chars, int y, bool upper, int width = 320) {
     int n = strlen(chars);
-    int w = 320 / n;
+    int w = width / n;
     for (int i = 0; i < n; i++) {
         char c = upper ? toupper(chars[i]) : chars[i];
         drawKey(tft, {i * w, y, w, kRowH}, String(c));
     }
 }
 
-int charRowHit(const char *chars, int y, int px, int py) {
+int charRowHit(const char *chars, int y, int px, int py, int width = 320) {
     if (py < y || py > y + kRowH) return -1;
     int n = strlen(chars);
-    int w = 320 / n;
+    int w = width / n;
     int i = px / w;
     if (i < 0 || i >= n) return -1;
     return i;
@@ -85,8 +90,11 @@ String run(TFT_eSPI &tft, const String &prompt, const String &initial, bool mask
     String text = initial;
     Mode mode = Mode::Lower;
 
-    constexpr Rect kShiftBtn{0, kKeysTop + kRowH * 2, 48, kRowH};
-    constexpr Rect kBackBtn{320 - 48, kKeysTop + kRowH * 2, 48, kRowH};
+    // Wider than the letter keys - gives real touch imprecision more
+    // margin around the two keys someone leans on hardest (backspace to
+    // fix typos, shift to capitalize).
+    constexpr Rect kShiftBtn{0, kKeysTop + kRowH * 2, 56, kRowH};
+    constexpr Rect kBackBtn{320 - 56, kKeysTop + kRowH * 2, 56, kRowH};
     constexpr Rect kModeBtn{0, kKeysTop + kRowH * 3, 64, kRowH};
     constexpr Rect kSpaceBtn{64, kKeysTop + kRowH * 3, 160, kRowH};
     constexpr Rect kEnterBtn{224, kKeysTop + kRowH * 3, 96, kRowH};
@@ -104,7 +112,7 @@ String run(TFT_eSPI &tft, const String &prompt, const String &initial, bool mask
         drawCharRow(tft, r2, kKeysTop + kRowH, upper);
 
         if (mode == Mode::Symbols) {
-            drawCharRow(tft, r3, kKeysTop + kRowH * 2, false);
+            drawCharRow(tft, r3, kKeysTop + kRowH * 2, false, 320 - kBackBtn.w);
         } else {
             drawKey(tft, kShiftBtn, "Shift", mode == Mode::Upper ? TFT_OLIVE : kKeyBg);
             int w = (320 - kShiftBtn.w - kBackBtn.w) / (int)strlen(r3);
@@ -133,23 +141,15 @@ String run(TFT_eSPI &tft, const String &prompt, const String &initial, bool mask
         const char *r2 = mode == Mode::Symbols ? kRow2Symbols : kRow2Letters;
         const char *r3 = mode == Mode::Symbols ? kRow3Symbols : kRow3Letters;
 
+        // Fixed-position special keys are checked FIRST, each against its
+        // own exact rect, before any of the char-row fallback logic runs -
+        // previously these were two independent if-chains, so a tap that
+        // landed just outside kBackBtn's rect (ordinary touch imprecision)
+        // fell through into the row-3 letter math instead of just missing
+        // cleanly, silently typing a character instead of backspacing.
+        // Checking these first and unconditionally means a genuine hit on
+        // one of them can never be reinterpreted as something else.
         int idx;
-        if ((idx = charRowHit(r1, kKeysTop, x, y)) >= 0) {
-            text += upper ? (char)toupper(r1[idx]) : r1[idx];
-        } else if ((idx = charRowHit(r2, kKeysTop + kRowH, x, y)) >= 0) {
-            text += upper ? (char)toupper(r2[idx]) : r2[idx];
-        } else if (mode == Mode::Symbols && (idx = charRowHit(r3, kKeysTop + kRowH * 2, x, y)) >= 0) {
-            text += r3[idx];
-        } else if (mode != Mode::Symbols && y >= kKeysTop + kRowH * 2 && y <= kKeysTop + kRowH * 3) {
-            if (kShiftBtn.hit(x, y)) {
-                mode = mode == Mode::Upper ? Mode::Lower : Mode::Upper;
-            } else if (!kBackBtn.hit(x, y)) {
-                int w = (320 - kShiftBtn.w - kBackBtn.w) / (int)strlen(r3);
-                int i = (x - kShiftBtn.w) / w;
-                if (i >= 0 && i < (int)strlen(r3)) text += upper ? (char)toupper(r3[i]) : r3[i];
-            }
-        }
-
         if (kBackBtn.hit(x, y)) {
             if (text.length()) text.remove(text.length() - 1);
         } else if (kModeBtn.hit(x, y)) {
@@ -158,6 +158,19 @@ String run(TFT_eSPI &tft, const String &prompt, const String &initial, bool mask
             text += ' ';
         } else if (kEnterBtn.hit(x, y)) {
             return text;
+        } else if (mode != Mode::Symbols && kShiftBtn.hit(x, y)) {
+            mode = mode == Mode::Upper ? Mode::Lower : Mode::Upper;
+        } else if ((idx = charRowHit(r1, kKeysTop, x, y)) >= 0) {
+            text += upper ? (char)toupper(r1[idx]) : r1[idx];
+        } else if ((idx = charRowHit(r2, kKeysTop + kRowH, x, y)) >= 0) {
+            text += upper ? (char)toupper(r2[idx]) : r2[idx];
+        } else if (mode == Mode::Symbols &&
+                   (idx = charRowHit(r3, kKeysTop + kRowH * 2, x, y, 320 - kBackBtn.w)) >= 0) {
+            text += r3[idx];
+        } else if (mode != Mode::Symbols && y >= kKeysTop + kRowH * 2 && y <= kKeysTop + kRowH * 3) {
+            int w = (320 - kShiftBtn.w - kBackBtn.w) / (int)strlen(r3);
+            int i = (x - kShiftBtn.w) / w;
+            if (i >= 0 && i < (int)strlen(r3)) text += upper ? (char)toupper(r3[i]) : r3[i];
         }
 
         redraw();
