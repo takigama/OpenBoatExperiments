@@ -10,6 +10,27 @@ temp/battery reading shows live on a built-in screen instead of (or
 alongside) Serial/NMEA output - no laptop or RPi tether needed to see a
 reading, which matters for wet-testing at real depth away from a desk.
 
+## Screenshots
+
+**Waterfall view** - depth traced yellow (shallow) through red to blue
+(deep), green line marks the sweep's current write position:
+
+![Waterfall view](docs/images/waterfall-view.jpg)
+
+**Table view** - scrolling depth/fish-depth history, 1 decimal place:
+
+![Table view](docs/images/table-view.jpg)
+
+**OTA check** - confirms the running build and whether an update's
+available:
+
+![OTA check screen](docs/images/ota-check.jpg)
+
+**WiFi network picker** - shown when no WiFi is configured or the last
+join failed, paginated with signal strength:
+
+![WiFi network picker](docs/images/wifi-picker.jpg)
+
 ## Board
 
 - Sold as "CYD" (Cheap Yellow Display) - widely available under many
