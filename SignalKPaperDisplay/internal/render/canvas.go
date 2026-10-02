@@ -147,6 +147,38 @@ func (c *Canvas) Ring(cx, cy, r float64, thick float64, shade uint8) {
 	}
 }
 
+// Disc draws an antialiased filled circle.
+func (c *Canvas) Disc(cx, cy, r float64, shade uint8) {
+	for y := int(cy - r - 1); y <= int(cy+r+1); y++ {
+		dy := float64(y) - cy
+		if math.Abs(dy) > r+1 {
+			continue
+		}
+		half := int(math.Sqrt(math.Max(0, (r+1)*(r+1)-dy*dy))) + 1
+		for x := int(cx) - half; x <= int(cx)+half; x++ {
+			c.blend(x, y, shade, r-math.Hypot(float64(x)-cx, dy)+0.5)
+		}
+	}
+}
+
+// Cog draws a gear icon of outer radius r: a body, eight teeth and a hub
+// hole cut in the background shade.
+func (c *Canvas) Cog(cx, cy, r float64, shade, bg uint8) {
+	c.Disc(cx, cy, r*0.72, shade)
+	for i := 0; i < 8; i++ {
+		a := float64(i) * math.Pi / 4
+		ux, uy := math.Cos(a), math.Sin(a)
+		vx, vy := -uy, ux
+		pt := func(along, across float64) image.Point {
+			return image.Pt(int(math.Round(cx+ux*along+vx*across)), int(math.Round(cy+uy*along+vy*across)))
+		}
+		c.FillPolygon([]image.Point{
+			pt(r*0.6, r*0.22), pt(r, r*0.15), pt(r, -r*0.15), pt(r*0.6, -r*0.22),
+		}, shade)
+	}
+	c.Disc(cx, cy, r*0.3, bg)
+}
+
 // FillPolygon fills a convex or simple polygon using an even-odd scanline.
 func (c *Canvas) FillPolygon(pts []image.Point, shade uint8) {
 	minY, maxY := pts[0].Y, pts[0].Y

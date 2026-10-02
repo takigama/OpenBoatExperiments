@@ -24,13 +24,17 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   output for working on a PC
 - A launcher that keeps it running, rolls back a bad update and restores the
   stock UI if it can't stay up (see "Running it on the Kindle")
-- Touch: tap the left/right third (or swipe) to change page
+- Touch: tap the left/right third (or swipe) to change page; tap the cog
+  at the top left to open settings
+- Settings: the imperial/metric preset and a unit for every metric, saved to
+  `settings.json` beside the app (tap the back arrow to leave)
 - A clock in the header, drawn by the app
 - Self-update from GitHub releases (see below)
 - `platforms/kindle-pw3/install/deploy.sh` to copy a build onto the device
 
-Not built yet: the settings dialog, Wind and AIS pages, front-light sliders,
-timezone setting, and direct framebuffer drawing with dirty-region updates.
+Not built yet: Wind and AIS pages, front-light sliders, a timezone setting and
+an install/update-now button in settings, and direct framebuffer drawing with
+dirty-region updates.
 
 ## Running it on the Kindle
 

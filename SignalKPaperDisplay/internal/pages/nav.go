@@ -19,6 +19,17 @@ const StaleAfter = 5 * time.Second
 
 const headerH = 90
 
+// The settings cog sits at the left of every page's header, with the title
+// beside it.
+const (
+	cogX, cogY, cogR = 58.0, 46.0, 30.0
+	titleX           = 112
+)
+
+// CogRect is the area that opens settings. It's deliberately bigger than
+// the icon - a fingertip on a moving boat isn't precise.
+var CogRect = image.Rect(0, 0, 170, headerH+10)
+
 func degrees(rad float64) float64 {
 	d := math.Mod(rad*180/math.Pi, 360)
 	if d < 0 {
@@ -82,10 +93,12 @@ func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
 	clock := now.Format("15:04")
 	if lost {
 		c.FillRect(image.Rect(0, 0, b.Dx(), headerH), render.Black)
+		c.Cog(cogX, cogY, cogR, render.White, render.Black) // settings stay reachable with no data
 		c.Text(b.Dx()/2, 64, "NO DATA", 60, render.Bold, render.Center, render.White)
 		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.White)
 	} else {
-		c.Text(40, 64, title, 56, render.Bold, render.Left, render.Black)
+		c.Cog(cogX, cogY, cogR, render.Black, render.White)
+		c.Text(titleX, 64, title, 56, render.Bold, render.Left, render.Black)
 		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.Black)
 	}
 	c.HLine(0, b.Dx(), headerH, 4, render.Black)

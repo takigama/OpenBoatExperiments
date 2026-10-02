@@ -137,6 +137,20 @@ type Settings struct {
 	Overrides map[string]string `json:"overrides,omitempty"` // metric ID -> unit symbol
 }
 
+// Clone returns an independent copy. Settings holds a map, so a plain
+// assignment shares it - and the touch handler edits settings while the
+// renderer reads them.
+func (s Settings) Clone() Settings {
+	c := Settings{Preset: s.Preset}
+	if len(s.Overrides) > 0 {
+		c.Overrides = make(map[string]string, len(s.Overrides))
+		for k, v := range s.Overrides {
+			c.Overrides[k] = v
+		}
+	}
+	return c
+}
+
 func (s Settings) preset() map[Quantity]string {
 	if p, ok := presets[s.Preset]; ok {
 		return p

@@ -10,11 +10,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"signalkpaperdisplay/internal/app"
 	"signalkpaperdisplay/internal/display"
+	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/profile"
 	"signalkpaperdisplay/internal/signalk"
 	"signalkpaperdisplay/internal/units"
@@ -52,6 +54,7 @@ func main() {
 		waveform     = flag.String("waveform", "DU", "e-ink waveform for partial updates with -display fbink: DU is fast (~290ms on a Paperwhite 3, coarse grays), GL16 or \"\" (FBInk's choice) is slower (~540ms) but smoother; full refreshes always use full quality")
 		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for eips/fbink (use tmpfs, not flash)")
 		pageID       = flag.String("page", "nav", "page to show: nav, compass")
+		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset or unit:<metric>")
 		settingsPath = flag.String("settings", "settings.json", "unit settings file (missing = metric defaults)")
 		fullEvery    = flag.Duration("full-refresh", 5*time.Minute, "flashing full refresh interval, to clear e-ink ghosting")
 		once         = flag.Bool("once", false, "render a single frame after -wait, then exit (for previews)")
@@ -141,10 +144,21 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Units: unitSettings}
+	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Units: unitSettings, UnitsPath: *settingsPath}
 
 	if !a.SetPage(*pageID) {
 		log.Fatalf("unknown -page %q", *pageID)
+	}
+	switch v := *settingsView; {
+	case v == "":
+	case v == "root":
+		a.OpenSettings(pages.SettingsView{})
+	case v == "preset":
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickPreset})
+	case strings.HasPrefix(v, "unit:"):
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickUnit, Metric: strings.TrimPrefix(v, "unit:")})
+	default:
+		log.Fatalf("unknown -settings-view %q (want root, preset or unit:<metric>)", v)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

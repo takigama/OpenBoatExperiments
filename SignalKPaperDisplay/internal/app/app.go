@@ -29,12 +29,19 @@ type App struct {
 	// MinRefresh is the shortest gap between partial refreshes; zero means
 	// redraw whenever the picture changes.
 	MinRefresh time.Duration
-	Units      units.Settings
+	// Units are the user's unit choices. They change from the touch handler
+	// while the renderer reads them, so inside the app go through unitsNow()
+	// and the settings handler, never touch the field directly once running.
+	Units units.Settings
+	// UnitsPath is where unit changes are saved; empty means don't persist.
+	UnitsPath string
 
-	mu          sync.Mutex // guards page state, which touch input changes
-	page        int
-	pageChanged bool
-	wake        chan struct{} // nudges Run to redraw now, not at the next tick
+	mu           sync.Mutex // guards the fields below, which touch input changes
+	page         int
+	pageChanged  bool
+	settingsOpen bool
+	settingsView pages.SettingsView
+	wake         chan struct{} // nudges Run to redraw now, not at the next tick
 
 	renderTook time.Duration // last frame's page rendering, only touched by Show
 }
@@ -70,11 +77,44 @@ func (a *App) PrevPage() {
 	a.mu.Unlock()
 }
 
-// HandleEvent reacts to a touch gesture on a w x h screen: tap the right
-// third (or swipe left) for the next page, the left third (or swipe right)
-// for the previous one. The middle is deliberately inert for now - it's
-// where settings will go - so a stray tap there does nothing.
+// OpenSettings shows a settings screen directly, for previews.
+func (a *App) OpenSettings(v pages.SettingsView) {
+	a.mu.Lock()
+	a.settingsOpen, a.settingsView, a.pageChanged = true, v, true
+	a.mu.Unlock()
+}
+
+// unitsNow returns a private copy of the current unit settings.
+func (a *App) unitsNow() units.Settings {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.Units.Clone()
+}
+
+// HandleEvent reacts to a touch gesture. On a normal page, tapping the cog
+// opens settings, tapping the right third (or swiping left) goes to the next
+// page, and the left third (or swiping right) to the previous one. The
+// middle is deliberately inert, so a stray tap there does nothing. While
+// settings are open every tap belongs to the settings screens.
 func (a *App) HandleEvent(ev input.Event) {
+	a.mu.Lock()
+	open := a.settingsOpen
+	a.mu.Unlock()
+	if open {
+		if ev.Kind == input.Tap {
+			a.handleSettingsTap(ev)
+		}
+		return
+	}
+	if ev.Kind == input.Tap && image.Pt(ev.X, ev.Y).In(pages.CogRect) {
+		a.mu.Lock()
+		a.settingsOpen, a.settingsView, a.pageChanged = true, pages.SettingsView{}, true
+		a.mu.Unlock()
+		log.Printf("touch: tap at (%d,%d) -> settings", ev.X, ev.Y)
+		a.nudge()
+		return
+	}
+
 	w, _ := a.Display.Size()
 	action := ""
 	switch {
@@ -133,14 +173,70 @@ func (a *App) takePageChanged() bool {
 	return changed
 }
 
-// Frame renders the current page for the given moment.
+// handleSettingsTap applies one tap on a settings screen.
+func (a *App) handleSettingsTap(ev input.Event) {
+	a.mu.Lock()
+	view := a.settingsView
+	a.mu.Unlock()
+
+	act := pages.SettingsTap(view, ev.X, ev.Y)
+	if act.Kind == pages.ActNone {
+		return
+	}
+
+	a.mu.Lock()
+	var err error
+	switch act.Kind {
+	case pages.ActBack:
+		if view.Screen == pages.SettingsRoot {
+			a.settingsOpen = false
+		} else {
+			a.settingsView = pages.SettingsView{}
+		}
+	case pages.ActOpenPresetPicker:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickPreset}
+	case pages.ActOpenUnitPicker:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickUnit, Metric: act.Metric}
+	case pages.ActSetPreset:
+		err = a.Units.SetPreset(act.Value)
+		a.settingsView = pages.SettingsView{}
+	case pages.ActSetUnit:
+		err = a.Units.SetUnit(act.Metric, act.Value)
+		a.settingsView = pages.SettingsView{}
+	}
+	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit
+	saved := a.Units.Clone()
+	a.pageChanged = true // every screen is a different picture: full refresh
+	a.mu.Unlock()
+
+	if err != nil {
+		log.Printf("settings: %v", err)
+	}
+	if changed && a.UnitsPath != "" {
+		if err := units.Save(a.UnitsPath, saved); err != nil {
+			log.Printf("settings: could not save %s: %v", a.UnitsPath, err)
+		}
+	}
+	log.Printf("touch: settings tap at (%d,%d)", ev.X, ev.Y)
+	a.nudge()
+}
+
+// Frame renders the current page (or the settings screens) for the given moment.
 func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	w, h := a.Display.Size()
 	c, err := render.NewCanvas(w, h)
 	if err != nil {
 		return nil, err
 	}
-	a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: a.Units})
+	a.mu.Lock()
+	open, view := a.settingsOpen, a.settingsView
+	a.mu.Unlock()
+	u := a.unitsNow()
+	if open {
+		pages.Settings(c, view, u)
+	} else {
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u})
+	}
 	return c.Img, nil
 }
 
