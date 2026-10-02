@@ -122,10 +122,26 @@ func (c *Canvas) blend(x, y int, shade uint8, cover float64) {
 
 // Ring draws an antialiased circle outline centred on (cx, cy).
 func (c *Canvas) Ring(cx, cy, r float64, thick float64, shade uint8) {
-	reach := int(r + thick + 2)
-	for y := int(cy) - reach; y <= int(cy)+reach; y++ {
-		for x := int(cx) - reach; x <= int(cx)+reach; x++ {
-			d := math.Hypot(float64(x)-cx, float64(y)-cy)
+	// Only a thin band around the circle can be touched, so for each row
+	// work out where that band starts and ends instead of testing every
+	// pixel of the bounding box - on a Kindle the full scan cost ~300ms.
+	outer := r + thick/2 + 2
+	inner := math.Max(0, r-thick/2-2)
+	for y := int(cy - outer); y <= int(cy+outer); y++ {
+		dy := float64(y) - cy
+		if math.Abs(dy) > outer {
+			continue
+		}
+		xo := int(math.Sqrt(outer*outer-dy*dy)) + 1
+		xi := 0 // the band is a single run through the middle on rows beyond the hole
+		if math.Abs(dy) < inner {
+			xi = int(math.Sqrt(inner*inner-dy*dy)) - 1
+		}
+		for x := int(cx) - xo; x <= int(cx)+xo; x++ {
+			if xi > 0 && x > int(cx)-xi && x < int(cx)+xi {
+				continue // inside the hole
+			}
+			d := math.Hypot(float64(x)-cx, dy)
 			c.blend(x, y, shade, thick/2-math.Abs(d-r)+0.5)
 		}
 	}

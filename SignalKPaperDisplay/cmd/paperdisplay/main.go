@@ -49,7 +49,7 @@ func main() {
 		out          = flag.String("out", "out/frame.png", "output file for -display png")
 		eipsBin      = flag.String("eips", "/usr/sbin/eips", "eips binary, for -display eips")
 		fbinkBin     = flag.String("fbink", "", "fbink binary, for -display fbink (default: the one beside this binary; KOReader's bundled one can't draw images)")
-		waveform     = flag.String("waveform", "", "e-ink waveform for partial updates with -display fbink, e.g. GL16 or DU (default: FBInk's choice)")
+		waveform     = flag.String("waveform", "DU", "e-ink waveform for partial updates with -display fbink: DU is fast (~290ms on a Paperwhite 3, coarse grays), GL16 or \"\" (FBInk's choice) is slower (~540ms) but smoother; full refreshes always use full quality")
 		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for eips/fbink (use tmpfs, not flash)")
 		pageID       = flag.String("page", "nav", "page to show: nav, compass")
 		settingsPath = flag.String("settings", "settings.json", "unit settings file (missing = metric defaults)")
