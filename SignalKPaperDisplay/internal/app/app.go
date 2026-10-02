@@ -39,6 +39,10 @@ type App struct {
 	// Invert shows white on black instead of black on white. Applied as the
 	// last step of every frame, so it covers every page with no per-page work.
 	Invert bool
+	// HeaderGuardEvery is how often the header strip is repainted whatever
+	// the app thinks is on screen, to clear out anything the stock UI has
+	// drawn over it (see guardHeader). Zero turns the guard off.
+	HeaderGuardEvery time.Duration
 	// Boxes is what each of the Nav page's six boxes shows (page box-kind IDs;
 	// short or unknown entries take their defaults). Like Units, it changes
 	// from the touch handler, so inside the app use boxesNow().
@@ -62,6 +66,9 @@ type App struct {
 
 	renderTook       time.Duration // last frame's page rendering, only touched by Show
 	lastHeartbeatErr string        // only touched by the main loop
+	lastGuard        time.Time     // header guard state, only touched by the main loop
+	guardMinute      int64
+	lastGuardErr     string
 }
 
 func (a *App) nudge() {
@@ -434,6 +441,7 @@ func (a *App) Run(ctx context.Context) {
 			}
 		}
 		a.heartbeat(time.Now())
+		a.guardHeader(time.Now())
 		select {
 		case <-ctx.Done():
 			return

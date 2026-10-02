@@ -20,6 +20,10 @@ const StaleAfter = 5 * time.Second
 
 const headerH = 90
 
+// HeaderBand is the strip across the top of the screen, header and rule, that
+// every page and the settings screens draw the same way.
+func HeaderBand(width int) image.Rectangle { return image.Rect(0, 0, width, headerH+4) }
+
 // The settings cog sits at the left of every page's header, with the title
 // beside it.
 const (

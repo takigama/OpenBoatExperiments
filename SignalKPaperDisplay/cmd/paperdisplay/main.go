@@ -62,6 +62,7 @@ func main() {
 		wait         = flag.Duration("wait", 3*time.Second, "with -once: how long to collect data first")
 		interval     = flag.Duration("interval", time.Second, "redraw interval")
 		touch        = flag.Bool("touch", false, "read the touchscreen named in the profile (tap sides / swipe to change page)")
+		headerGuard  = flag.Duration("header-guard", 10*time.Second, "repaint the header strip this often (and just after each minute starts) to clear anything the stock UI, such as its clock, has drawn over it; 0 = never")
 		minRefresh   = flag.Duration("min-refresh", 2*time.Second, "shortest gap between partial refreshes (0 = redraw on every change); page changes ignore it")
 		manifestURL  = flag.String("manifest", defaultManifest, "update manifest URL")
 		fetchKind    = flag.String("fetch", "", "how to download updates: curl or http (default: the profile's setting, else http)")
@@ -158,7 +159,7 @@ func main() {
 		host = saved.Server
 	}
 	client := &signalk.Client{URL: signalk.StreamURL(host), Token: *token, State: state}
-	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh,
+	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, HeaderGuardEvery: *headerGuard,
 		Units: saved.Settings, Invert: saved.Invert, Boxes: saved.Boxes, SettingsPath: *settingsPath,
 		Server: saved.Server, DefaultServer: *server, OnServerChange: client.SetServer}
 

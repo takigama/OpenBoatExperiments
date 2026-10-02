@@ -53,6 +53,11 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
 - A clock in the header, drawn by the app, with a heartbeat dot beside it that
   blinks every second (redrawn as its own tiny region, so it costs almost
   nothing) - if it stops, the app or the panel has hung
+- A header guard: the stock UI's status bar keeps running after the Kindle
+  framework is stopped and paints its clock over our header each minute. Since
+  an unchanged frame is never resent, that clock would stay put, so the header
+  strip is repainted every 10 s and just after each minute starts
+  (`-header-guard`, 0 to turn it off)
 - Self-update from GitHub releases (see below)
 - `platforms/kindle-pw3/install/deploy.sh` to copy a build onto the device
 

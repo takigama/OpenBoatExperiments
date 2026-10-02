@@ -8,6 +8,12 @@ SIGNALK_HOST=10.0.0.76:3001
 # (lab126_gui) - add it here only after trying `stop lab126_gui` by hand;
 # `start lab126_gui` undoes it.
 # STOP_JOBS="framework"
+# After `stop framework` the jobs `pillow` (the stock status bar and overlay
+# UI) and `lab126_gui` are still running on the Paperwhite 3, and the stock
+# clock is drawn by one of them at the start of each minute. paperdisplay
+# repaints its header every 10 s and just after each minute starts
+# (-header-guard) so that clock does not stay on screen; stopping the job that
+# draws it would remove it for good, but which job that is is untested.
 
 # Extra paperdisplay flags, e.g. a slower but smoother waveform:
 # EXTRA_ARGS="-waveform GL16"
