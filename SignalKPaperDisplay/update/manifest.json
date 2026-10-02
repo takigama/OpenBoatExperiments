@@ -1,5 +1,5 @@
 {
   "platforms": {
-    "kindle-pw3": { "version": 33, "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/signalkpaperdisplay-v33/paperdisplay-kindle-pw3", "sha256": "517f31fbe76c9d91fe16ad3bd0f06debebeb2e072a2eca944220d4923a309d24" }
+    "kindle-pw3": { "version": 34, "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/signalkpaperdisplay-v34/paperdisplay-kindle-pw3", "sha256": "50c30d2a2b955ccc895883d9cd13dce25955d1f1e7f37dca60b646d9bdc01de8" }
   }
 }
