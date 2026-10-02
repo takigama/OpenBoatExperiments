@@ -91,7 +91,7 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	if ok {
 		text = fmt.Sprintf("%03.0f", heading)
 	}
-	c.Text(int(cx), int(cy+r*0.20), text, r*0.5, render.Bold, render.Center, shade)
+	c.Text(int(cx), int(cy+r*headingDrop), text, r*0.5, render.Bold, render.Center, shade)
 
 	var contacts []ais.Contact // nearest first; stays empty without a fix and heading
 	// AIS contacts, at their bearing relative to our bow. Bearings are
@@ -131,7 +131,7 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	// heading-up, so this is the boat's direction of travel, and the wind
 	// pointer and AIS blips are read against it. It goes last so nothing
 	// else can leave a gap in it.
-	c.Line(cx, cy-r*0.21, cx, float64(top+2), 2, shade)
+	c.Line(cx, cy-r*(headingDrop+0.29), cx, float64(top+2), 2, shade)
 
 	// The four corners of the compass area, each only when there's something
 	// to show: closest ship top-left, water temperature top-right, wind speed
@@ -153,6 +153,12 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
 		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal}, 0)
 }
+
+// headingDrop is where the heading digits' baseline sits below the centre of
+// the card, as a fraction of the radius. The heading and the COG offset under
+// it are a block about 0.66r tall; this puts that block nearly centred on the
+// card, and the bow line stops just above it.
+const headingDrop = 0.06
 
 // cogMinSpeed is the slowest we'll trust a course over ground at: GPS
 // course is noise when barely moving. 0.3 m/s is about 0.6 knots.
@@ -200,7 +206,7 @@ func chevron(c *render.Canvas, x, mid, reach, h float64) {
 func drawCOGOffset(c *render.Canvas, cx, cy, r, cog, heading float64) {
 	deg, dir := cogOffset(cog, heading)
 	size := r * 0.5 * 0.65
-	baseline := cy + r*0.20 + r*0.06 + size*0.72
+	baseline := cy + r*headingDrop + r*0.06 + size*0.72
 	mid := baseline - size*0.36 // the vertical middle of where the digits sit
 	arm, h := size*0.24, size*0.30
 	reach := arm // the point of each chevron, in its direction of travel
@@ -349,8 +355,8 @@ func drawWindSpeed(c *render.Canvas, own signalk.Own, now time.Time, e Env, xLef
 	if own.AWS.Fresh(now, StaleAfter) {
 		value, _ = e.Units.Format("aws", own.AWS.V)
 	}
-	c.Text(xLeft, yBottom-112, "WIND", 57, render.Bold, render.Left, render.Black)
-	leftValue(c, xLeft, yBottom, value, unit, 114)
+	c.Text(xLeft, yBottom-129, "WIND", 58, render.Bold, render.Left, render.Black)
+	leftValue(c, xLeft, yBottom, value, unit, 131)
 }
 
 // drawWindPointer draws a bold arrowhead on the compass rim, pointing in

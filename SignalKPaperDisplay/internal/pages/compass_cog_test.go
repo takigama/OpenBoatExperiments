@@ -84,9 +84,9 @@ func TestCOGLineFollowsTheCourseAndPassesOutsideTheRing(t *testing.T) {
 func TestCOGNumberSitsUnderTheHeadingWhileMoving(t *testing.T) {
 	const cx, cy = 536, 622
 	r := 466.0
-	// Under the heading digits: below their baseline (cy+0.2r) down to where
-	// a number at 75% size ends (about cy+0.53r).
-	under := image.Rect(cx-150, cy+int(0.30*r), cx+150, cy+int(0.50*r))
+	// Under the heading digits: below their baseline (cy+0.06r) down to where
+	// the offset number ends (about cy+0.36r).
+	under := image.Rect(cx-150, cy+int(0.14*r), cx+150, cy+int(0.38*r))
 
 	live := renderCompass(t, moving(0.3))
 	none := renderCompass(t, withoutCOG(moving(0)))

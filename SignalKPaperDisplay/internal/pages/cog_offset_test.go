@@ -44,7 +44,7 @@ func TestCOGOffset(t *testing.T) {
 func TestCOGOffsetChevronSitsOnTheSideOfTheCourse(t *testing.T) {
 	const cx, cy = 536, 622
 	r := 466.0
-	y0, y1 := cy+int(0.30*r), cy+int(0.50*r)
+	y0, y1 := cy+int(0.14*r), cy+int(0.38*r)
 	left := image.Rect(cx-190, y0, cx-110, y1)
 	right := image.Rect(cx+110, y0, cx+190, y1)
 
@@ -78,7 +78,7 @@ func TestCOGOffsetChevronSitsOnTheSideOfTheCourse(t *testing.T) {
 func TestOffsetsOver99BecomeThreeChevrons(t *testing.T) {
 	const cx, cy = 536, 622
 	r := 466.0
-	y0, y1 := cy+int(0.30*r), cy+int(0.50*r)
+	y0, y1 := cy+int(0.14*r), cy+int(0.38*r)
 	middle := image.Rect(cx-100, y0, cx+100, y1)
 	left := image.Rect(cx-190, y0, cx-110, y1)
 	right := image.Rect(cx+110, y0, cx+190, y1)

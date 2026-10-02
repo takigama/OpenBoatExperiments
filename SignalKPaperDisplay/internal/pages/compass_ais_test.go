@@ -182,7 +182,7 @@ func TestBowLineRunsFromAboveTheDigitsToTheTopOfTheCompassArea(t *testing.T) {
 	dark := func(x, y int) bool { return c.Img.GrayAt(x, y).Y < 100 }
 	// Solid ink all the way: through the card, across the rim, and up the
 	// margin above it to the top of the compass area.
-	for _, y := range []int{100, 112, 125, 138, 200, 300, 400, 480} {
+	for _, y := range []int{100, 112, 125, 138, 200, 300, 400, 450} {
 		if !dark(536, y) {
 			t.Errorf("bow line missing at y=%d", y)
 		}
