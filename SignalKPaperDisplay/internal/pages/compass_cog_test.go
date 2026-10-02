@@ -74,6 +74,24 @@ func TestCOGLineFollowsTheCourseAndPassesOutsideTheRing(t *testing.T) {
 	}
 }
 
+func TestCOGCrossbarShowsEvenWhenTheStemIsHiddenUnderTheHeadingLine(t *testing.T) {
+	// COG exactly equal to heading: the COG stem lies under the (thicker)
+	// heading line and disappears, so the crossbar past the ring is the only
+	// sign the COG line is there. Its ends must stick out either side of the
+	// heading line, which is 8px wide.
+	const cx, cy, r = 536, 622, 466
+	same := renderCompass(t, moving(0))
+	none := renderCompass(t, withoutCOG(moving(0)))
+
+	barY := cy - r - 34
+	for _, dx := range []int{-16, -12, 12, 16} {
+		cell := image.Rect(cx+dx-1, barY-3, cx+dx+2, barY+4)
+		if inked(same, cell) <= inked(none, cell) {
+			t.Errorf("the crossbar should be visible %dpx from the heading line when COG equals heading", dx)
+		}
+	}
+}
+
 func TestCOGLineStopsShortOfTheTopOfTheCompassArea(t *testing.T) {
 	// A course the same as the heading lies along the bow line, so look at
 	// a slightly different one: the line must end just outside the ring
