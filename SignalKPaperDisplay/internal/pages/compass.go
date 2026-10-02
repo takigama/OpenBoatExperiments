@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"signalkpaperdisplay/internal/ais"
 	"signalkpaperdisplay/internal/render"
 	"signalkpaperdisplay/internal/signalk"
 )
@@ -85,12 +86,6 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		}
 	}
 
-	// Fixed lubber marker at the top, pointing in at the card.
-	tipY := int(cy-r) - 6
-	c.FillPolygon([]image.Point{
-		{int(cx) - 30, tipY - 44}, {int(cx) + 30, tipY - 44}, {int(cx), tipY},
-	}, render.Black)
-
 	// Heading in the middle of the card.
 	text := "--"
 	if ok {
@@ -98,11 +93,26 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	}
 	c.Text(int(cx), int(cy+r*0.20), text, r*0.5, render.Bold, render.Center, shade)
 
+	// AIS contacts, at their bearing relative to our bow. Bearings are
+	// meaningless without a live heading and position, so with either
+	// missing no blips are drawn at all.
+	if ok && own.Pos.Fresh(now, StaleAfter) {
+		drawAIS(c, cx, cy, r, own.Heading.V, ais.Contacts(own, s.Targets, now, StaleAfter), e)
+	}
+
 	// Apparent wind: shown only while it's live. The card is heading-up, so
-	// the pointer sits at the wind angle measured from the bow.
+	// the pointer sits at the wind angle measured from the bow. Drawn after
+	// the blips so it stays on top where they coincide.
 	if own.AWA.Fresh(now, StaleAfter) {
 		drawWindPointer(c, cx, cy, r, own.AWA.V)
 	}
+
+	// The bow line: straight up from the middle of the card to the ring. The
+	// card is heading-up, so this is the boat's direction of travel, and the
+	// wind pointer and AIS blips are read against it. It starts just above
+	// the heading digits so it doesn't strike through them, and goes last so
+	// nothing else can leave a gap in it.
+	c.Line(cx, cy-r*0.21, cx, cy-r-4, 8, shade)
 
 	boxBottom := top + compassH
 	drawWaterTemp(c, own, now, e, b.Dx()-28, top+10)
@@ -118,6 +128,74 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		metric{label: "SPEED", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal})
 	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
 		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal})
+}
+
+// diamond is a four-point shape centred on (px, py), a long along the
+// outward direction (ux, uy) and b across it.
+func diamond(px, py, ux, uy, a, b float64) []image.Point {
+	vx, vy := -uy, ux
+	pt := func(along, across float64) image.Point {
+		return image.Pt(int(math.Round(px+ux*along+vx*across)), int(math.Round(py+uy*along+vy*across)))
+	}
+	return []image.Point{pt(a, 0), pt(0, b), pt(-a, 0), pt(0, -b)}
+}
+
+// aisMarkerSize makes nearer ships bigger, so range reads at a glance.
+func aisMarkerSize(rangeM float64) float64 {
+	switch {
+	case rangeM <= 926: // half a mile
+		return 24
+	case rangeM <= 3704: // two miles
+		return 19
+	case rangeM <= 11112: // six miles
+		return 15
+	}
+	return 12
+}
+
+// drawAIS puts a diamond on the rim for each contact: solid if it's closing
+// on us, hollow if the gap is growing. The nearest few also get their range,
+// in the user's distance unit.
+func drawAIS(c *render.Canvas, cx, cy, r, heading float64, contacts []ais.Contact, e Env) {
+	const maxMarkers, maxLabels = 12, 3
+	if len(contacts) > maxMarkers {
+		contacts = contacts[:maxMarkers]
+	}
+	pos := func(k ais.Contact, radius float64) (x, y, ux, uy float64) {
+		a := k.Bearing - heading
+		ux, uy = math.Sin(a), -math.Cos(a)
+		return cx + ux*radius, cy + uy*radius, ux, uy
+	}
+
+	// Furthest first, so the nearest ends up on top where they overlap.
+	for i := len(contacts) - 1; i >= 0; i-- {
+		k := contacts[i]
+		px, py, ux, uy := pos(k, r)
+		h := aisMarkerSize(k.Range)
+		c.FillPolygon(diamond(px, py, ux, uy, h*1.4+9, h+9), render.White) // halo over the ticks
+		c.FillPolygon(diamond(px, py, ux, uy, h*1.4, h), render.Black)
+		if !k.Closing {
+			c.FillPolygon(diamond(px, py, ux, uy, h*0.7, h*0.5), render.White) // hollow
+		}
+	}
+
+	for i := 0; i < len(contacts) && i < maxLabels; i++ {
+		k := contacts[i]
+		lx, ly, _, _ := pos(k, r-96)
+		value, unit := e.Units.Format("range", k.Range)
+		label := value + " " + unit
+		w := c.TextWidth(label, 32, render.Bold)
+		// A contact nearly dead ahead would put its label on the bow line;
+		// slide the label to whichever side the contact is on, clear of it.
+		if gap := w/2 + 14; math.Abs(lx-cx) < float64(gap) {
+			if lx < cx {
+				lx = cx - float64(gap)
+			} else {
+				lx = cx + float64(gap)
+			}
+		}
+		c.TextHalo(int(lx), int(ly)+11, label, 32, render.Bold, render.Center, render.Black, render.White, 4)
+	}
 }
 
 // drawWindPointer draws a bold arrowhead on the compass rim, pointing in

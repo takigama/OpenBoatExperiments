@@ -221,6 +221,19 @@ func (c *Canvas) TextWidth(s string, size float64, w Weight) int {
 	return d.MeasureString(s).Round()
 }
 
+// TextHalo draws s in shade with a thin outline of halo around the letters
+// only - readable over a busy background without blanking a rectangle of it.
+func (c *Canvas) TextHalo(x, baseline int, s string, size float64, w Weight, a Align, shade, halo uint8, spread int) {
+	for dy := -spread; dy <= spread; dy += spread {
+		for dx := -spread; dx <= spread; dx += spread {
+			if dx != 0 || dy != 0 {
+				c.Text(x+dx, baseline+dy, s, size, w, a, halo)
+			}
+		}
+	}
+	c.Text(x, baseline, s, size, w, a, shade)
+}
+
 // Text draws s with its baseline at y, aligned relative to x.
 func (c *Canvas) Text(x, baseline int, s string, size float64, w Weight, a Align, shade uint8) {
 	d := font.Drawer{
