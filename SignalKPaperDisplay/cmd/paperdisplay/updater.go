@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"signalkpaperdisplay/internal/update"
@@ -31,6 +32,12 @@ func newFetcher(kind, curlBin string) update.Fetcher {
 // exit so the launcher starts the new version).
 func runUpdate(ctx context.Context, f update.Fetcher, manifestURL, platform string, apply bool) (bool, error) {
 	cur := versionNumber()
+	// raw.githubusercontent.com caches files for about five minutes, so right
+	// after a release the manifest can still name the previous version. A
+	// changing query string gets past that cache.
+	if strings.HasPrefix(manifestURL, "http") && !strings.Contains(manifestURL, "?") {
+		manifestURL += "?t=" + strconv.FormatInt(time.Now().Unix(), 10)
+	}
 	rel, newer, err := update.Check(ctx, f, manifestURL, platform, cur)
 	if err != nil {
 		return false, err

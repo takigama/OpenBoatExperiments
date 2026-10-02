@@ -131,7 +131,7 @@ func TestCOGStemOnlySpansTheOuterPartOfTheCard(t *testing.T) {
 	// ...but absent nearer the middle, where it used to run.
 	for _, frac := range []float64{0.30, 0.45, 0.55} {
 		x := cx + int(frac*r)
-		cell := image.Rect(x, cy-4, x+20, cy+5)
+		cell := image.Rect(x, cy-6, x+12, cy+7)
 		if inked(east, cell) != inked(none, cell) {
 			t.Errorf("the stem should not reach as far in as %.0f%% of the radius", frac*100)
 		}
@@ -139,10 +139,10 @@ func TestCOGStemOnlySpansTheOuterPartOfTheCard(t *testing.T) {
 }
 
 func TestCOGCrossbarShowsEvenWhenTheStemIsHiddenUnderTheHeadingLine(t *testing.T) {
-	// COG exactly equal to heading: the COG stem lies under the (thicker)
-	// heading line and disappears, so the crossbar past the ring is the only
-	// sign the COG line is there. Its ends must stick out either side of the
-	// heading line, which is 8px wide.
+	// COG exactly equal to heading: the COG stem lies along the (much thinner)
+	// heading line, so the stem and its crossbar are drawn over/around it. The
+	// crossbar ends must stick out either side of the heading line, which is
+	// now just 1px wide.
 	const cx, cy, r = 536, 622, 466
 	same := renderCompass(t, moving(0))
 	none := renderCompass(t, withoutCOG(moving(0)))

@@ -89,7 +89,7 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	// Heading in the middle of the card.
 	text := "--"
 	if ok {
-		text = fmt.Sprintf("%03.0f°", heading)
+		text = fmt.Sprintf("%03.0f", heading)
 	}
 	c.Text(int(cx), int(cy+r*0.20), text, r*0.5, render.Bold, render.Center, shade)
 
@@ -123,7 +123,7 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	// heading-up, so this is the boat's direction of travel, and the wind
 	// pointer and AIS blips are read against it. It goes last so nothing
 	// else can leave a gap in it.
-	c.Line(cx, cy-r*0.21, cx, float64(top+2), 8, shade)
+	c.Line(cx, cy-r*0.21, cx, float64(top+2), 1, shade)
 
 	// The four corners of the compass area, each only when there's something
 	// to show: closest ship top-left, water temperature top-right, wind speed
@@ -223,13 +223,13 @@ func drawCOGOffset(c *render.Canvas, cx, cy, r, cog, heading float64) {
 }
 
 // drawCOG draws the course-over-ground line, rel radians clockwise from the
-// bow: a thin stem spanning just the outer part of the card and a little
+// bow: a stem spanning just the outer part of the card and a little
 // past the compass ring, finished with a short crossbar like a stretched T.
-// It's much shorter and thinner than the heading line, which runs from the
+// It is much shorter than the heading line, which runs from the
 // middle to the top of the compass area.
 func drawCOG(c *render.Canvas, cx, cy, r, rel float64, shade uint8) {
 	const (
-		stem     = 5
+		stem     = 10
 		capHalf  = 18   // half the crossbar's length
 		pastRing = 34   // how far beyond the ring the stem ends
 		inner    = 0.60 // where the stem starts, as a fraction of the ring radius
