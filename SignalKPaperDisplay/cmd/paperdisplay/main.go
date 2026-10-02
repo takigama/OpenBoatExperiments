@@ -45,10 +45,12 @@ func main() {
 		server       = flag.String("signalk", "localhost:3000", "SignalK server host:port")
 		token        = flag.String("token", "", "SignalK bearer token, if the server needs one")
 		profilePath  = flag.String("profile", "", "path to a platforms/<name>/profile.json (required)")
-		displayKind  = flag.String("display", "png", "output: png (preview file) or eips (Kindle screen)")
+		displayKind  = flag.String("display", "png", "output: png (preview file), eips (Kindle, slow) or fbink (Kindle/Kobo)")
 		out          = flag.String("out", "out/frame.png", "output file for -display png")
 		eipsBin      = flag.String("eips", "/usr/sbin/eips", "eips binary, for -display eips")
-		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for -display eips (use tmpfs, not flash)")
+		fbinkBin     = flag.String("fbink", "/mnt/us/koreader/fbink", "fbink binary, for -display fbink (KOReader ships one)")
+		waveform     = flag.String("waveform", "", "e-ink waveform for partial updates with -display fbink, e.g. GL16 or DU (default: FBInk's choice)")
+		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for eips/fbink (use tmpfs, not flash)")
 		pageID       = flag.String("page", "nav", "page to show: nav, compass")
 		settingsPath = flag.String("settings", "settings.json", "unit settings file (missing = metric defaults)")
 		fullEvery    = flag.Duration("full-refresh", 5*time.Minute, "flashing full refresh interval, to clear e-ink ghosting")
@@ -118,7 +120,9 @@ func main() {
 	case "png":
 		disp = &display.PNG{W: prof.Width, H: prof.Height, Path: *out}
 	case "eips":
-		disp = &display.Eips{W: prof.Width, H: prof.Height, Bin: *eipsBin, Tmp: *eipsTmp}
+		disp = display.NewEips(prof.Width, prof.Height, *eipsBin, *eipsTmp)
+	case "fbink":
+		disp = display.NewFBInk(prof.Width, prof.Height, *fbinkBin, *eipsTmp, *waveform)
 	default:
 		log.Fatalf("unknown -display %q", *displayKind)
 	}
