@@ -43,6 +43,11 @@ for f in "$HERE"/*.sh; do
   [ "$(basename "$f")" = "deploy.sh" ] && continue
   [ -f "$f" ] && cp "$f" "$STAGE/"
 done
+# Example config (launcher.conf.example) - never launcher.conf itself, so a
+# deploy can't overwrite the device's real settings.
+for f in "$HERE"/*.example; do
+  [ -f "$f" ] && cp "$f" "$STAGE/"
+done
 chmod +x "$STAGE/paperdisplay" "$STAGE"/*.sh 2>/dev/null || true
 [ -f "$STAGE/fbink" ] && chmod +x "$STAGE/fbink"
 # What we checksum on both ends: only files this run actually shipped.

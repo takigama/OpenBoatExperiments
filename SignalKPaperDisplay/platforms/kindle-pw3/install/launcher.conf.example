@@ -1,0 +1,13 @@
+# Copy this to /mnt/us/signalk/launcher.conf and edit. Read by startpaper.sh.
+
+# Where your SignalK server is (host:port). Required.
+SIGNALK_HOST=10.0.0.76:3001
+
+# Upstart jobs to stop while the app owns the screen. "framework" is proven
+# on the Paperwhite 3. The stock status bar may live in another job
+# (lab126_gui) - add it here only after trying `stop lab126_gui` by hand;
+# `start lab126_gui` undoes it.
+# STOP_JOBS="framework"
+
+# Extra paperdisplay flags, e.g. a slower but smoother waveform:
+# EXTRA_ARGS="-waveform GL16"

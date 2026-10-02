@@ -17,18 +17,43 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
 - SignalK client + data model with staleness tracking
 - Pages: Numbers and a large rotating Compass, selectable at runtime
 - Per-metric unit settings (metric/imperial preset plus overrides)
-- Drawing via the Kindle's built-in `eips` (skips unchanged frames, rations
-  partial refreshes, flashing full refresh periodically and on page change),
-  and PNG preview output for working on a PC
+- Drawing via FBInk (~0.9 s per frame on a Paperwhite 3, including our own
+  page rendering; skips unchanged frames, rations partial refreshes, fast DU
+  waveform for those, flashing full refresh periodically and on page
+  change), or the Kindle's built-in `eips` as a fallback, plus PNG preview
+  output for working on a PC
+- A launcher that keeps it running, rolls back a bad update and restores the
+  stock UI if it can't stay up (see "Running it on the Kindle")
 - Touch: tap the left/right third (or swipe) to change page
 - A clock in the header, drawn by the app
 - Self-update from GitHub releases (see below)
 - `platforms/kindle-pw3/install/deploy.sh` to copy a build onto the device
 
 Not built yet: the settings dialog, Wind and AIS pages, front-light sliders,
-an FBInk driver (`eips` takes ~3.5 s per refresh; FBInk should be far faster,
-and Kobo needs it), and the on-device launcher script (start at boot,
-supervise, fall back to the stock UI).
+timezone setting, and direct framebuffer drawing with dirty-region updates.
+
+## Running it on the Kindle
+
+The app is started and watched by `platforms/kindle-pw3/install/startpaper.sh`,
+run from cron once a minute. It's idempotent: it never starts a second copy,
+keeps the screen awake, stops the stock UI when it takes over, counts
+crashes (3 in 10 minutes rolls back to `paperdisplay.prev`; 5 restores the
+stock UI until the crashes age out), and `touch /mnt/us/signalk/disable`
+stops the app and brings the stock UI back within a minute.
+
+One-time setup:
+
+1. `bash platforms/kindle-pw3/install/deploy.sh` - copies the app, `fbink`
+   and the launcher to `/mnt/us/signalk/`.
+2. On the Kindle: `cp launcher.conf.example launcher.conf`, and set
+   `SIGNALK_HOST`.
+3. Add one line to a script cron already runs each minute:
+   `/mnt/us/signalk/startpaper.sh`.
+
+FBInk comes from `bash tools/fbink/build.sh`: KOReader's bundled `fbink` has
+image support compiled out, so a full build is made from source in Docker
+with KOReader's prebuilt cross-toolchain. `bash scripts/test_launcher.sh`
+tests the launcher against stand-ins for the Kindle's commands.
 
 ## Updating from GitHub
 
