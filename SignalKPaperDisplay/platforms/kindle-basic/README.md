@@ -1,7 +1,7 @@
 # kindle-basic
 
-A Kindle Basic: touchscreen, **no front light**, 600x800, firmware 5.15.1,
-jailbroken. Facts from a real unit over SSH (Dropbear on port 2223):
+The Kindle (8th generation, 2016), sold as the plain "Kindle": touchscreen,
+**no front light**, 600x800, firmware 5.15.1, jailbroken. Facts from a real unit over SSH (Dropbear on port 2223):
 
 | | |
 |---|---|
@@ -12,8 +12,9 @@ jailbroken. Facts from a real unit over SSH (Dropbear on port 2223):
 | Front light | none (the `flIntensity` properties exist in every Kindle's firmware, but there is no backlight device) |
 | On device | `curl`, `lua`, `eips`, `nc`, busybox, `lipc-*`, `stop`/`start`. No Python, no FBInk |
 
-Serial prefix `G000`. The profile's name is a guess at the model; correct it if it
-turns out to be something more specific.
+Serial prefix `G000`; the device itself says "Kindle 8th generation". The platform
+is called kindle-basic because other plain Kindles of this era (no light) should
+be able to share it.
 
 ## How the layout fits
 
