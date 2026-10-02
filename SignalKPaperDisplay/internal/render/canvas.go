@@ -7,7 +7,6 @@ package render
 import (
 	"image"
 	"image/color"
-	"image/draw"
 	"math"
 	"sort"
 	"sync"
@@ -82,8 +81,21 @@ func NewCanvas(w, h int) (*Canvas, error) {
 
 func (c *Canvas) Bounds() image.Rectangle { return c.Img.Bounds() }
 
+// FillRect fills r (clipped to the canvas) with a solid shade. It writes the
+// pixels directly: image/draw has no fast path for filling a grayscale image,
+// and its generic one made this - called for every rectangle, line segment and
+// the background - about four fifths of the time spent drawing a page.
 func (c *Canvas) FillRect(r image.Rectangle, shade uint8) {
-	draw.Draw(c.Img, r, image.NewUniform(color.Gray{Y: shade}), image.Point{}, draw.Src)
+	r = r.Intersect(c.Img.Bounds())
+	if r.Empty() {
+		return
+	}
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		row := c.Img.Pix[c.Img.PixOffset(r.Min.X, y):][:r.Dx()]
+		for i := range row {
+			row[i] = shade
+		}
+	}
 }
 
 // HLine and VLine draw lines of the given thickness.
@@ -222,12 +234,13 @@ func (c *Canvas) TextWidth(s string, size float64, w Weight) int {
 }
 
 // Text draws s with its baseline at y, aligned relative to x.
+//
+// The glyphs are blended into the canvas here rather than by font.Drawer,
+// whose image/draw route goes pixel by pixel through generic interfaces; this
+// is the same drawing, an order of magnitude cheaper on the Kindle's CPU.
 func (c *Canvas) Text(x, baseline int, s string, size float64, w Weight, a Align, shade uint8) {
-	d := font.Drawer{
-		Dst:  c.Img,
-		Src:  image.NewUniform(color.Gray{Y: shade}),
-		Face: c.face(size, w),
-	}
+	face := c.face(size, w)
+	d := font.Drawer{Face: face}
 	width := d.MeasureString(s).Round()
 	switch a {
 	case Center:
@@ -235,6 +248,46 @@ func (c *Canvas) Text(x, baseline int, s string, size float64, w Weight, a Align
 	case Right:
 		x -= width
 	}
-	d.Dot = fixed.P(x, baseline)
-	d.DrawString(s)
+	dot := fixed.P(x, baseline)
+	prev := rune(-1)
+	for _, r := range s {
+		if prev >= 0 {
+			dot.X += face.Kern(prev, r)
+		}
+		dr, mask, maskp, advance, ok := face.Glyph(dot, r)
+		if ok {
+			c.blendMask(dr, mask, maskp, shade)
+		}
+		dot.X += advance
+		prev = r
+	}
+}
+
+// blendMask paints shade through an alpha mask: the pixel at dr.Min takes the
+// mask value at maskp, and so on across dr.
+func (c *Canvas) blendMask(dr image.Rectangle, mask image.Image, maskp image.Point, shade uint8) {
+	m, ok := mask.(*image.Alpha)
+	if !ok {
+		return // the fonts here only produce alpha masks
+	}
+	clipped := dr.Intersect(c.Img.Bounds())
+	if clipped.Empty() {
+		return
+	}
+	maskp = maskp.Add(clipped.Min.Sub(dr.Min))
+	sh := uint32(shade)
+	for y := 0; y < clipped.Dy(); y++ {
+		dst := c.Img.Pix[c.Img.PixOffset(clipped.Min.X, clipped.Min.Y+y):][:clipped.Dx()]
+		src := m.Pix[m.PixOffset(maskp.X, maskp.Y+y):][:clipped.Dx()]
+		for i, a := range src {
+			switch a {
+			case 0:
+			case 255:
+				dst[i] = shade
+			default:
+				ia := uint32(a)
+				dst[i] = uint8((uint32(dst[i])*(255-ia) + sh*ia + 127) / 255)
+			}
+		}
+	}
 }

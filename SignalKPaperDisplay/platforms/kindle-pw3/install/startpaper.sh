@@ -53,14 +53,16 @@ restore_ui() {
 }
 
 take_screen() {
+  # powerd forgets this across reboots, so it is set whenever the app is
+  # (re)started - which a reboot always causes - and not on every run. Run
+  # from cron once a minute, lipc-set-prop (a D-Bus round trip to powerd) was
+  # a noticeable stall on the Kindle's CPU right on the minute.
+  lipc-set-prop com.lab126.powerd preventScreenSaver 1 >/dev/null 2>&1
   lipc-set-prop com.lab126.pillow disableEnablePillow disable >/dev/null 2>&1
   for job in $STOP_JOBS; do
     running "$job" && stop "$job" >/dev/null 2>&1
   done
 }
-
-# Re-assert on every run: powerd forgets it across reboots.
-lipc-set-prop com.lab126.powerd preventScreenSaver 1 >/dev/null 2>&1
 
 [ -f "$CONF" ] && . "$CONF"
 # lab126_gui as well as the framework: with only the framework stopped, the
@@ -86,8 +88,9 @@ if [ -f "$DISABLE" ]; then
   exit 0
 fi
 
-# Already running: nothing to do. (pidof, not a pidfile, so a copy someone
-# started by hand in a terminal counts too and we never run two.)
+# Already running: nothing to do, and nothing slower than pidof has run to
+# get here - this is the path taken every minute. (pidof, not a pidfile, so a
+# copy someone started by hand in a terminal counts too and we never run two.)
 pidof paperdisplay >/dev/null && exit 0
 
 if [ -z "$SIGNALK_HOST" ]; then

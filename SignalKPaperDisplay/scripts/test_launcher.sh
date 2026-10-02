@@ -63,6 +63,7 @@ launch() { PATH="$T/bin:$PATH" sh "$LAUNCHER"; }
 wait_exit() { for _ in $(seq 1 50); do [ -f "$STATE/exit" ] && return; sleep 0.1; done; }
 starts() { [ -f "$T/started" ] && wc -l < "$T/started" || echo 0; }
 called() { grep -qx "$1" "$T/calls" 2>/dev/null; }
+not_called() { ! grep -q "$1" "$T/calls" 2>/dev/null; }
 logged() { grep -q "$1" "$DIR/paperdisplay.log" 2>/dev/null; }
 reset() { rm -rf "$T/started" "$T/calls" "$T/running" "$STATE" "$DIR/paperdisplay.log" "$DIR/disable" "$DIR/pause" \
           "$DIR/paperdisplay.prev" "$DIR/paperdisplay.bad"; rm -f "$T/jobs"/*; touch "$T/jobs/framework" "$T/jobs/lab126_gui"; make_app; }
@@ -87,14 +88,17 @@ echo "already running: never starts a second copy"
 reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"
 launch
 check "nothing started" test "$(starts)" = 0
-check "still keeps the screen awake" called "lipc com.lab126.powerd preventScreenSaver 1"
+# This is the every-minute path, so it must stay cheap: no lipc round trips
+# and no job changes - nothing is recorded in the calls file at all.
+check "makes no lipc calls" not_called "lipc"
+check "changes no jobs" not_called "start\|stop"
 
 echo "clean exit (e.g. after an update) is not a crash"
 reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"
 for _ in 1 2 3 4 5 6; do STUB_EXIT=0 launch; wait_exit; done
 check "restarted every time" test "$(starts)" = 6
 check "no crash recorded" test ! -f "$STATE/crashes"
-check "stock UI left alone" test ! "$(grep -c 'start framework' "$T/calls" 2>/dev/null || true)" -gt 0
+check "stock UI left alone" not_called 'start framework'
 
 echo "crash loop: roll back, then give up and restore the stock UI"
 reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"
@@ -119,8 +123,8 @@ echo "pause file: the launcher does nothing at all"
 reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$DIR/pause"; rm -f "$T/jobs"/*
 launch
 check "app not started" test "$(starts)" = 0
-check "stock UI not restored either" test ! "$(grep -c 'start framework' "$T/calls" 2>/dev/null || true)" -gt 0
-check "nothing stopped" test ! "$(grep -c '^stop' "$T/calls" 2>/dev/null || true)" -gt 0
+check "stock UI not restored either" not_called 'start framework'
+check "nothing stopped" not_called '^stop'
 rm -f "$DIR/pause"
 launch; wait_exit
 check "starts again once the pause file is removed" test "$(starts)" = 1
@@ -139,7 +143,7 @@ echo "custom STOP_JOBS: only those are stopped"
 reset; printf 'SIGNALK_HOST=h:1\nSTOP_JOBS="framework"\n' > "$DIR/launcher.conf"
 launch; wait_exit
 check "stops the framework" called "stop framework"
-check "leaves lab126_gui alone" test ! "$(grep -c 'stop lab126_gui' "$T/calls" 2>/dev/null || true)" -gt 0
+check "leaves lab126_gui alone" not_called 'stop lab126_gui'
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
