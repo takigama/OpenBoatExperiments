@@ -341,8 +341,8 @@ func drawWindSpeed(c *render.Canvas, own signalk.Own, now time.Time, e Env, xLef
 	if own.AWS.Fresh(now, StaleAfter) {
 		value, _ = e.Units.Format("aws", own.AWS.V)
 	}
-	c.Text(xLeft, yBottom-66, "WIND", 34, render.Bold, render.Left, render.Black)
-	leftValue(c, xLeft, yBottom, value, unit, 68)
+	c.Text(xLeft, yBottom-86, "WIND", 44, render.Bold, render.Left, render.Black)
+	leftValue(c, xLeft, yBottom, value, unit, 88)
 }
 
 // drawWindPointer draws a bold arrowhead on the compass rim, pointing in
