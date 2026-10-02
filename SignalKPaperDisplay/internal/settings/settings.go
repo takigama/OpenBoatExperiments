@@ -19,11 +19,15 @@ import (
 type File struct {
 	units.Settings
 	Invert bool `json:"invert,omitempty"` // white on black instead of black on white
+	// Boxes is what each of the Nav page's six boxes shows, as page box-kind
+	// IDs, left to right then top to bottom. Missing or unknown entries fall
+	// back to the defaults, so a short or old file is fine.
+	Boxes []string `json:"boxes,omitempty"`
 }
 
 // Clone returns an independent copy (the unit overrides are a map).
 func (f File) Clone() File {
-	return File{Settings: f.Settings.Clone(), Invert: f.Invert}
+	return File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...)}
 }
 
 // Load reads the file at path. A missing file is not an error - it just means

@@ -51,8 +51,12 @@ type Own struct {
 	AWA, AWS, TWD, TWS     Reading
 	Depth                  Reading
 	WaterTemp              Reading
-	Fuel                   []Tank // sorted by ID, so the gauges keep their order
-	Pos                    Position
+	// The next waypoint, from SignalK's course data: true bearing to it,
+	// distance, the server's own time-to-go, and the speed we're making
+	// towards it.
+	WPBearing, WPDistance, WPTimeToGo, WPVMG Reading
+	Fuel                                     []Tank // sorted by ID, so the gauges keep their order
+	Pos                                      Position
 }
 
 // Target is another vessel (AIS).
@@ -175,6 +179,24 @@ func (s *State) applyOwn(path string, raw json.RawMessage, now time.Time) {
 		setNum(&s.own.Depth, raw, now)
 	case "navigation.position":
 		setPos(&s.own.Pos, raw, now)
+	// Waypoint data. The v2 course API publishes it under calcValues; older
+	// servers and plugins use courseGreatCircle / courseRhumbline.nextPoint.
+	case "navigation.course.calcValues.bearingTrue",
+		"navigation.courseGreatCircle.nextPoint.bearingTrue",
+		"navigation.courseRhumbline.nextPoint.bearingTrue":
+		setNum(&s.own.WPBearing, raw, now)
+	case "navigation.course.calcValues.distance",
+		"navigation.courseGreatCircle.nextPoint.distance",
+		"navigation.courseRhumbline.nextPoint.distance":
+		setNum(&s.own.WPDistance, raw, now)
+	case "navigation.course.calcValues.timeToGo",
+		"navigation.courseGreatCircle.nextPoint.timeToGo",
+		"navigation.courseRhumbline.nextPoint.timeToGo":
+		setNum(&s.own.WPTimeToGo, raw, now)
+	case "navigation.course.calcValues.velocityMadeGood",
+		"navigation.courseGreatCircle.nextPoint.velocityMadeGood",
+		"navigation.courseRhumbline.nextPoint.velocityMadeGood":
+		setNum(&s.own.WPVMG, raw, now)
 	}
 }
 

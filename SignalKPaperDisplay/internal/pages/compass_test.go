@@ -150,3 +150,58 @@ func TestWindPointerFollowsTheAngle(t *testing.T) {
 			inked(port, left), inked(stbd, left), inked(port, right), inked(stbd, right))
 	}
 }
+
+// The waypoint pointer for a bearing 90 degrees to starboard of a boat
+// heading north sits on the right-hand rim, at (cx+r, cy) = (1002, 622).
+func withWaypoint(bearing float64) signalk.Snapshot {
+	s := base()
+	s.Own.Heading = signalk.Reading{V: 0, At: compassNow}
+	s.Own.WPBearing = signalk.Reading{V: bearing, At: compassNow}
+	return s
+}
+
+func TestWaypointPointerAppearsAtItsBearingAndOnlyWithData(t *testing.T) {
+	rim := image.Rect(930, 560, 1060, 690)
+	without := renderCompass(t, noWaypoint(withWaypoint(math.Pi/2)))
+	with := renderCompass(t, withWaypoint(math.Pi/2))
+	if inked(with, rim) <= inked(without, rim) {
+		t.Errorf("a waypoint to starboard should add ink on the right rim: %d vs %d", inked(with, rim), inked(without, rim))
+	}
+	// Elsewhere it isn't there: the same waypoint dead astern leaves the right rim alone.
+	astern := renderCompass(t, withWaypoint(math.Pi))
+	if inked(astern, rim) != inked(without, rim) {
+		t.Error("a waypoint astern should not draw on the starboard rim")
+	}
+	stale := withWaypoint(math.Pi / 2)
+	stale.Own.WPBearing.At = compassNow.Add(-time.Minute)
+	if differs(renderCompass(t, stale), without) {
+		t.Error("a stale waypoint bearing must not be drawn")
+	}
+	noHeading := withWaypoint(math.Pi / 2)
+	noHeading.Own.Heading.At = compassNow.Add(-time.Minute)
+	if differs(renderCompass(t, noHeading), renderCompass(t, noWaypoint(noHeading))) {
+		t.Error("with no live heading the bearing has nothing to be relative to, so no pointer")
+	}
+}
+
+func noWaypoint(s signalk.Snapshot) signalk.Snapshot {
+	s.Own.WPBearing = signalk.Reading{}
+	return s
+}
+
+func TestWaypointPointerIsHollowAndPointsOutward(t *testing.T) {
+	c := renderCompass(t, withWaypoint(math.Pi/2))
+	// Pointing outward: its tip is outside the ring (x > 1002+8) and its
+	// wide base inside (x < 1002-40).
+	col := func(x int) int { return inked(c, image.Rect(x, 580, x+1, 665)) }
+	if col(1030) == 0 {
+		t.Error("the tip should reach outside the ring")
+	}
+	if col(940) <= col(1030) {
+		t.Errorf("the base should be wider than the tip: %d vs %d", col(940), col(1030))
+	}
+	// Hollow: the middle of the arrowhead is paper, not ink.
+	if g := c.Img.GrayAt(980, 622).Y; g < 200 {
+		t.Errorf("the pointer's middle is %d; it should be hollow", g)
+	}
+}

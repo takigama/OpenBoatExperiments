@@ -4,7 +4,6 @@
 package pages
 
 import (
-	"fmt"
 	"image"
 	"math"
 	"strings"
@@ -120,8 +119,9 @@ func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
 	c.HLine(0, b.Dx(), headerH, 4, render.Black)
 }
 
-// The Nav page is a grid of six boxes, two across and three down, read left
-// to right then top to bottom: speed over ground, heading, depth, course over
+// The Nav page is a grid of six boxes, two across and three down, numbered
+// left to right then top to bottom. Each shows whatever the user picked
+// (see BoxKinds); by default speed over ground, heading, depth, course over
 // ground, velocity made good, and the three nearest AIS contacts.
 const navCols, navRows = 2, 3
 
@@ -152,39 +152,32 @@ func vmg(own signalk.Own, now time.Time) (float64, bool) {
 	return speed.V * math.Abs(math.Cos(own.TWD.V-own.Heading.V)), true
 }
 
-// Nav is the six-box dashboard, in the user's chosen units.
+// Nav is the six-box dashboard, in the user's chosen units. What each box
+// shows is Env.Boxes (the user's choice, from the settings screens).
 func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	Header(c, "NAV", s, now)
 	b := c.Bounds()
 	own := s.Own
-
-	sogVal, sogUnit := e.Units.Format("sog", own.SOG.V)
-	depthVal, depthUnit := e.Units.Format("depth", own.Depth.V)
-	vmgV, vmgOK := vmg(own, now)
-	vmgVal, _ := e.Units.Format("sog", vmgV)
-	cogOK := cogLive(own, now) // a course over ground means nothing while we're stopped
-	metrics := []metric{
-		{label: "SOG", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal},
-		{label: "HEADING", ok: own.Heading.Fresh(now, StaleAfter), value: fmt.Sprintf("%03.0f", degrees(own.Heading.V))},
-		{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal},
-		{label: "COG", ok: cogOK, value: fmt.Sprintf("%03.0f", degrees(own.COG.V))},
-		{label: "VMG", unit: sogUnit, ok: vmgOK, value: vmgVal},
-	}
+	kinds := NormalizeBoxes(e.Boxes)
 
 	// One size for every box, from the widest thing likely to appear, so the
 	// numbers line up and don't change size as values come and go. A value
 	// too wide for it still shrinks to fit its own box.
 	size, _, _, _, _ := fitMetric(c, navCell(b, 0), "88.8", "km/h", 0)
-	for i, m := range metrics {
-		drawMetric(c, navCell(b, i), m, size)
-	}
 
 	var contacts []ais.Contact
 	haveFix := own.Pos.Fresh(now, StaleAfter)
 	if haveFix {
 		contacts = ais.Contacts(own, s.Targets, now, StaleAfter)
 	}
-	drawAISList(c, navCell(b, 5), contacts, haveFix, e)
+	for i, id := range kinds {
+		cell := navCell(b, i)
+		if id == BoxAIS {
+			drawAISList(c, cell, contacts, haveFix, e)
+			continue
+		}
+		drawMetric(c, cell, boxMetric(id, own, now, e), size)
+	}
 
 	// Grid lines last. They're static, so mid-grey is fine.
 	for row := 1; row < navRows; row++ {

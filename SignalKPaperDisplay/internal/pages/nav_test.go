@@ -159,3 +159,38 @@ func TestNavValuesAreAllTheSameSize(t *testing.T) {
 		t.Errorf("value heights differ: SOG %d, depth %d", hSOG, hDepth)
 	}
 }
+
+func TestNavShowsWhatTheBoxesAreSetTo(t *testing.T) {
+	boat := navBoat(0)
+	boat.Own.WPDistance = signalk.Reading{V: 3704, At: compassNow}
+
+	draw := func(boxes []string) *render.Canvas {
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Nav(c, boat, compassNow, Env{Units: units.Settings{Preset: units.PresetMetric}, Boxes: boxes})
+		return c
+	}
+	def := draw(nil)
+	custom := draw([]string{"wpdist"}) // box 1 only; the rest stay at their defaults
+	cell := navCell(def.Bounds(), 0)
+	if !differs(def, custom) {
+		t.Fatal("choosing another kind for box 1 should change the picture")
+	}
+	if inked(custom, cell.Inset(8)) == 0 {
+		t.Error("the chosen box should show its value")
+	}
+	// Only box 1 changed.
+	for i := 1; i < 6; i++ {
+		c := navCell(def.Bounds(), i)
+		if inked(def, c.Inset(8)) != inked(custom, c.Inset(8)) {
+			t.Errorf("box %d changed though only box 1 was reassigned", i+1)
+		}
+	}
+	// The AIS list can go in any box.
+	ais := draw([]string{BoxAIS, "hdg", "depth", "cog", "vmgw", "sog"})
+	if inked(ais, navCell(def.Bounds(), 0).Inset(8)) == 0 {
+		t.Error("the AIS list should work in box 1")
+	}
+}

@@ -109,6 +109,14 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		drawWindPointer(c, cx, cy, r, own.AWA.V)
 	}
 
+	// The next waypoint: a hollow arrowhead on the rim pointing outward, the
+	// mirror image of the wind pointer (which points in). It's at the bearing
+	// to the waypoint measured from the bow, so steering to put it on the bow
+	// line heads for the waypoint. Only while the server is sending one.
+	if ok && own.WPBearing.Fresh(now, StaleAfter) {
+		drawWaypointPointer(c, cx, cy, r, own.WPBearing.V-own.Heading.V)
+	}
+
 	// Course over ground: where the boat is really going, which differs from
 	// where it's pointing when there's leeway or current. Only meaningful
 	// while we're actually moving, so neither the readout nor the line is
@@ -359,6 +367,32 @@ func drawWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
 	}
 	c.FillPolygon(tri(r-92, r+40, 42), render.White) // halo
 	c.FillPolygon(tri(r-76, r+34, 30), render.Black)
+}
+
+// drawWaypointPointer draws the waypoint marker at angle (radians clockwise
+// from the bow): an arrowhead the same size as the wind pointer but turned
+// the other way, so it points outward where the wind pointer points in, and
+// hollow like an opening AIS diamond. A white halo goes down first so it stays
+// readable over the ticks.
+func drawWaypointPointer(c *render.Canvas, cx, cy, r, angle float64) {
+	ux, uy := math.Sin(angle), -math.Cos(angle) // outward from the centre
+	vx, vy := -uy, ux                           // across it
+	tri := func(tipR, baseR, half float64) []image.Point {
+		pt := func(along, across float64) image.Point {
+			return image.Pt(int(math.Round(cx+ux*along+vx*across)), int(math.Round(cy+uy*along+vy*across)))
+		}
+		return []image.Point{pt(tipR, 0), pt(baseR, -half), pt(baseR, half)}
+	}
+	// The wind pointer spans r-76 .. r+34 with its tip inward; this spans the
+	// same band with the tip outward.
+	const tip, base, half = 34.0, -76.0, 30.0
+	c.FillPolygon(tri(r+tip+8, r+base-8, half+12), render.White) // halo
+	c.FillPolygon(tri(r+tip, r+base, half), render.Black)
+	// The hole: the same triangle scaled about its centre (a third of the way
+	// from the base to the tip), leaving an outline of even-ish thickness.
+	const k = 0.52
+	centre := base + (tip-base)/3
+	c.FillPolygon(tri(r+centre+(tip-centre)*k, r+centre+(base-centre)*k, half*k), render.White)
 }
 
 // rightValue draws "value unit" with the pair's right edge at xRight.

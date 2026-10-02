@@ -39,6 +39,10 @@ type App struct {
 	// Invert shows white on black instead of black on white. Applied as the
 	// last step of every frame, so it covers every page with no per-page work.
 	Invert bool
+	// Boxes is what each of the Nav page's six boxes shows (page box-kind IDs;
+	// short or unknown entries take their defaults). Like Units, it changes
+	// from the touch handler, so inside the app use boxesNow().
+	Boxes []string
 	// SettingsPath is where settings changes are saved; empty means don't persist.
 	SettingsPath string
 
@@ -186,7 +190,8 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	view := a.settingsView
 	a.mu.Unlock()
 
-	act := pages.SettingsTap(view, ev.X, ev.Y)
+	w, _ := a.Display.Size()
+	act := pages.SettingsTap(view, ev.X, ev.Y, w)
 	if act.Kind == pages.ActNone {
 		return
 	}
@@ -198,7 +203,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		if view.Screen == pages.SettingsRoot {
 			a.settingsOpen = false
 		} else {
-			a.settingsView = pages.SettingsView{}
+			a.settingsView = pages.SettingsView{Screen: pages.ParentScreen(view.Screen)}
 		}
 	case pages.ActOpenPresetPicker:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickPreset}
@@ -212,9 +217,18 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.settingsView = pages.SettingsView{}
 	case pages.ActToggleInvert:
 		a.Invert = !a.Invert // stays on the list: you see the result at once
+	case pages.ActOpenBoxes:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
+	case pages.ActOpenBoxPicker:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickBox, Box: act.Box}
+	case pages.ActSetBox:
+		a.Boxes = pages.NormalizeBoxes(a.Boxes)
+		a.Boxes[act.Box] = act.Value
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	}
-	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit || act.Kind == pages.ActToggleInvert
-	saved := settings.File{Settings: a.Units.Clone(), Invert: a.Invert}
+	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit ||
+		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox
+	saved := settings.File{Settings: a.Units.Clone(), Invert: a.Invert, Boxes: append([]string(nil), a.Boxes...)}
 	a.pageChanged = true // every screen is a different picture: full refresh
 	a.mu.Unlock()
 
@@ -274,15 +288,23 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	a.mu.Unlock()
 	u := a.unitsNow()
 	invert := a.invertNow()
+	boxes := a.boxesNow()
 	if open {
-		pages.Settings(c, view, u, invert)
+		pages.Settings(c, view, u, invert, boxes)
 	} else {
-		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u})
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes})
 	}
 	if invert {
 		invertInPlace(c.Img)
 	}
 	return c.Img, nil
+}
+
+// boxesNow returns a private, normalised copy of the Nav box layout.
+func (a *App) boxesNow() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return pages.NormalizeBoxes(a.Boxes)
 }
 
 func (a *App) invertNow() bool {

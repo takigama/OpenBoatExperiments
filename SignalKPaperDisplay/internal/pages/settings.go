@@ -15,6 +15,8 @@ const (
 	SettingsRoot       SettingsScreen = iota // the list: units preset, then one row per metric
 	SettingsPickPreset                       // choose metric / imperial
 	SettingsPickUnit                         // choose a unit for View.Metric
+	SettingsBoxes                            // the six Nav boxes and what each shows
+	SettingsPickBox                          // choose what box View.Box shows
 )
 
 // Version is the running release number, shown at the foot of the settings
@@ -26,6 +28,7 @@ var Version = "0"
 type SettingsView struct {
 	Screen SettingsScreen
 	Metric string // which metric SettingsPickUnit is for
+	Box    int    // which Nav box SettingsPickBox is for, 0..NavBoxes-1
 }
 
 type ActionKind int
@@ -38,12 +41,16 @@ const (
 	ActSetPreset                   // apply Action.Value as the preset
 	ActSetUnit                     // apply Action.Value as Action.Metric's unit
 	ActToggleInvert                // flip white-on-black / black-on-white
+	ActOpenBoxes                   // root -> the list of Nav boxes
+	ActOpenBoxPicker               // boxes -> what-to-show picker for Action.Box
+	ActSetBox                      // box Action.Box shows kind Action.Value
 )
 
 // Action is what a tap on the settings screen asks the app to do.
 type Action struct {
 	Kind          ActionKind
 	Metric, Value string
+	Box           int
 }
 
 const (
@@ -78,6 +85,27 @@ func titleCase(s string) string {
 // by itself.
 func invertRow() int { return len(units.Metrics) + 1 }
 
+// boxesRow is the list row that opens the Nav box layout, just after invert.
+func boxesRow() int { return invertRow() + 1 }
+
+// boxPositions names the Nav boxes for the list, in box order.
+var boxPositions = [NavBoxes]string{
+	"Top left", "Top right", "Middle left", "Middle right", "Bottom left", "Bottom right",
+}
+
+// ParentScreen is where Back goes from a screen: pickers return to the list
+// they came from; everything else returns to the root.
+func ParentScreen(s SettingsScreen) SettingsScreen {
+	if s == SettingsPickBox {
+		return SettingsBoxes
+	}
+	return SettingsRoot
+}
+
+// pickerCols is how many columns the box-kind picker has: there are too many
+// kinds for one column of tappable rows.
+const pickerCols = 2
+
 // SettingsRowY is the vertical middle of list row i, for callers (and
 // tests) that need to tap a particular row.
 func SettingsRowY(i int) int { return settingsTop + i*settingsRowH + settingsRowH/2 }
@@ -90,8 +118,9 @@ func rowAt(y int) int {
 	return (y - settingsTop) / settingsRowH
 }
 
-// SettingsTap works out what a tap at (x, y) means on the given screen.
-func SettingsTap(v SettingsView, x, y int) Action {
+// SettingsTap works out what a tap at (x, y) means on the given screen,
+// which is width pixels wide.
+func SettingsTap(v SettingsView, x, y, width int) Action {
 	if image.Pt(x, y).In(CogRect) {
 		return Action{Kind: ActBack}
 	}
@@ -106,6 +135,18 @@ func SettingsTap(v SettingsView, x, y int) Action {
 		}
 		if row == invertRow() {
 			return Action{Kind: ActToggleInvert}
+		}
+		if row == boxesRow() {
+			return Action{Kind: ActOpenBoxes}
+		}
+	case SettingsBoxes:
+		if row >= 0 && row < NavBoxes {
+			return Action{Kind: ActOpenBoxPicker, Box: row}
+		}
+	case SettingsPickBox:
+		col := x * pickerCols / width
+		if i := row*pickerCols + col; row >= 0 && col >= 0 && col < pickerCols && i < len(BoxKinds) {
+			return Action{Kind: ActSetBox, Box: v.Box, Value: BoxKinds[i].ID}
 		}
 	case SettingsPickPreset:
 		if p := units.Presets(); row >= 0 && row < len(p) {
@@ -145,8 +186,8 @@ func row(c *render.Canvas, i int, label string, right func(cy int)) {
 }
 
 // Settings draws the settings screens. invert is the current state of the
-// invert-colours option, shown on its row.
-func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool) {
+// invert-colours option, shown on its row; boxes is what each Nav box shows.
+func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, boxes []string) {
 	b := c.Bounds()
 
 	title := "SETTINGS"
@@ -157,6 +198,10 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool) {
 		if m, ok := metricByID(v.Metric); ok {
 			title = strings.ToUpper(m.Label)
 		}
+	case SettingsBoxes:
+		title = "NAV BOXES"
+	case SettingsPickBox:
+		title = strings.ToUpper(boxPositions[clampBox(v.Box)])
 	}
 	// A back chevron where the cog is on other pages, in the same tap area.
 	chevronLeft(c, 38, int(cogY), 22, render.Black)
@@ -187,12 +232,35 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool) {
 			}
 			c.Text(b.Dx()-50, cy+16, state, 50, render.Bold, render.Right, render.Black)
 		})
-		c.Text(40, settingsTop+(invertRow()+1)*settingsRowH+60,
+		row(c, boxesRow(), "Nav boxes", func(cy int) { chevronRight(c, b.Dx()-50, cy, 18, render.Dark) })
+		c.Text(40, settingsTop+(boxesRow()+1)*settingsRowH+60,
 			"* set individually, not from the preset", 36, render.Regular, render.Left, render.Dark)
 		// Which build this is, so it's plain from the screen that an update
 		// has actually been picked up (a replaced file isn't running until
 		// the app restarts).
 		c.Text(b.Dx()-40, b.Dy()-40, "v"+Version, 36, render.Regular, render.Right, render.Dark)
+
+	case SettingsBoxes:
+		kinds := NormalizeBoxes(boxes)
+		for i := 0; i < NavBoxes; i++ {
+			k, _ := BoxKindByID(kinds[i])
+			row(c, i, boxPositions[i], func(cy int) {
+				c.Text(b.Dx()-110, cy+16, k.Name, 44, render.Bold, render.Right, render.Black)
+				chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
+			})
+		}
+
+	case SettingsPickBox:
+		current := NormalizeBoxes(boxes)[clampBox(v.Box)]
+		colW := b.Dx() / pickerCols
+		for i, k := range BoxKinds {
+			x0 := (i % pickerCols) * colW
+			y0 := settingsTop + (i/pickerCols)*settingsRowH
+			cy := y0 + settingsRowH/2
+			radio(c, x0+56, cy, k.ID == current)
+			c.Text(x0+100, cy+14, fitText(c, k.Name, 38, render.Regular, colW-120), 38, render.Regular, render.Left, render.Black)
+			c.HLine(x0+30, x0+colW-30, y0+settingsRowH-2, 2, render.Mid)
+		}
 
 	case SettingsPickPreset:
 		for i, p := range units.Presets() {
@@ -218,6 +286,8 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool) {
 		}
 	}
 }
+
+func clampBox(i int) int { return max(0, min(NavBoxes-1, i)) }
 
 // radio draws a radio button, filled when selected.
 func radio(c *render.Canvas, x, y int, selected bool) {

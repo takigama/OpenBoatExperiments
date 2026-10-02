@@ -11,6 +11,7 @@ import (
 // Env is everything a page needs besides live data: the user's settings.
 type Env struct {
 	Units units.Settings
+	Boxes []string // what the Nav page's six boxes show; see NormalizeBoxes
 }
 
 // Page is one selectable screen. Draw must be a pure function of its

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -197,5 +198,90 @@ func TestUnitsAreSnapshottedForRendering(t *testing.T) {
 	a.Units.SetUnit("sog", "mph")
 	if got := snap.UnitFor("sog").Symbol; got != "kn" {
 		t.Errorf("a snapshot changed underneath the renderer: got %s, want kn", got)
+	}
+}
+
+func TestChoosingWhatANavBoxShows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	a := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, SettingsPath: path,
+		Units: units.Settings{Preset: units.PresetMetric}}
+	a.HandleEvent(tap(30, 40)) // open settings
+
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+2)))
+	if a.settingsView.Screen != pages.SettingsBoxes {
+		t.Fatalf("view = %+v, want the box list", a.settingsView)
+	}
+	a.HandleEvent(tap(500, pages.SettingsRowY(3))) // middle right
+	if a.settingsView.Screen != pages.SettingsPickBox || a.settingsView.Box != 3 {
+		t.Fatalf("view = %+v, want the picker for box 3", a.settingsView)
+	}
+
+	// Back from the picker returns to the box list, not the root.
+	a.HandleEvent(tap(30, 40))
+	if a.settingsView.Screen != pages.SettingsBoxes {
+		t.Fatalf("back from the picker landed on %+v", a.settingsView)
+	}
+	a.HandleEvent(tap(500, pages.SettingsRowY(3)))
+
+	// Choose "Waypoint distance": kind index 13, so row 6, left column.
+	idx := -1
+	for i, k := range pages.BoxKinds {
+		if k.ID == "wpdist" {
+			idx = i
+		}
+	}
+	x := 200
+	if idx%2 == 1 {
+		x = 800
+	}
+	a.HandleEvent(tap(x, pages.SettingsRowY(idx/2)))
+	if got := a.boxesNow()[3]; got != "wpdist" {
+		t.Fatalf("box 3 = %q, want wpdist", got)
+	}
+	if a.settingsView.Screen != pages.SettingsBoxes {
+		t.Errorf("after choosing, the dialog should return to the box list, got %+v", a.settingsView)
+	}
+	if got := a.boxesNow()[0]; got != "sog" {
+		t.Errorf("box 0 changed to %q", got)
+	}
+
+	saved, err := settings.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.Boxes) != pages.NavBoxes || saved.Boxes[3] != "wpdist" {
+		t.Errorf("saved boxes = %v", saved.Boxes)
+	}
+	// Unit choices and the invert flag survive alongside it.
+	if saved.Preset == "" {
+		t.Error("saving boxes lost the unit preset")
+	}
+}
+
+func TestBoxesRoundTripThroughTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	f := settings.File{Settings: units.Settings{Preset: units.PresetNautical}, Boxes: []string{"stw", "awa"}}
+	if err := settings.Save(path, f); err != nil {
+		t.Fatal(err)
+	}
+	got, err := settings.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Boxes) != 2 || got.Boxes[1] != "awa" || got.Preset != units.PresetNautical {
+		t.Errorf("round trip = %+v", got)
+	}
+	clone := got.Clone()
+	clone.Boxes[0] = "changed"
+	if got.Boxes[0] == "changed" {
+		t.Error("Clone shares the boxes slice")
+	}
+	// An old file without any boxes still loads, with the defaults applied later.
+	old := filepath.Join(t.TempDir(), "old.json")
+	if err := os.WriteFile(old, []byte(`{"preset":"metric"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := settings.Load(old); err != nil || f.Boxes != nil {
+		t.Errorf("old file: %+v %v", f, err)
 	}
 }

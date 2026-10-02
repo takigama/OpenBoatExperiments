@@ -19,7 +19,16 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   depth, COG, VMG, and the three closest AIS contacts), selectable at runtime.
   VMG is velocity made good to the wind: boat speed (through the water if sent,
   else over the ground) times the cosine of the true wind angle, so it needs
-  true wind direction and heading. COG shows "--" while barely moving
+  true wind direction and heading. COG shows "--" while barely moving.
+  What each Nav box shows is chosen in Settings > Nav boxes, from: SOG, STW,
+  COG, heading, VMG to wind, VMG to waypoint, depth, water temperature,
+  apparent wind speed and angle, true wind speed and direction, waypoint
+  bearing / distance / time-to-go / time at current speed, and the 3 closest
+  AIS contacts
+- Waypoint data comes from SignalK's course paths (the v2 course API's
+  `navigation.course.calcValues.*`, or `navigation.courseGreatCircle` /
+  `courseRhumbline.nextPoint.*`). On the compass a hollow arrowhead on the
+  rim, pointing outward, marks the bearing to the waypoint
 - Per-metric unit settings (metric/imperial preset plus overrides)
 - Drawing via FBInk (~0.9 s per frame on a Paperwhite 3, including our own
   page rendering; skips unchanged frames, rations partial refreshes, fast DU
