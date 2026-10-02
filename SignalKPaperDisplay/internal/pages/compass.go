@@ -379,8 +379,8 @@ func drawWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
 // from the bow): an arrowhead the same size as the wind pointer but turned
 // the other way, so it points outward where the wind pointer points in, and
 // hollow like an opening AIS diamond. A white halo goes down first so it stays
-// readable over the ticks. A "W" sits just inside its base, so it can't be
-// mistaken for the wind pointer.
+// readable over the ticks. A "W" is part of the marker, just inside its base
+// and turned with it, so it can't be mistaken for the wind pointer.
 func drawWaypointPointer(c *render.Canvas, cx, cy, r, angle float64) {
 	ux, uy := math.Sin(angle), -math.Cos(angle) // outward from the centre
 	vx, vy := -uy, ux                           // across it
@@ -401,19 +401,22 @@ func drawWaypointPointer(c *render.Canvas, cx, cy, r, angle float64) {
 	centre := base + (tip-base)/3
 	c.FillPolygon(tri(r+centre+(tip-centre)*k, r+centre+(base-centre)*k, half*k), render.White)
 
-	// The W: upright, on the pointer's axis, with the near edge of its box
-	// waypointLabelGap pixels inside the base - however the pointer is turned,
-	// since the box's reach along the axis is worked out from its own size.
+	// The W: part of the marker, so it turns with it. It sits on the pointer's
+	// axis on the base side, its top (the side the triangle is on) waypointLabelGap
+	// pixels clear of the base - at the top of the card the W is under the
+	// triangle, at the bottom it is turned over, and so on round. The gap is
+	// measured to the letter's ink, not the font's box.
 	const size = 54.0
-	w := float64(c.TextWidth("W", size, render.Bold))
-	capH := size * 0.72 // height of a capital in this font
-	hw, hh := w/2, capH/2
-	reach := math.Abs(ux)*hw + math.Abs(uy)*hh
-	dist := r + base - waypointLabelGap - reach // from the card's centre to the box's centre
+	inkW, inkH := c.InkSize("W", size, render.Bold)
+	dist := r + base - waypointLabelGap - float64(inkH)/2 // from the card's centre to the ink's middle
 	lx, ly := cx+ux*dist, cy+uy*dist
-	box := image.Rect(int(math.Floor(lx-hw))-1, int(math.Floor(ly-hh))-1, int(math.Ceil(lx+hw))+1, int(math.Ceil(ly+hh))+1)
-	c.FillRect(box, render.White) // so it reads over the ticks
-	c.Text(int(math.Round(lx)), int(math.Round(ly+hh)), "W", size, render.Bold, render.Center, render.Black)
+	// A white pad a pixel bigger all round, so it reads over the ticks.
+	hw, hh := float64(inkW)/2+1, float64(inkH)/2+1
+	corner := func(across, along float64) image.Point {
+		return image.Pt(int(math.Round(lx+vx*across+ux*along)), int(math.Round(ly+vy*across+uy*along)))
+	}
+	c.FillPolygon([]image.Point{corner(-hw, -hh), corner(hw, -hh), corner(hw, hh), corner(-hw, hh)}, render.White)
+	c.TextRotated(lx, ly, "W", size, render.Bold, angle, render.Black)
 }
 
 // waypointLabelGap is the clear space between the waypoint pointer's base and

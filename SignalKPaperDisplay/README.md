@@ -33,8 +33,9 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
 - Waypoint data comes from SignalK's course paths (the v2 course API's
   `navigation.course.calcValues.*`, or `navigation.courseGreatCircle` /
   `courseRhumbline.nextPoint.*`). On the compass a hollow arrowhead on the
-  rim, pointing outward, marks the bearing to the waypoint, with a "W" just
-  inside its base so it isn't mistaken for the wind pointer
+  rim, pointing outward, marks the bearing to the waypoint, with a "W" under
+  it (just inside its base, turned with it, so it isn't mistaken for the wind
+  pointer)
 - The device's own battery is shown in the middle of the header: a battery
   that fills with the charge, the percentage, and a lightning bolt while it is
   on external power (read from the Linux power_supply class, else lipc)
