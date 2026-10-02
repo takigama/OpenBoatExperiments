@@ -53,6 +53,13 @@ done
 for f in "$HERE"/*.example; do
   [ -f "$f" ] && cp "$f" "$STAGE/"
 done
+# A platform's own example config, if it has one, replaces the shared one: the
+# stock UI jobs to stop differ between Kindles.
+if [ "$PLATFORM/install" != "$HERE" ]; then
+  for f in "$PLATFORM/install"/*.example; do
+    [ -f "$f" ] && cp "$f" "$STAGE/"
+  done
+fi
 chmod +x "$STAGE/paperdisplay" "$STAGE"/*.sh 2>/dev/null || true
 [ -f "$STAGE/fbink" ] && chmod +x "$STAGE/fbink"
 # What we checksum on both ends: only files this run actually shipped.

@@ -1,0 +1,11 @@
+# Kindle Basic. Copy this to /mnt/us/signalk/launcher.conf and edit. Read by
+# startpaper.sh.
+
+# Where your SignalK server is (host:port). Required.
+SIGNALK_HOST=10.0.0.76:3001
+
+# Upstart jobs to stop while the app owns the screen, and start again when the
+# stock UI is handed back. On this firmware the stock UI is the Java framework,
+# and the status bar (JunoStatusBarDriver) is a job of its own called
+# `statusbar`, which would keep painting over our header.
+STOP_JOBS="framework statusbar"

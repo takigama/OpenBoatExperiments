@@ -30,9 +30,10 @@ matched against tap areas.
   possible. The profile's `rotation` field is not used by any code yet.
 - **Touch axes.** Measure with `./paperdisplay -touch-test` and record `swapXY`,
   `invertX` and `invertY` in `profile.json` if the mapping isn't straight.
-- **What draws the stock status bar.** `JunoStatusBarDriver` runs as user 9000.
-  Find its upstart job (`initctl list`) and add it to `STOP_JOBS` in
-  `launcher.conf` if it paints over the header.
+- **The stock UI.** Found with `initctl list`: the Java UI is the `framework`
+  job and the status bar (`JunoStatusBarDriver`) is a job of its own, `statusbar`.
+  `launcher.conf.example` here sets `STOP_JOBS="framework statusbar"`; `pillow` and
+  `webreader` are also running and may need adding if something paints over us.
 - **FBInk.** The `kindlepw2` build we ship should run here (KOReader uses it for
   every Kindle from the Paperwhite 2 on).
 
@@ -43,5 +44,8 @@ bash platforms/kindle-basic/install/deploy.sh <ip-address> [port]
 ```
 
 copies this device's binary, its `profile.json` (so it must be run for this
-Kindle, not the Paperwhite) and the shared launcher scripts. Then, on the device,
-copy `launcher.conf.example` to `launcher.conf` and set `SIGNALK_HOST`.
+Kindle, not the Paperwhite - a Paperwhite profile makes it open `event1` and draw
+at the wrong size) and the shared launcher scripts. Then, on the device,
+`/mnt/us/signalk/launcher.conf` is where the settings live: copy
+`launcher.conf.example` (shipped beside it) to `launcher.conf` and set
+`SIGNALK_HOST`.
