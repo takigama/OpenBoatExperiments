@@ -1,0 +1,7 @@
+# build.env is sourced by sh inside the build container, and the Makefile
+# and scripts run under Linux - CRLF from a Windows checkout would break
+# them.
+*.env       text eol=lf
+*.sh        text eol=lf
+Makefile    text eol=lf
+Dockerfile  text eol=lf

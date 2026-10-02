@@ -1,0 +1,12 @@
+{
+  "name": "kindle-pw3",
+  "description": "Kindle Paperwhite 3 (7th gen, serial prefix G090), firmware 5.14.3.0.1",
+  "width": 1072,
+  "height": 1448,
+  "grayLevels": 16,
+  "rotation": 0,
+  "touch": {
+    "device": "/dev/input/event1",
+    "protocol": "mt-slot"
+  }
+}
