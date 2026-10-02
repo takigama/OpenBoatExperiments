@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"signalkpaperdisplay/internal/battery"
 	"signalkpaperdisplay/internal/display"
 	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/signalk"
@@ -175,5 +176,70 @@ func TestHeaderGuardReportsAFailureOnce(t *testing.T) {
 	a.guardHeader(time.Unix(120030, 0))
 	if a.lastGuardErr != "fbink exploded" || len(rec.regions) != 2 {
 		t.Errorf("err %q, regions %d: it should keep trying while remembering the error", a.lastGuardErr, len(rec.regions))
+	}
+}
+
+type countingBattery struct {
+	reads int
+	st    battery.Status
+	err   error
+}
+
+func (c *countingBattery) Read() (battery.Status, error) { c.reads++; return c.st, c.err }
+
+func TestBatteryIsReadAtMostEveryHalfMinute(t *testing.T) {
+	b := &countingBattery{st: battery.Status{Percent: 80}}
+	a := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, Battery: b}
+	t0 := time.Unix(5000, 0)
+	for i := 0; i < 20; i++ { // twenty frames in 20 seconds
+		if st := a.batteryNow(t0.Add(time.Duration(i) * time.Second)); st == nil || st.Percent != 80 {
+			t.Fatalf("frame %d: %+v", i, st)
+		}
+	}
+	if b.reads != 1 {
+		t.Errorf("read the battery %d times in 20 s, want 1", b.reads)
+	}
+	b.st.Percent = 79
+	if st := a.batteryNow(t0.Add(31 * time.Second)); st.Percent != 79 || b.reads != 2 {
+		t.Errorf("after 30 s it should read again: %+v, %d reads", st, b.reads)
+	}
+}
+
+func TestBatteryFailureHidesItAndIsLoggedOnce(t *testing.T) {
+	b := &countingBattery{err: errors.New("no capacity file")}
+	a := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, Battery: b, battEvery: time.Second}
+	t0 := time.Unix(5000, 0)
+	if a.batteryNow(t0) != nil || a.batteryNow(t0.Add(2*time.Second)) != nil {
+		t.Error("a failed read must hide the indicator")
+	}
+	if a.battErr != "no capacity file" {
+		t.Errorf("error not remembered: %q", a.battErr)
+	}
+	b.err = nil
+	b.st = battery.Status{Percent: 50}
+	if st := a.batteryNow(t0.Add(4 * time.Second)); st == nil || st.Percent != 50 {
+		t.Errorf("recovered reading: %+v", st)
+	}
+	if (&App{}).batteryNow(t0) != nil {
+		t.Error("with no battery reader there is nothing to show")
+	}
+}
+
+func TestFrameDrawsTheBattery(t *testing.T) {
+	plain := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}}
+	with := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448},
+		Battery: &battery.Fake{S: battery.Status{Percent: 90, Plugged: true}}}
+	now := time.Unix(2000, 0)
+	a, _ := plain.Frame(now)
+	b, _ := with.Frame(now)
+	same := true
+	for i := range a.Pix {
+		if a.Pix[i] != b.Pix[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Error("the frame should differ when there is a battery to show")
 	}
 }

@@ -3,6 +3,7 @@ package pages
 import (
 	"time"
 
+	"signalkpaperdisplay/internal/battery"
 	"signalkpaperdisplay/internal/render"
 	"signalkpaperdisplay/internal/signalk"
 	"signalkpaperdisplay/internal/units"
@@ -12,6 +13,9 @@ import (
 type Env struct {
 	Units units.Settings
 	Boxes []string // what the Nav page's six boxes show; see NormalizeBoxes
+	// Battery is the device's own battery, shown in the middle of the header;
+	// nil when it can't be read, and then nothing is drawn.
+	Battery *battery.Status
 }
 
 // Page is one selectable screen. Draw must be a pure function of its

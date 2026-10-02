@@ -28,7 +28,7 @@ func headerAt(t *testing.T, s signalk.Snapshot, now time.Time) *render.Canvas {
 	if err != nil {
 		t.Fatal(err)
 	}
-	Header(c, "TEST", s, now)
+	Header(c, "TEST", s, now, Env{})
 	return c
 }
 

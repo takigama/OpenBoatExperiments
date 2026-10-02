@@ -101,7 +101,7 @@ func Lost(s signalk.Snapshot, now time.Time) bool {
 	return !s.Connected || !s.LastMessage.After(now.Add(-StaleAfter))
 }
 
-func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
+func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time, e Env) {
 	b := c.Bounds()
 	lost := Lost(s, now)
 	// The clock is drawn by us, in the title's font, since the stock Kindle
@@ -111,12 +111,15 @@ func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
 	if lost {
 		c.FillRect(image.Rect(0, 0, b.Dx(), headerH), render.Black)
 		c.Cog(cogX, cogY, cogR, render.White, render.Black) // settings stay reachable with no data
-		c.Text(b.Dx()/2, 64, "NO DATA", 60, render.Bold, render.Center, render.White)
+		// Where the title goes, not the middle: that is the battery's.
+		c.Text(titleX, 64, "NO DATA", 60, render.Bold, render.Left, render.White)
+		drawBattery(c, b.Dx()/2, int(cogY), e.Battery, render.White, render.Black)
 		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.White)
 		drawHeartbeat(c, b.Dx(), HeartbeatOn(now), render.Black)
 	} else {
 		c.Cog(cogX, cogY, cogR, render.Black, render.White)
 		c.Text(titleX, 64, title, 56, render.Bold, render.Left, render.Black)
+		drawBattery(c, b.Dx()/2, int(cogY), e.Battery, render.Black, render.White)
 		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.Black)
 		drawHeartbeat(c, b.Dx(), HeartbeatOn(now), render.White)
 	}
@@ -159,7 +162,7 @@ func vmg(own signalk.Own, now time.Time) (float64, bool) {
 // Nav is the six-box dashboard, in the user's chosen units. What each box
 // shows is Env.Boxes (the user's choice, from the settings screens).
 func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
-	Header(c, "NAV", s, now)
+	Header(c, "NAV", s, now, e)
 	b := c.Bounds()
 	own := s.Own
 	kinds := NormalizeBoxes(e.Boxes)
@@ -180,7 +183,7 @@ func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 			drawAISList(c, cell, contacts, haveFix, e)
 			continue
 		}
-		drawMetric(c, cell, boxMetric(id, own, now, e), size)
+		drawMetric(c, cell, boxMetric(id, own, now, e, contacts), size)
 	}
 
 	// Grid lines last. They're static, so mid-grey is fine.

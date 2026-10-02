@@ -32,6 +32,7 @@ type SettingsView struct {
 	Screen SettingsScreen
 	Metric string // which metric SettingsPickUnit is for
 	Box    int    // which Nav box SettingsPickBox is for, 0..NavBoxes-1
+	Page   int    // SettingsPickBox: which page of kinds is showing
 	Text   string // SettingsServer: the address typed so far
 	Err    string // SettingsServer: why the last Save was refused
 
@@ -54,6 +55,7 @@ const (
 	ActOpenBoxes                   // root -> the list of Nav boxes
 	ActOpenBoxPicker               // boxes -> what-to-show picker for Action.Box
 	ActSetBox                      // box Action.Box shows kind Action.Value
+	ActBoxPage                     // show page Action.Page of the box picker
 	ActOpenServer                  // root -> the server address editor
 	ActServerKey                   // a keypad key, Action.Value: a character, "back", "clear" or "save"
 	ActOpenLight                   // root -> the front light screen
@@ -66,6 +68,7 @@ type Action struct {
 	Metric, Value string
 	Box           int
 	Level         int
+	Page          int
 }
 
 const (
@@ -191,6 +194,13 @@ func ParentScreen(s SettingsScreen) SettingsScreen {
 	return SettingsRoot
 }
 
+// The box picker pages kinds BoxesPerPicker at a time; these two buttons turn
+// the page, under the grid.
+var (
+	pickerPrev = image.Rect(40, 1110, 360, 1230)
+	pickerNext = image.Rect(712, 1110, 1032, 1230)
+)
+
 // pickerCols is how many columns the box-kind picker has: there are too many
 // kinds for one column of tappable rows.
 const pickerCols = 2
@@ -248,8 +258,19 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 			return Action{Kind: ActOpenBoxPicker, Box: row}
 		}
 	case SettingsPickBox:
+		pages := BoxPages()
+		page := max(0, min(v.Page, pages-1))
+		if pages > 1 {
+			if image.Pt(x, y).In(pickerPrev) && page > 0 {
+				return Action{Kind: ActBoxPage, Page: page - 1}
+			}
+			if image.Pt(x, y).In(pickerNext) && page < pages-1 {
+				return Action{Kind: ActBoxPage, Page: page + 1}
+			}
+		}
 		col := x * pickerCols / width
-		if i := row*pickerCols + col; row >= 0 && col >= 0 && col < pickerCols && i < len(BoxKinds) {
+		if i := page*BoxesPerPicker + row*pickerCols + col; row >= 0 && col >= 0 && col < pickerCols &&
+			row*pickerCols+col < BoxesPerPicker && i < len(BoxKinds) {
 			return Action{Kind: ActSetBox, Box: v.Box, Value: BoxKinds[i].ID}
 		}
 	case SettingsPickPreset:
@@ -380,13 +401,34 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 	case SettingsPickBox:
 		current := NormalizeBoxes(boxes)[clampBox(v.Box)]
 		colW := b.Dx() / pickerCols
-		for i, k := range BoxKinds {
-			x0 := (i % pickerCols) * colW
-			y0 := settingsTop + (i/pickerCols)*settingsRowH
+		pages := BoxPages()
+		page := max(0, min(v.Page, pages-1))
+		for j := 0; j < BoxesPerPicker; j++ {
+			i := page*BoxesPerPicker + j
+			if i >= len(BoxKinds) {
+				break
+			}
+			k := BoxKinds[i]
+			x0 := (j % pickerCols) * colW
+			y0 := settingsTop + (j/pickerCols)*settingsRowH
 			cy := y0 + settingsRowH/2
 			radio(c, x0+56, cy, k.ID == current)
 			c.Text(x0+100, cy+14, fitText(c, k.Name, 38, render.Regular, colW-120), 38, render.Regular, render.Left, render.Black)
 			c.HLine(x0+30, x0+colW-30, y0+settingsRowH-2, 2, render.Mid)
+		}
+		if pages > 1 {
+			button := func(r image.Rectangle, label string, on bool) {
+				c.FillRect(r, render.Black)
+				c.FillRect(r.Inset(4), render.White)
+				shade := render.Black
+				if !on {
+					shade = render.Mid // nowhere to go that way
+				}
+				c.Text((r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2+18, label, 52, render.Bold, render.Center, shade)
+			}
+			button(pickerPrev, "< PREV", page > 0)
+			button(pickerNext, "NEXT >", page < pages-1)
+			c.Text(b.Dx()/2, (pickerPrev.Min.Y+pickerPrev.Max.Y)/2+16, strconv.Itoa(page+1)+" / "+strconv.Itoa(pages), 44, render.Bold, render.Center, render.Black)
 		}
 
 	case SettingsPickPreset:

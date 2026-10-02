@@ -166,3 +166,53 @@ func TestUnknownMotionIsTreatedAsStationary(t *testing.T) {
 		t.Errorf("got %+v, want one contact, closing only because we're moving toward it", got)
 	}
 }
+
+func TestClosestPointOfApproach(t *testing.T) {
+	// A ship 2000 m north, steaming south at 5 m/s, and us stationary: it
+	// comes straight at us, so CPA is zero in 400 s.
+	own := ownAt(lat, lon, 0, 0)
+	got := Contacts(own, []signalk.Target{target("head-on", lat, lon, 2000, 0, 5, math.Pi)}, now, 10*time.Second)
+	if !got[0].Converging || !near(got[0].CPA, 0, 1) || !near(got[0].TCPA, 400, 0.5) {
+		t.Errorf("head-on: %+v, want CPA 0 in 400 s", got[0])
+	}
+
+	// The same ship offset 300 m to the east passes 300 m off.
+	got = Contacts(own, []signalk.Target{target("passing", lat, lon, 2000, 300, 5, math.Pi)}, now, 10*time.Second)
+	if !got[0].Converging || !near(got[0].CPA, 300, 2) || !near(got[0].TCPA, 400, 1) {
+		t.Errorf("passing: %+v, want CPA 300 in 400 s", got[0])
+	}
+
+	// Moving away: nothing to approach.
+	got = Contacts(own, []signalk.Target{target("leaving", lat, lon, 2000, 0, 5, 0)}, now, 10*time.Second)
+	if got[0].Converging {
+		t.Errorf("a ship steaming away is not converging: %+v", got[0])
+	}
+	// Same velocity as us: the gap never changes.
+	got = Contacts(ownAt(lat, lon, 4, 0), []signalk.Target{target("alongside", lat, lon, 0, 500, 4, 0)}, now, 10*time.Second)
+	if got[0].Converging {
+		t.Errorf("a ship on our course and speed is not converging: %+v", got[0])
+	}
+	// Both stationary.
+	got = Contacts(own, []signalk.Target{target("moored", lat, lon, 1000, 0, 0, 0)}, now, 10*time.Second)
+	if got[0].Converging {
+		t.Errorf("two stationary boats are not converging: %+v", got[0])
+	}
+}
+
+func TestMostUrgent(t *testing.T) {
+	cs := []Contact{
+		{ID: "away", Converging: false},
+		{ID: "wide", Converging: true, CPA: 900, TCPA: 100},
+		{ID: "close-late", Converging: true, CPA: 50, TCPA: 900},
+		{ID: "close-soon", Converging: true, CPA: 50, TCPA: 300},
+	}
+	if c, ok := MostUrgent(cs); !ok || c.ID != "close-soon" {
+		t.Errorf("got %+v %v, want the one passing closest, and sooner on a tie", c, ok)
+	}
+	if _, ok := MostUrgent([]Contact{{ID: "x"}}); ok {
+		t.Error("nothing converging means no urgent contact")
+	}
+	if _, ok := MostUrgent(nil); ok {
+		t.Error("no contacts means no urgent contact")
+	}
+}

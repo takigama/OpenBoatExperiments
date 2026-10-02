@@ -184,6 +184,13 @@ func (s Settings) Format(metricID string, si float64) (value, unit string) {
 	return u.Format(si), u.Symbol
 }
 
+// FormatQuantity renders an SI value in the preset's unit for a quantity,
+// for values that have no setting of their own (air pressure, say).
+func (s Settings) FormatQuantity(q Quantity, si float64) (value, unit string) {
+	u, _ := lookup(q, s.preset()[q])
+	return u.Format(si), u.Symbol
+}
+
 // IsOverridden reports whether a metric differs from its preset default,
 // so the dialog can mark it.
 func (s Settings) IsOverridden(metricID string) bool {

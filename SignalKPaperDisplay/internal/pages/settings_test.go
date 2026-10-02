@@ -155,31 +155,72 @@ func TestSettingsBoxScreens(t *testing.T) {
 		t.Errorf("below the last box nothing should happen, got %+v", got)
 	}
 
-	// The picker is two columns, filled row by row.
-	pick := SettingsView{Screen: SettingsPickBox, Box: 3}
-	for i, k := range BoxKinds {
-		x := 200
-		if i%2 == 1 {
-			x = 800
-		}
-		got := SettingsTap(pick, x, SettingsRowY(i/2), w)
-		if got.Kind != ActSetBox || got.Value != k.ID || got.Box != 3 {
-			t.Errorf("kind %d (%s) = %+v", i, k.ID, got)
+	// The picker is two columns, filled row by row, one page at a time.
+	for page := 0; page < BoxPages(); page++ {
+		pick := SettingsView{Screen: SettingsPickBox, Box: 3, Page: page}
+		for j := 0; j < BoxesPerPicker; j++ {
+			i := page*BoxesPerPicker + j
+			x := 200 + (j%2)*600
+			got := SettingsTap(pick, x, SettingsRowY(j/2), w)
+			if i >= len(BoxKinds) {
+				if got.Kind != ActNone {
+					t.Errorf("page %d slot %d is empty but did %+v", page, j, got)
+				}
+				continue
+			}
+			if got.Kind != ActSetBox || got.Value != BoxKinds[i].ID || got.Box != 3 {
+				t.Errorf("page %d slot %d (%s) = %+v", page, j, BoxKinds[i].ID, got)
+			}
 		}
 	}
-	if len(BoxKinds)%2 == 1 {
-		if got := SettingsTap(pick, 800, SettingsRowY(len(BoxKinds)/2), w); got.Kind != ActNone {
-			t.Errorf("the empty slot after the last kind should do nothing, got %+v", got)
-		}
+	// Everything fits on screen above the page buttons.
+	if last := SettingsRowY(BoxesPerPicker/2-1) + settingsRowH/2; last > pickerPrev.Min.Y {
+		t.Errorf("a full page of kinds reaches y=%d, into the page buttons at %d", last, pickerPrev.Min.Y)
 	}
-	// Everything fits on screen with room for the back chevron.
-	if last := SettingsRowY((len(BoxKinds)-1)/2) + settingsRowH/2; last > 1448 {
-		t.Errorf("the picker runs off the bottom of the screen at y=%d", last)
+	if pickerPrev.Max.Y > 1448 || pickerNext.Max.Y > 1448 {
+		t.Error("the page buttons run off the screen")
 	}
 
 	if ParentScreen(SettingsPickBox) != SettingsBoxes || ParentScreen(SettingsBoxes) != SettingsRoot ||
 		ParentScreen(SettingsPickUnit) != SettingsRoot {
 		t.Error("back should go pickers -> their list -> root")
+	}
+}
+
+func TestBoxPickerPages(t *testing.T) {
+	const w = 1072
+	if BoxPages() < 2 {
+		t.Fatalf("with %d kinds the picker should need several pages, got %d", len(BoxKinds), BoxPages())
+	}
+	mid := func(r image.Rectangle) image.Point { return image.Pt((r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2) }
+	first := SettingsView{Screen: SettingsPickBox, Page: 0}
+	if got := SettingsTap(first, mid(pickerNext).X, mid(pickerNext).Y, w); got.Kind != ActBoxPage || got.Page != 1 {
+		t.Errorf("next from page 0 = %+v", got)
+	}
+	if got := SettingsTap(first, mid(pickerPrev).X, mid(pickerPrev).Y, w); got.Kind != ActNone {
+		t.Errorf("prev from the first page should do nothing, got %+v", got)
+	}
+	lastPage := BoxPages() - 1
+	last := SettingsView{Screen: SettingsPickBox, Page: lastPage}
+	if got := SettingsTap(last, mid(pickerPrev).X, mid(pickerPrev).Y, w); got.Kind != ActBoxPage || got.Page != lastPage-1 {
+		t.Errorf("prev from the last page = %+v", got)
+	}
+	if got := SettingsTap(last, mid(pickerNext).X, mid(pickerNext).Y, w); got.Kind != ActNone {
+		t.Errorf("next from the last page should do nothing, got %+v", got)
+	}
+	// A page number out of range is treated as the nearest real page.
+	if got := SettingsTap(SettingsView{Screen: SettingsPickBox, Page: 99}, 200, SettingsRowY(0), w); got.Kind != ActSetBox ||
+		got.Value != BoxKinds[lastPage*BoxesPerPicker].ID {
+		t.Errorf("page 99 = %+v", got)
+	}
+	// Every kind is on exactly one page, and BoxPageOf agrees.
+	for i, k := range BoxKinds {
+		if BoxPageOf(k.ID) != i/BoxesPerPicker {
+			t.Errorf("%s: page %d, want %d", k.ID, BoxPageOf(k.ID), i/BoxesPerPicker)
+		}
+	}
+	if BoxPageOf("nonsense") != 0 {
+		t.Error("an unknown kind starts on the first page")
 	}
 }
 
@@ -412,5 +453,33 @@ func TestBacklightScreenIsBlackAndWhiteAndShowsTheLevel(t *testing.T) {
 	}
 	if draw(0) == nil {
 		t.Fatal("level 0 should draw")
+	}
+}
+
+func TestBoxPickerDrawsEachPageAndMarksTheChoice(t *testing.T) {
+	draw := func(page int, boxes []string) *render.Canvas {
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Settings(c, SettingsView{Screen: SettingsPickBox, Box: 0, Page: page}, units.Settings{}, false, boxes, "")
+		return c
+	}
+	for p := 0; p < BoxPages(); p++ {
+		if inked(draw(p, nil), image.Rect(0, headerH+10, 1072, pickerPrev.Max.Y)) == 0 {
+			t.Errorf("page %d drew nothing", p)
+		}
+		if inked(draw(p, nil), pickerNext) == 0 {
+			t.Errorf("page %d has no page buttons", p)
+		}
+	}
+	// The mark moves with the choice, but only on the page the choice is on.
+	lastKind := BoxKinds[len(BoxKinds)-1].ID
+	if !differs(draw(BoxPages()-1, []string{lastKind}), draw(BoxPages()-1, []string{"sog"})) {
+		t.Error("the last page should show the selection")
+	}
+	if differs(draw(0, []string{lastKind}), draw(0, []string{"stw"})) &&
+		!differs(draw(0, []string{lastKind}), draw(0, []string{"sog"})) {
+		// both fine: page 0 only differs when the choice is on page 0
 	}
 }

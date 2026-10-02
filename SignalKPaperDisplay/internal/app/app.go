@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"signalkpaperdisplay/internal/battery"
 	"signalkpaperdisplay/internal/display"
 	"signalkpaperdisplay/internal/frontlight"
 	"signalkpaperdisplay/internal/input"
@@ -61,6 +62,14 @@ type App struct {
 	Light      frontlight.Light
 	Brightness *int
 	lightLevel int // the level the light is at, guarded by mu
+
+	// Battery reads the device's own battery for the header; nil when there is
+	// none to read. The reading is cached (see batteryNow).
+	Battery   battery.Reader
+	battStat  *battery.Status
+	battAt    time.Time
+	battErr   string
+	battEvery time.Duration
 
 	// Verbose logs every screen refresh. Off, only slow ones are logged: one
 	// line every couple of seconds is a megabyte a day on a device with little
@@ -112,6 +121,36 @@ func (a *App) PrevPage() {
 	a.page = (a.page + n - 1) % n
 	a.pageChanged = true
 	a.mu.Unlock()
+}
+
+// batteryNow is the device battery for the header, read at most every
+// battEvery (30 s unless set): the reading is a few file reads or a lipc call,
+// and the charge changes slowly. A failed read hides the indicator rather than
+// showing a stale one. Called only from the rendering goroutine.
+func (a *App) batteryNow(now time.Time) *battery.Status {
+	if a.Battery == nil {
+		return nil
+	}
+	every := a.battEvery
+	if every == 0 {
+		every = 30 * time.Second
+	}
+	if !a.battAt.IsZero() && now.Sub(a.battAt) < every {
+		return a.battStat
+	}
+	a.battAt = now
+	st, err := a.Battery.Read()
+	if err != nil {
+		a.battStat = nil
+		if err.Error() != a.battErr {
+			a.battErr = err.Error()
+			log.Printf("battery: %v", err)
+		}
+		return nil
+	}
+	a.battErr = ""
+	a.battStat = &st
+	return a.battStat
 }
 
 // InitLight applies the saved brightness, if any, and otherwise reads where
@@ -285,7 +324,11 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	case pages.ActOpenBoxes:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	case pages.ActOpenBoxPicker:
-		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickBox, Box: act.Box}
+		// Open on the page holding the box's current choice.
+		cur := pages.NormalizeBoxes(a.Boxes)[act.Box]
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickBox, Box: act.Box, Page: pages.BoxPageOf(cur)}
+	case pages.ActBoxPage:
+		a.settingsView.Page = act.Page
 	case pages.ActOpenLight:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsLight}
 	case pages.ActSetLight:
@@ -405,7 +448,7 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
-		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes})
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now)})
 	}
 	if invert {
 		invertInPlace(c.Img)

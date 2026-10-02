@@ -20,15 +20,24 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   VMG is velocity made good to the wind: boat speed (through the water if sent,
   else over the ground) times the cosine of the true wind angle, so it needs
   true wind direction and heading. COG shows "--" while barely moving.
-  What each Nav box shows is chosen in Settings > Nav boxes, from: SOG, STW,
-  COG, heading, VMG to wind, VMG to waypoint, depth, water temperature,
-  apparent wind speed and angle, true wind speed and direction, waypoint
-  bearing / distance / time-to-go / time at current speed, and the 3 closest
-  AIS contacts
+  What each Nav box shows is chosen in Settings > Nav boxes (a paged picker),
+  from: SOG, STW, COG, heading (true and magnetic), VMG to wind and to the
+  waypoint, depth, water and air temperature, air pressure, humidity, apparent
+  and true wind, waypoint bearing / distance / time-to-go / time at current
+  speed / ETA / cross-track error, closest point of approach (CPA) and time to
+  it (TCPA) for the ship that will pass closest, the 3 closest AIS contacts,
+  rate of turn, pitch, roll, rudder angle, autopilot mode and target, the
+  house battery (volts, charge, amps), the engine (RPM, temperature, oil
+  pressure, fuel rate) and the fresh, grey and black water tanks. Values that
+  live under an id (batteries, engines, tanks) show the first by name
 - Waypoint data comes from SignalK's course paths (the v2 course API's
   `navigation.course.calcValues.*`, or `navigation.courseGreatCircle` /
   `courseRhumbline.nextPoint.*`). On the compass a hollow arrowhead on the
-  rim, pointing outward, marks the bearing to the waypoint
+  rim, pointing outward, marks the bearing to the waypoint, with a "W" just
+  inside its base so it isn't mistaken for the wind pointer
+- The device's own battery is shown in the middle of the header: a battery
+  that fills with the charge, the percentage, and a lightning bolt while it is
+  on external power (read from the Linux power_supply class, else lipc)
 - Per-metric unit settings (metric/imperial preset plus overrides)
 - Drawing via FBInk (~0.9 s per frame on a Paperwhite 3, including our own
   page rendering; skips unchanged frames, rations partial refreshes, fast DU

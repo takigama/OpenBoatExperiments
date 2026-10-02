@@ -65,6 +65,7 @@ func main() {
 		headerGuard  = flag.Duration("header-guard", 10*time.Second, "repaint the header strip this often (and just after each minute starts) to clear anything the stock UI, such as its clock, has drawn over it; 0 = never")
 		logMax       = flag.Int64("log-max", 256<<10, "empty the log (stderr, when it is a file) when it reaches this many bytes, so it can never fill the device; 0 = no limit")
 		verbose      = flag.Bool("verbose", false, "log every screen refresh, not just slow or failed ones")
+		fakeBattery  = flag.String("fake-battery", "", "for PNG previews: pretend the battery is at this percentage, with a + on the end if plugged in, e.g. 87 or 62+")
 		minRefresh   = flag.Duration("min-refresh", 2*time.Second, "shortest gap between partial refreshes (0 = redraw on every change); page changes ignore it")
 		manifestURL  = flag.String("manifest", defaultManifest, "update manifest URL")
 		fetchKind    = flag.String("fetch", "", "how to download updates: curl or http (default: the profile's setting, else http)")
@@ -167,6 +168,7 @@ func main() {
 	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Verbose: *verbose, HeaderGuardEvery: *headerGuard,
 		Units: saved.Settings, Invert: saved.Invert, Boxes: saved.Boxes, SettingsPath: *settingsPath,
 		Server: saved.Server, DefaultServer: *server, OnServerChange: client.SetServer, Brightness: saved.Brightness}
+	a.Battery = detectBattery(*displayKind, *fakeBattery)
 	a.Light = detectLight(prof, *displayKind, *settingsView)
 	a.InitLight()
 

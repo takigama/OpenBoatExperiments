@@ -30,6 +30,13 @@ type Contact struct {
 	Range     float64 // metres
 	RangeRate float64 // m/s; negative means the gap is shrinking
 	Closing   bool    // RangeRate < 0
+
+	// Closest point of approach, if both keep their present course and speed.
+	// Converging is false when we're not getting any nearer (then the other
+	// two mean nothing): CPA is the least distance we will be apart, in
+	// metres, and TCPA how many seconds from now that will be.
+	Converging bool
+	CPA, TCPA  float64
 }
 
 // DisplayName is what to call the contact on screen: its name if it sent
@@ -43,6 +50,22 @@ func (c Contact) DisplayName() string {
 		return mmsi
 	}
 	return "UNKNOWN"
+}
+
+// MostUrgent is the contact that will pass closest to us - of those that are
+// getting nearer at all - or false if none is. Ties go to the sooner one.
+func MostUrgent(cs []Contact) (Contact, bool) {
+	var best Contact
+	found := false
+	for _, c := range cs {
+		if !c.Converging {
+			continue
+		}
+		if !found || c.CPA < best.CPA || (c.CPA == best.CPA && c.TCPA < best.TCPA) {
+			best, found = c, true
+		}
+	}
+	return best, found
 }
 
 // velocity is a speed and course as east/north components in m/s.
@@ -98,6 +121,18 @@ func Contacts(own signalk.Own, targets []signalk.Target, now time.Time, ownMaxAg
 		// the line between us.
 		rate := ((te-oe)*de + (tn-on)*dn) / dist
 
+		// Closest approach: with relative position r and relative velocity v
+		// the gap is smallest after t = -(r.v)/(v.v), if that is ahead of us.
+		ve, vn := te-oe, tn-on
+		var conv bool
+		var cpa, tcpa float64
+		if vv := ve*ve + vn*vn; vv > 1e-6 {
+			if t := -(de*ve + dn*vn) / vv; t > 0 {
+				conv, tcpa = true, t
+				cpa = math.Hypot(de+ve*t, dn+vn*t)
+			}
+		}
+
 		bearing := math.Atan2(de, dn)
 		if bearing < 0 {
 			bearing += 2 * math.Pi
@@ -105,6 +140,7 @@ func Contacts(own signalk.Own, targets []signalk.Target, now time.Time, ownMaxAg
 		out = append(out, Contact{
 			ID: t.ID, Name: t.Name,
 			Bearing: bearing, Range: dist, RangeRate: rate, Closing: rate < 0,
+			Converging: conv, CPA: cpa, TCPA: tcpa,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Range < out[j].Range })

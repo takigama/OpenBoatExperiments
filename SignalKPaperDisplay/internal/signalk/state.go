@@ -56,7 +56,106 @@ type Own struct {
 	// towards it.
 	WPBearing, WPDistance, WPTimeToGo, WPVMG Reading
 	Fuel                                     []Tank // sorted by ID, so the gauges keep their order
-	Pos                                      Position
+	// Everything else a Nav box can show, keyed by SignalK path (see
+	// extraPath for which paths are kept). Batteries, engines and tanks have
+	// ids in their paths, so look those up with FirstExtra.
+	Extra map[string]Reading
+	// The autopilot's mode, the one text value kept.
+	Autopilot TextReading
+	Pos       Position
+}
+
+// TextReading is a text value and when it arrived.
+type TextReading struct {
+	S  string
+	At time.Time
+}
+
+func (t TextReading) Fresh(now time.Time, maxAge time.Duration) bool {
+	return t.S != "" && !t.At.IsZero() && now.Sub(t.At) <= maxAge
+}
+
+// ExtraReading is the reading for an exact SignalK path, zero if never seen.
+func (o Own) ExtraReading(path string) Reading { return o.Extra[path] }
+
+// FirstExtra is the reading of the first path (by name, so by id: "0" before
+// "1", "house" before "starter") that starts with prefix and ends with
+// suffix, for values that live under an id such as a battery or engine.
+func (o Own) FirstExtra(prefix, suffix string) Reading {
+	var best string
+	for k := range o.Extra {
+		if strings.HasPrefix(k, prefix) && strings.HasSuffix(k, suffix) && (best == "" || k < best) {
+			best = k
+		}
+	}
+	return o.Extra[best]
+}
+
+// extraPath reports whether an own-vessel path is one of the extra values
+// kept. A whitelist, not "everything": subscribe=all carries hundreds of
+// paths that nothing here would ever show.
+func extraPath(p string) bool {
+	switch p {
+	case "navigation.headingMagnetic", "navigation.rateOfTurn", "steering.rudderAngle",
+		"environment.outside.temperature", "environment.outside.pressure",
+		"environment.outside.humidity", "environment.outside.relativeHumidity",
+		"navigation.course.calcValues.crossTrackError",
+		"navigation.courseGreatCircle.crossTrackError", "navigation.courseRhumbline.crossTrackError",
+		"steering.autopilot.target.headingTrue", "steering.autopilot.target.windAngleApparent":
+		return true
+	}
+	ends := func(suffixes ...string) bool {
+		for _, x := range suffixes {
+			if strings.HasSuffix(p, x) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case strings.HasPrefix(p, "electrical.batteries."):
+		return ends(".voltage", ".current", ".capacity.stateOfCharge")
+	case strings.HasPrefix(p, "propulsion."):
+		return ends(".revolutions", ".temperature", ".oilPressure", ".fuel.rate")
+	case strings.HasPrefix(p, "tanks.freshWater."), strings.HasPrefix(p, "tanks.wasteWater."), strings.HasPrefix(p, "tanks.blackWater."):
+		return ends(".currentLevel")
+	}
+	return false
+}
+
+// applyExtra stores one of the extra values, reporting whether the path was one.
+func (s *State) applyExtra(path string, raw json.RawMessage, now time.Time) bool {
+	set := func(key string, v float64) {
+		if s.own.Extra == nil {
+			s.own.Extra = map[string]Reading{}
+		}
+		s.own.Extra[key] = Reading{V: v, At: now}
+	}
+	switch {
+	case path == "navigation.attitude":
+		// An object, {"roll":..,"pitch":..,"yaw":..}: kept as separate values.
+		var a map[string]float64
+		if isNull(raw) || json.Unmarshal(raw, &a) != nil {
+			return true
+		}
+		for k, v := range a {
+			set("navigation.attitude."+k, v)
+		}
+		return true
+	case path == "steering.autopilot.state":
+		var str string
+		if !isNull(raw) && json.Unmarshal(raw, &str) == nil {
+			s.own.Autopilot = TextReading{S: str, At: now}
+		}
+		return true
+	case extraPath(path):
+		var v float64
+		if !isNull(raw) && json.Unmarshal(raw, &v) == nil {
+			set(path, v)
+		}
+		return true
+	}
+	return false
 }
 
 // Target is another vessel (AIS).
@@ -105,6 +204,12 @@ func (s *State) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snap := Snapshot{Own: s.own, Connected: s.connected, LastMessage: s.lastMsg}
+	if len(s.own.Extra) > 0 { // the map is written under the lock: hand out a copy
+		snap.Own.Extra = make(map[string]Reading, len(s.own.Extra))
+		for k, v := range s.own.Extra {
+			snap.Own.Extra[k] = v
+		}
+	}
 	for id, lvl := range s.fuel {
 		snap.Own.Fuel = append(snap.Own.Fuel, Tank{ID: id, Level: lvl})
 	}
@@ -210,6 +315,8 @@ func (s *State) applyOwn(path string, raw json.RawMessage, now time.Time) {
 		"navigation.courseGreatCircle.nextPoint.velocityMadeGood",
 		"navigation.courseRhumbline.nextPoint.velocityMadeGood":
 		setNum(&s.own.WPVMG, raw, now)
+	default:
+		s.applyExtra(path, raw, now)
 	}
 }
 

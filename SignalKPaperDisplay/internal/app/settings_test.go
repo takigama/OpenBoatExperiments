@@ -524,3 +524,40 @@ func TestSavedBrightnessOnTheOldRawScaleIsIgnored(t *testing.T) {
 		}
 	}
 }
+
+func TestNavBoxPickerOpensOnTheCurrentChoicesPageAndPages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	a := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, SettingsPath: path,
+		Units: units.Settings{Preset: units.PresetMetric}}
+	lastKind := pages.BoxKinds[len(pages.BoxKinds)-1].ID
+	a.Boxes = []string{"sog", lastKind}
+
+	a.HandleEvent(tap(30, 40))
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+2))) // Nav boxes
+	a.HandleEvent(tap(500, pages.SettingsRowY(1)))                    // box 2, set to the last kind
+	if want := pages.BoxPageOf(lastKind); a.settingsView.Page != want || want == 0 {
+		t.Fatalf("the picker opened on page %d, want %d (the page of %s)", a.settingsView.Page, want, lastKind)
+	}
+	// Box 1 holds an early kind, so its picker opens on page 0.
+	a.HandleEvent(tap(30, 40))
+	a.HandleEvent(tap(500, pages.SettingsRowY(0)))
+	if a.settingsView.Page != 0 {
+		t.Errorf("box 1 opened on page %d", a.settingsView.Page)
+	}
+
+	// Next page, then pick the first kind on it.
+	a.takePageChanged()
+	a.HandleEvent(tap(870, 1170)) // the NEXT button
+	if a.settingsView.Page != 1 || a.settingsView.Screen != pages.SettingsPickBox || a.settingsView.Box != 0 {
+		t.Fatalf("view = %+v, want page 1 of box 0's picker", a.settingsView)
+	}
+	a.HandleEvent(tap(200, pages.SettingsRowY(0)))
+	want := pages.BoxKinds[pages.BoxesPerPicker].ID
+	if got := a.boxesNow()[0]; got != want {
+		t.Errorf("box 1 = %q, want %q", got, want)
+	}
+	saved, err := settings.Load(path)
+	if err != nil || saved.Boxes[0] != want {
+		t.Errorf("saved boxes = %v, %v", saved.Boxes, err)
+	}
+}

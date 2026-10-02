@@ -205,3 +205,63 @@ func TestWaypointPointerIsHollowAndPointsOutward(t *testing.T) {
 		t.Errorf("the pointer's middle is %d; it should be hollow", g)
 	}
 }
+
+func TestWaypointPointerHasAWUnderIt(t *testing.T) {
+	// Turned to starboard the pointer's base is the vertical line at x=926
+	// (r-76 from the card's centre), so "under" it means to its left.
+	c := renderCompass(t, withWaypoint(math.Pi/2))
+	none := renderCompass(t, noWaypoint(withWaypoint(math.Pi/2)))
+	label := image.Rect(860, 600, 924, 646)
+	if inked(c, label) <= inked(none, label) {
+		t.Errorf("a W should sit just inside the pointer's base: %d vs %d inked", inked(c, label), inked(none, label))
+	}
+	// The gap: the two pixel columns between the W's box and the pointer.
+	gap := image.Rect(924, 612, 926, 632)
+	if inked(c, gap) != inked(none, gap) {
+		t.Errorf("the 2px gap under the pointer has %d inked pixels, want none added", inked(c, gap)-inked(none, gap))
+	}
+
+	// Dead ahead the pointer is at the top, and "under" is below its base.
+	top := renderCompass(t, withWaypoint(0))
+	noTop := renderCompass(t, noWaypoint(withWaypoint(0)))
+	below := image.Rect(500, 205, 572, 250) // inside the base at y = 622-466+76 = 232
+	if inked(top, below) <= inked(noTop, below) {
+		t.Error("with the pointer at the top the W should be below it")
+	}
+}
+
+// The W's box is about this big (54px bold: the advance of a W and the height
+// of a capital), so its reach along any axis can be worked out.
+const waypointW, waypointH = 46, 38
+
+func TestWaypointLabelFollowsThePointerWhateverItsAngle(t *testing.T) {
+	// For every angle the W must land inside the ring, near the pointer, and
+	// not overwrite the pointer's own outline.
+	for deg := 0; deg < 360; deg += 15 {
+		rad := float64(deg) * math.Pi / 180
+		c := renderCompass(t, withWaypoint(rad))
+		none := renderCompass(t, noWaypoint(withWaypoint(rad)))
+		if !differs(c, none) {
+			t.Fatalf("angle %d: nothing drawn", deg)
+		}
+		// The W's centre: 76+2+reach inside the ring along the pointer's axis.
+		ux, uy := math.Sin(rad), -math.Cos(rad)
+		d := 466.0 - 76 - 2 - (math.Abs(ux)*float64(waypointW/2) + math.Abs(uy)*float64(waypointH/2))
+		x, y := 536+int(ux*d), 622+int(uy*d)
+		box := image.Rect(x-30, y-22, x+30, y+22)
+		// The W's own box is white-filled so it reads over the card's ticks and
+		// letters, which can take ink away as well as add it; what must hold is
+		// that the picture changed there.
+		changed := 0
+		for yy := box.Min.Y; yy < box.Max.Y; yy++ {
+			for xx := box.Min.X; xx < box.Max.X; xx++ {
+				if c.Img.GrayAt(xx, yy).Y != none.Img.GrayAt(xx, yy).Y {
+					changed++
+				}
+			}
+		}
+		if changed < 40 {
+			t.Errorf("angle %d: only %d pixels differ near (%d,%d); no W", deg, changed, x, y)
+		}
+	}
+}
