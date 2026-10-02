@@ -38,12 +38,20 @@ cat > "$T/bin/pidof" <<'EOF'
 [ -f "$T/running" ] && { echo 2147483000; exit 0; }
 exit 1
 EOF
-cat > "$DIR/paperdisplay" <<'EOF'
+chmod +x "$T"/bin/*
+
+# The stand-in app. Recreated by reset, because a rollback test replaces it
+# with the "previous version" stub and the next test must start from the
+# original.
+make_app() {
+  cat > "$DIR/paperdisplay" <<'EOF'
 #!/bin/sh
 echo "$@" >> "$T/started"
 exit "${STUB_EXIT:-0}"
 EOF
-chmod +x "$T"/bin/* "$DIR/paperdisplay"
+  chmod +x "$DIR/paperdisplay"
+}
+make_app
 
 pass=0; fail=0
 check() { # check "description" command...
@@ -56,8 +64,8 @@ wait_exit() { for _ in $(seq 1 50); do [ -f "$STATE/exit" ] && return; sleep 0.1
 starts() { [ -f "$T/started" ] && wc -l < "$T/started" || echo 0; }
 called() { grep -qx "$1" "$T/calls" 2>/dev/null; }
 logged() { grep -q "$1" "$DIR/paperdisplay.log" 2>/dev/null; }
-reset() { rm -rf "$T/started" "$T/calls" "$T/running" "$STATE" "$DIR/paperdisplay.log" "$DIR/disable" \
-          "$DIR/paperdisplay.prev" "$DIR/paperdisplay.bad"; rm -f "$T/jobs"/*; touch "$T/jobs/framework"; }
+reset() { rm -rf "$T/started" "$T/calls" "$T/running" "$STATE" "$DIR/paperdisplay.log" "$DIR/disable" "$DIR/pause" \
+          "$DIR/paperdisplay.prev" "$DIR/paperdisplay.bad"; rm -f "$T/jobs"/*; touch "$T/jobs/framework"; make_app; }
 
 echo "no config: refuses to start"
 reset
@@ -103,6 +111,16 @@ for _ in 1 2 3 4 5 6 7; do launch; wait_exit; done
 check "gives up eventually" logged "restoring the stock Kindle UI"
 check "brings the stock framework back" called "start framework"
 unset STUB_EXIT
+
+echo "pause file: the launcher does nothing at all"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$DIR/pause"; rm -f "$T/jobs/framework"
+launch
+check "app not started" test "$(starts)" = 0
+check "stock UI not restored either" test ! "$(grep -c 'start framework' "$T/calls" 2>/dev/null || true)" -gt 0
+check "nothing stopped" test ! "$(grep -c '^stop' "$T/calls" 2>/dev/null || true)" -gt 0
+rm -f "$DIR/pause"
+launch; wait_exit
+check "starts again once the pause file is removed" test "$(starts)" = 1
 
 echo "disable file: stops the app and restores the stock UI"
 reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running" "$DIR/disable"; rm -f "$T/jobs/framework"

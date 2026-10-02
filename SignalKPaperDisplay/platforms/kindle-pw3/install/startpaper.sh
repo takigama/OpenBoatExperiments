@@ -12,6 +12,8 @@
 #     and brings the stock Kindle UI back
 #   * `touch /mnt/us/signalk/disable` stops the app and restores the stock UI
 #     within a minute; delete the file to start again
+#   * `touch /mnt/us/signalk/pause` makes the launcher do nothing at all
+#     (no start, no restore) until the file is deleted
 #
 # Settings live in /mnt/us/signalk/launcher.conf (see launcher.conf.example).
 # Plain POSIX sh: the Kindle has busybox ash, not bash.
@@ -56,6 +58,13 @@ lipc-set-prop com.lab126.powerd preventScreenSaver 1 >/dev/null 2>&1
 
 [ -f "$CONF" ] && . "$CONF"
 STOP_JOBS="${STOP_JOBS:-framework}"
+
+# --- pause switch -------------------------------------------------------------
+# While this file exists the launcher does nothing: it doesn't start the app
+# and doesn't restore the stock UI either. For experiments and maintenance,
+# where `disable` (which hands the screen back) is too much and an unattended
+# restart is too little.
+[ -f "$DIR/pause" ] && exit 0
 
 # --- off switch ---------------------------------------------------------------
 if [ -f "$DISABLE" ]; then
