@@ -16,6 +16,13 @@ import (
 	"time"
 )
 
+// DefaultSteps is how many levels a light with a very fine raw range is given
+// unless told otherwise; rawRangeTooFine is where "very fine" starts.
+const (
+	DefaultSteps    = 24
+	rawRangeTooFine = 64
+)
+
 // Light is a front light with levels 0 (off) up to Max.
 type Light interface {
 	Max() int
@@ -29,11 +36,14 @@ type Config struct {
 	// "/sys/class/backlight/*"; the directory must hold "brightness" and
 	// "max_brightness" files.
 	Sysfs string
-	// Steps, if set, is how many levels to offer on a sysfs light whose raw
-	// range is much finer (the Paperwhite 3's goes to 4095, which is no use as
-	// a setting). Gamma shapes the mapping from step to raw value: our eyes
-	// judge brightness roughly by its square, so with Gamma 2 each step looks
-	// like an even change. Zero Gamma means 2.
+	// Steps is how many levels to offer on a sysfs light whose raw range is
+	// much finer (the Paperwhite 3's goes to 4095, which is no use as a
+	// setting). Zero means DefaultSteps whenever the raw range is large, so a
+	// device's profile.json - which an app update does not replace - needs no
+	// entry for it; a negative number means use the raw range as it is. Gamma
+	// shapes the mapping from step to raw value: our eyes judge brightness
+	// roughly by its square, so with Gamma 2 each step looks like an even
+	// change. Zero Gamma means 2.
 	Steps int
 	Gamma float64
 	// Lipc is the "service property" pair to use when there is no sysfs
@@ -47,8 +57,12 @@ type Config struct {
 func Detect(cfg Config) (Light, error) {
 	if cfg.Sysfs != "" {
 		if l, err := NewSysfs(cfg.Sysfs); err == nil {
-			if cfg.Steps > 0 && cfg.Steps < l.rawMax {
-				l.steps, l.gamma = cfg.Steps, cfg.Gamma
+			steps := cfg.Steps
+			if steps == 0 && l.rawMax > rawRangeTooFine {
+				steps = DefaultSteps
+			}
+			if steps > 0 && steps < l.rawMax {
+				l.steps, l.gamma = steps, cfg.Gamma
 			}
 			return l, nil
 		}

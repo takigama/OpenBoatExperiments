@@ -11,8 +11,8 @@ func TestFrontlightInTheKindleProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Frontlight != nil && (p.Frontlight.Steps <= 0 || p.Frontlight.Steps > 64) {
-		t.Errorf("the raw range is 4095 so the profile must offer a sensible number of steps, got %d", p.Frontlight.Steps)
+	if p.Frontlight != nil && p.Frontlight.Steps > 64 {
+		t.Errorf("a setting with %d steps is no use", p.Frontlight.Steps)
 	}
 	if p.Frontlight == nil || p.Frontlight.Sysfs == "" || p.Frontlight.Lipc == "" || p.Frontlight.LipcMax <= 0 {
 		t.Errorf("the Kindle profile should describe its front light, got %+v", p.Frontlight)

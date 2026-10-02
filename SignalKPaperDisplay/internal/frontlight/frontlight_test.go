@@ -216,3 +216,35 @@ func TestStepsNotUsedWhenTheRawRangeIsAlreadySmall(t *testing.T) {
 		t.Errorf("max = %d, %v; want the raw 10", l.Max(), err)
 	}
 }
+
+func TestAFineRawRangeGetsTheDefaultStepsWithNoConfig(t *testing.T) {
+	// The device's profile.json predates the steps setting and an app update
+	// does not replace it: it names no steps, and the answer must still be 24.
+	glob := fakeBacklight(t, "bl", "4095", "0")
+	l, err := Detect(Config{Sysfs: glob})
+	if err != nil || l.Max() != DefaultSteps {
+		t.Fatalf("max = %d, %v; want the default %d steps", l.Max(), err, DefaultSteps)
+	}
+	if err := l.Set(DefaultSteps); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := l.Level(); n != DefaultSteps {
+		t.Errorf("top step reads back as %d", n)
+	}
+}
+
+func TestNegativeStepsMeansTheRawRange(t *testing.T) {
+	glob := fakeBacklight(t, "bl", "4095", "0")
+	l, err := Detect(Config{Sysfs: glob, Steps: -1})
+	if err != nil || l.Max() != 4095 {
+		t.Errorf("max = %d, %v; want the raw 4095", l.Max(), err)
+	}
+}
+
+func TestExplicitStepsOverrideTheDefault(t *testing.T) {
+	glob := fakeBacklight(t, "bl", "4095", "0")
+	l, _ := Detect(Config{Sysfs: glob, Steps: 10})
+	if l.Max() != 10 {
+		t.Errorf("max = %d, want the configured 10", l.Max())
+	}
+}
