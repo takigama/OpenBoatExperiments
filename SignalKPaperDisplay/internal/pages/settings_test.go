@@ -294,3 +294,123 @@ func TestServerEditorDraws(t *testing.T) {
 		t.Error("the list should show the current server")
 	}
 }
+
+func TestBacklightRowOnlyOnDevicesWithALight(t *testing.T) {
+	const w = 1072
+	row := SettingsRowY(len(units.Metrics) + 4) // after invert, boxes and server
+	with := SettingsView{MaxLevel: 24, Level: 10}
+	if got := SettingsTap(with, 500, row, w); got.Kind != ActOpenLight {
+		t.Errorf("with a light, the row after the server should open it, got %+v", got)
+	}
+	if got := SettingsTap(SettingsView{}, 500, row, w); got.Kind != ActNone {
+		t.Errorf("with no light that row does not exist, got %+v", got)
+	}
+
+	draw := func(v SettingsView) *render.Canvas {
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Settings(c, v, units.Settings{}, false, nil, "")
+		return c
+	}
+	r := image.Rect(720, row-40, 1000, row+40) // right-hand side: the footnote on the left is not the level
+	if inked(draw(with), r) == 0 {
+		t.Error("the row should show the current level")
+	}
+	if inked(draw(SettingsView{}), r) != 0 {
+		t.Error("with no light the row must not be drawn")
+	}
+	if !differs(draw(SettingsView{MaxLevel: 24, Level: 0}), draw(with)) {
+		t.Error("the row should say Off at level 0 and a level otherwise")
+	}
+	// The list, footnote and version still fit with the extra row.
+	if bottom := SettingsRowY(lightRow()) + settingsRowH/2; bottom > 1330 {
+		t.Errorf("the backlight row is too low (%d) for the footnote under it", bottom)
+	}
+}
+
+func TestBacklightScreenTaps(t *testing.T) {
+	const w = 1072
+	v := SettingsView{Screen: SettingsLight, Level: 10, MaxLevel: 24}
+	set := func(pt image.Point) Action { return SettingsTap(v, pt.X, pt.Y, w) }
+	mid := func(r image.Rectangle) image.Point { return image.Pt((r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2) }
+
+	if a := set(mid(lightPlus)); a.Kind != ActSetLight || a.Level != 11 {
+		t.Errorf("plus = %+v, want 11", a)
+	}
+	if a := set(mid(lightMinus)); a.Kind != ActSetLight || a.Level != 9 {
+		t.Errorf("minus = %+v, want 9", a)
+	}
+	if a := set(mid(lightOff)); a.Kind != ActSetLight || a.Level != 0 {
+		t.Errorf("off = %+v, want 0", a)
+	}
+	if a := set(mid(lightMaxBtn)); a.Kind != ActSetLight || a.Level != 24 {
+		t.Errorf("max = %+v, want 24", a)
+	}
+	// The bar: left end is 0, right end is the maximum, the middle is half.
+	y := lightBar.Min.Y + lightBar.Dy()/2
+	if a := set(image.Pt(lightBar.Min.X, y)); a.Level != 0 {
+		t.Errorf("left end = %+v", a)
+	}
+	if a := set(image.Pt(lightBar.Max.X, y)); a.Level != 24 {
+		t.Errorf("right end = %+v", a)
+	}
+	if a := set(image.Pt((lightBar.Min.X+lightBar.Max.X)/2, y)); a.Level != 12 {
+		t.Errorf("middle = %+v, want 12", a)
+	}
+	// A tap just outside the ends of the bar still counts, clamped to them.
+	if a := set(image.Pt(lightBar.Min.X-30, y)); a.Kind != ActSetLight || a.Level != 0 {
+		t.Errorf("just left of the bar = %+v", a)
+	}
+	// Buttons stop at the limits.
+	v.Level = 24
+	if a := set(mid(lightPlus)); a.Level != 24 {
+		t.Errorf("plus at the maximum = %+v", a)
+	}
+	v.Level = 0
+	if a := set(mid(lightMinus)); a.Level != 0 {
+		t.Errorf("minus at zero = %+v", a)
+	}
+	// Elsewhere does nothing, and with no light nothing works.
+	if a := set(image.Pt(500, 1200)); a.Kind != ActNone {
+		t.Errorf("empty space = %+v", a)
+	}
+	if a := SettingsTap(SettingsView{Screen: SettingsLight}, mid(lightPlus).X, mid(lightPlus).Y, w); a.Kind != ActNone {
+		t.Errorf("with no light the screen does nothing, got %+v", a)
+	}
+}
+
+func TestBacklightScreenIsBlackAndWhiteAndShowsTheLevel(t *testing.T) {
+	draw := func(level int) *render.Canvas {
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Settings(c, SettingsView{Screen: SettingsLight, Level: level, MaxLevel: 24}, units.Settings{}, false, nil, "")
+		return c
+	}
+	low, high := draw(3), draw(21)
+	if !differs(low, high) {
+		t.Fatal("the screen should change with the level")
+	}
+	// The bar fills in proportion.
+	if inked(high, lightBar) <= inked(low, lightBar) {
+		t.Errorf("a higher level should fill more of the bar: %d vs %d", inked(high, lightBar), inked(low, lightBar))
+	}
+	// It is redrawn in place under the fast waveform, so no greys in the
+	// controls: everything below the title is pure black or white except the
+	// anti-aliased edges of text, which the bar and buttons never touch.
+	for _, r := range []image.Rectangle{lightBar, lightMinus, lightPlus, lightOff, lightMaxBtn} {
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				if g := high.Img.GrayAt(x, y).Y; g > 40 && g < 215 && (x < r.Min.X+3 || x >= r.Max.X-3 || y < r.Min.Y+3 || y >= r.Max.Y-3) {
+					t.Fatalf("grey %d on the edge of a control at (%d,%d)", g, x, y)
+				}
+			}
+		}
+	}
+	if draw(0) == nil {
+		t.Fatal("level 0 should draw")
+	}
+}

@@ -55,7 +55,7 @@ func main() {
 		waveform     = flag.String("waveform", "DU", "e-ink waveform for partial updates with -display fbink: DU is fast (~290ms on a Paperwhite 3, coarse grays), GL16 or \"\" (FBInk's choice) is slower (~540ms) but smoother; full refreshes always use full quality")
 		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for eips/fbink (use tmpfs, not flash)")
 		pageID       = flag.String("page", "compass", "page to start on: compass, nav")
-		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset, unit:<metric>, boxes, box:<1-6> or server")
+		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset, unit:<metric>, boxes, box:<1-6>, server or light")
 		settingsPath = flag.String("settings", "settings.json", "unit settings file (missing = metric defaults)")
 		fullEvery    = flag.Duration("full-refresh", 5*time.Minute, "flashing full refresh interval, to clear e-ink ghosting")
 		once         = flag.Bool("once", false, "render a single frame after -wait, then exit (for previews)")
@@ -166,7 +166,9 @@ func main() {
 	client := &signalk.Client{URL: signalk.StreamURL(host), Token: *token, State: state}
 	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Verbose: *verbose, HeaderGuardEvery: *headerGuard,
 		Units: saved.Settings, Invert: saved.Invert, Boxes: saved.Boxes, SettingsPath: *settingsPath,
-		Server: saved.Server, DefaultServer: *server, OnServerChange: client.SetServer}
+		Server: saved.Server, DefaultServer: *server, OnServerChange: client.SetServer, Brightness: saved.Brightness}
+	a.Light = detectLight(prof, *displayKind, *settingsView)
+	a.InitLight()
 
 	if !a.SetPage(*pageID) {
 		log.Fatalf("unknown -page %q", *pageID)
@@ -179,6 +181,8 @@ func main() {
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickPreset})
 	case strings.HasPrefix(v, "unit:"):
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickUnit, Metric: strings.TrimPrefix(v, "unit:")})
+	case v == "light":
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsLight})
 	case v == "server":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsServer, Text: host})
 	case v == "boxes":
@@ -190,7 +194,7 @@ func main() {
 		}
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickBox, Box: n - 1})
 	default:
-		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6> or server)", v)
+		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6>, server or light)", v)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

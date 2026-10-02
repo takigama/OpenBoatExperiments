@@ -50,6 +50,14 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   `settings.json` beside the app (tap the back arrow to leave). A server set
   there beats the launcher's `SIGNALK_HOST` / the `-signalk` flag, which is
   only the default until one is chosen
+- A backlight setting (Settings > Backlight): a tap bar, minus/plus, off and
+  max. The light is driven through the device's sysfs backlight, or failing
+  that lipc, as described in the platform's `profile.json` (`frontlight`); the
+  setting is hidden where there is none. The level is saved and re-applied
+  when the app starts
+- The log can never fill the device: only slow or failed refreshes are logged
+  (unless `-verbose`), the app empties its log at `-log-max` (256 KB), repeated
+  connection failures are logged once, and the launcher trims it as a backstop
 - A clock in the header, drawn by the app, with a heartbeat dot beside it that
   blinks every second (redrawn as its own tiny region, so it costs almost
   nothing) - if it stops, the app or the panel has hung

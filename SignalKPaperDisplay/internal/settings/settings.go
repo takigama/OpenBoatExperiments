@@ -29,11 +29,22 @@ type File struct {
 	// -signalk flag (and so the launcher's SIGNALK_HOST), so a change made on
 	// the device sticks.
 	Server string `json:"server,omitempty"`
+	// Brightness is the front light level the user chose, applied when the
+	// app starts. Nil means never set: the light is left as the device has it.
+	Brightness *int `json:"brightness,omitempty"`
 }
 
 // Clone returns an independent copy (the unit overrides are a map).
 func (f File) Clone() File {
-	return File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...), Server: f.Server}
+	return File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...), Server: f.Server, Brightness: f.cloneBrightness()}
+}
+
+func (f File) cloneBrightness() *int {
+	if f.Brightness == nil {
+		return nil
+	}
+	v := *f.Brightness
+	return &v
 }
 
 // Load reads the file at path. A missing file is not an error - it just means

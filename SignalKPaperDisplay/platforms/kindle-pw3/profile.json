@@ -6,6 +6,11 @@
   "grayLevels": 16,
   "rotation": 0,
   "fetch": "curl",
+  "frontlight": {
+    "sysfs": "/sys/class/backlight/*",
+    "lipc": "com.lab126.powerd flIntensity",
+    "lipcMax": 24
+  },
   "touch": {
     "device": "/dev/input/event1",
     "protocol": "mt-slot"

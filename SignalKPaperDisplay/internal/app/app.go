@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"signalkpaperdisplay/internal/display"
+	"signalkpaperdisplay/internal/frontlight"
 	"signalkpaperdisplay/internal/input"
 	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/render"
@@ -54,6 +55,13 @@ type App struct {
 	// OnServerChange is called, with the new "host:port", after the user saves
 	// a different server, so the connection can be moved to it.
 	OnServerChange func(hostPort string)
+	// Light is the device's front light, nil if it has none or it can't be
+	// reached; the setting is hidden then. Brightness is the level saved in
+	// settings (nil: never chosen). Call InitLight once after setting both.
+	Light      frontlight.Light
+	Brightness *int
+	lightLevel int // the level the light is at, guarded by mu
+
 	// Verbose logs every screen refresh. Off, only slow ones are logged: one
 	// line every couple of seconds is a megabyte a day on a device with little
 	// room to spare.
@@ -104,6 +112,37 @@ func (a *App) PrevPage() {
 	a.page = (a.page + n - 1) % n
 	a.pageChanged = true
 	a.mu.Unlock()
+}
+
+// InitLight applies the saved brightness, if any, and otherwise reads where
+// the light is, so the setting starts out showing the truth.
+func (a *App) InitLight() {
+	if a.Light == nil {
+		return
+	}
+	level, err := a.Light.Level()
+	if a.Brightness != nil {
+		level = *a.Brightness
+		err = a.Light.Set(level)
+	}
+	if err != nil {
+		log.Printf("front light: %v", err)
+	}
+	a.mu.Lock()
+	a.lightLevel = level
+	a.mu.Unlock()
+}
+
+// withLight fills in the front light's state on a settings view, which is how
+// the (pure) settings screens get to know it.
+func (a *App) withLight(v pages.SettingsView) pages.SettingsView {
+	if a.Light != nil {
+		a.mu.Lock()
+		v.Level = a.lightLevel
+		a.mu.Unlock()
+		v.MaxLevel = a.Light.Max()
+	}
+	return v
 }
 
 // OpenSettings shows a settings screen directly, for previews.
@@ -207,6 +246,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	a.mu.Lock()
 	view := a.settingsView
 	a.mu.Unlock()
+	view = a.withLight(view)
 
 	w, _ := a.Display.Size()
 	act := pages.SettingsTap(view, ev.X, ev.Y, w)
@@ -217,6 +257,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	a.mu.Lock()
 	var err error
 	var newServer string // set when a different server was saved
+	setLight := -1       // set when the front light is to change
 	switch act.Kind {
 	case pages.ActBack:
 		if view.Screen == pages.SettingsRoot {
@@ -240,6 +281,13 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	case pages.ActOpenBoxPicker:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickBox, Box: act.Box}
+	case pages.ActOpenLight:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsLight}
+	case pages.ActSetLight:
+		setLight = act.Level
+		a.lightLevel = act.Level
+		chosen := act.Level
+		a.Brightness = &chosen
 	case pages.ActOpenServer:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsServer, Text: a.serverLocked()}
 	case pages.ActServerKey:
@@ -265,9 +313,18 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	}
 	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit ||
-		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || newServer != ""
+		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || newServer != "" || setLight >= 0
 	saved := settings.File{Settings: a.Units.Clone(), Invert: a.Invert, Boxes: append([]string(nil), a.Boxes...), Server: a.Server}
-	a.pageChanged = true // every screen is a different picture: full refresh
+	if a.Brightness != nil {
+		b := *a.Brightness
+		saved.Brightness = &b
+	}
+	// Every screen is a different picture, so a change of screen is a full
+	// refresh - but moving the light is the same screen redrawn, and a flash
+	// on every tap would make it miserable to use.
+	if act.Kind != pages.ActSetLight {
+		a.pageChanged = true
+	}
 	a.mu.Unlock()
 
 	if err != nil {
@@ -276,6 +333,11 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	if changed && a.SettingsPath != "" {
 		if err := settings.Save(a.SettingsPath, saved); err != nil {
 			log.Printf("settings: could not save %s: %v", a.SettingsPath, err)
+		}
+	}
+	if setLight >= 0 && a.Light != nil {
+		if err := a.Light.Set(setLight); err != nil {
+			log.Printf("front light: %v", err)
 		}
 	}
 	if newServer != "" {
@@ -330,6 +392,7 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	a.mu.Lock()
 	open, view := a.settingsOpen, a.settingsView
 	a.mu.Unlock()
+	view = a.withLight(view)
 	u := a.unitsNow()
 	invert := a.invertNow()
 	boxes := a.boxesNow()

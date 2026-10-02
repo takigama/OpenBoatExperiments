@@ -50,3 +50,32 @@ func TestServerSurvivesTheFile(t *testing.T) {
 		t.Errorf("server = %q, want empty", f.Server)
 	}
 }
+
+func TestBrightnessSurvivesTheFileAndUnsetStaysUnset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	level := 7
+	if err := Save(path, File{Brightness: &level}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := Load(path)
+	if err != nil || f.Brightness == nil || *f.Brightness != 7 {
+		t.Fatalf("load = %+v, %v", f, err)
+	}
+	// Zero is a real choice (light off) and must not be mistaken for unset.
+	zero := 0
+	Save(path, File{Brightness: &zero})
+	if f, _ := Load(path); f.Brightness == nil || *f.Brightness != 0 {
+		t.Errorf("a brightness of 0 was lost: %+v", f.Brightness)
+	}
+	Save(path, File{})
+	if f, _ := Load(path); f.Brightness != nil {
+		t.Errorf("unset came back as %d", *f.Brightness)
+	}
+	// Clone does not share the pointer.
+	f1 := File{Brightness: &level}
+	f2 := f1.Clone()
+	*f2.Brightness = 99
+	if level != 7 {
+		t.Error("Clone shares the brightness with the original")
+	}
+}

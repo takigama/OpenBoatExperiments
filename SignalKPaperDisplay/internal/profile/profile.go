@@ -32,6 +32,16 @@ type Profile struct {
 	// Fetch is how this device downloads updates: "curl" where the device's
 	// own curl is known to reach GitHub, otherwise Go's built-in HTTP.
 	Fetch string `json:"fetch,omitempty"`
+	// Frontlight says how to reach the device's built-in light; absent means
+	// the device has none (or it is not supported), and the setting is hidden.
+	Frontlight *Frontlight `json:"frontlight,omitempty"`
+}
+
+// Frontlight locates a device's light; see package frontlight.
+type Frontlight struct {
+	Sysfs   string `json:"sysfs,omitempty"`   // glob for the backlight directory
+	Lipc    string `json:"lipc,omitempty"`    // "service property", used if there is no sysfs light
+	LipcMax int    `json:"lipcMax,omitempty"` // how many levels the lipc property has
 }
 
 func Load(path string) (*Profile, error) {

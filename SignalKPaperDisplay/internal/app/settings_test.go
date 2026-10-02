@@ -1,12 +1,14 @@
 package app
 
 import (
+	"image"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"signalkpaperdisplay/internal/display"
+	"signalkpaperdisplay/internal/frontlight"
 	"signalkpaperdisplay/internal/input"
 	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/settings"
@@ -395,5 +397,102 @@ func TestSavingOtherSettingsDoesNotPinTheDefaultServer(t *testing.T) {
 	}
 	if got := a.serverNow(); got != "10.0.0.76:3001" {
 		t.Errorf("effective server = %q", got)
+	}
+}
+
+func lightApp(t *testing.T, path string, light *frontlight.Fake) *App {
+	t.Helper()
+	return &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, SettingsPath: path,
+		Units: units.Settings{Preset: units.PresetMetric}, Light: light}
+}
+
+func TestBacklightSettingFlow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	light := frontlight.NewFake(24, 5)
+	a := lightApp(t, path, light)
+	a.InitLight()
+	if len(light.Sets) != 0 {
+		t.Errorf("with nothing saved the light must be left as it is, got sets %v", light.Sets)
+	}
+
+	a.HandleEvent(tap(30, 40))
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+4)))
+	if a.settingsView.Screen != pages.SettingsLight {
+		t.Fatalf("view = %+v, want the backlight screen", a.settingsView)
+	}
+	a.takePageChanged()
+
+	// Plus: the light moves at once, the choice is saved, and the screen is
+	// not flashed with a full refresh for a slider tap.
+	plus := image.Pt(760, 620)
+	a.HandleEvent(tap(plus.X, plus.Y))
+	if light.Current != 6 {
+		t.Errorf("light = %d, want 6", light.Current)
+	}
+	if a.takePageChanged() {
+		t.Error("moving the light redraws the same screen; it must not force a full refresh")
+	}
+	saved, err := settings.Load(path)
+	if err != nil || saved.Brightness == nil || *saved.Brightness != 6 {
+		t.Fatalf("saved = %+v, %v", saved, err)
+	}
+
+	// Max, then off.
+	a.HandleEvent(tap(760, 820))
+	if light.Current != 24 {
+		t.Errorf("max button: light = %d", light.Current)
+	}
+	a.HandleEvent(tap(300, 820))
+	if light.Current != 0 {
+		t.Errorf("off button: light = %d", light.Current)
+	}
+	if saved, _ := settings.Load(path); saved.Brightness == nil || *saved.Brightness != 0 {
+		t.Errorf("off must be saved as 0, got %+v", saved.Brightness)
+	}
+
+	// The frame shows the level.
+	a.HandleEvent(tap(760, 620))
+	if _, err := a.Frame(time.Unix(2000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	// Back leaves for the list; other settings saved later keep the brightness.
+	a.HandleEvent(tap(30, 40))
+	if a.settingsView.Screen != pages.SettingsRoot {
+		t.Errorf("back landed on %+v", a.settingsView)
+	}
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+1))) // invert
+	saved, _ = settings.Load(path)
+	if !saved.Invert || saved.Brightness == nil || *saved.Brightness != 1 {
+		t.Errorf("saving another setting lost the brightness: %+v %v", saved, saved.Brightness)
+	}
+}
+
+func TestSavedBrightnessIsAppliedAtStart(t *testing.T) {
+	light := frontlight.NewFake(24, 0)
+	a := lightApp(t, "", light)
+	want := 15
+	a.Brightness = &want
+	a.InitLight()
+	if light.Current != 15 {
+		t.Errorf("light = %d, want the saved 15", light.Current)
+	}
+	// And the settings screens know where it is.
+	a.HandleEvent(tap(30, 40))
+	if v := a.withLight(a.settingsView); v.Level != 15 || v.MaxLevel != 24 {
+		t.Errorf("view = %+v", v)
+	}
+}
+
+func TestNoLightMeansNoBacklightRow(t *testing.T) {
+	a := lightApp(t, "", nil)
+	a.Light = nil
+	a.InitLight() // must not panic
+	a.HandleEvent(tap(30, 40))
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+4)))
+	if a.settingsView.Screen != pages.SettingsRoot {
+		t.Errorf("with no light that row does not exist, view = %+v", a.settingsView)
+	}
+	if _, err := a.Frame(time.Unix(2000, 0)); err != nil {
+		t.Fatal(err)
 	}
 }

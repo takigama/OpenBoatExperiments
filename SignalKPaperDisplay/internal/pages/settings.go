@@ -2,6 +2,7 @@ package pages
 
 import (
 	"image"
+	"strconv"
 	"strings"
 
 	"signalkpaperdisplay/internal/render"
@@ -18,6 +19,7 @@ const (
 	SettingsBoxes                            // the six Nav boxes and what each shows
 	SettingsPickBox                          // choose what box View.Box shows
 	SettingsServer                           // type in the SignalK server address
+	SettingsLight                            // set the front light brightness
 )
 
 // Version is the running release number, shown at the foot of the settings
@@ -32,6 +34,11 @@ type SettingsView struct {
 	Box    int    // which Nav box SettingsPickBox is for, 0..NavBoxes-1
 	Text   string // SettingsServer: the address typed so far
 	Err    string // SettingsServer: why the last Save was refused
+
+	// The front light, filled in by the app each time the view is used (it is
+	// not navigation state): its current level and maximum. A zero MaxLevel
+	// means the device has no controllable light, and the setting is hidden.
+	Level, MaxLevel int
 }
 
 type ActionKind int
@@ -49,6 +56,8 @@ const (
 	ActSetBox                      // box Action.Box shows kind Action.Value
 	ActOpenServer                  // root -> the server address editor
 	ActServerKey                   // a keypad key, Action.Value: a character, "back", "clear" or "save"
+	ActOpenLight                   // root -> the front light screen
+	ActSetLight                    // set the front light to Action.Level
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -56,10 +65,11 @@ type Action struct {
 	Kind          ActionKind
 	Metric, Value string
 	Box           int
+	Level         int
 }
 
 const (
-	settingsRowH = 104
+	settingsRowH = 100
 	settingsTop  = headerH + 30
 )
 
@@ -95,6 +105,42 @@ func boxesRow() int { return invertRow() + 1 }
 
 // serverRow is the list row that opens the server address editor.
 func serverRow() int { return boxesRow() + 1 }
+
+// lightRow is the list row that opens the front light screen, after the
+// server row; it only exists on devices with a controllable light.
+func lightRow() int { return serverRow() + 1 }
+
+// The front light screen: a bar you tap to pick a level, minus and plus
+// buttons, and off and maximum buttons.
+var (
+	lightBar    = image.Rect(60, 340, 1012, 460)
+	lightMinus  = image.Rect(60, 540, 520, 700)
+	lightPlus   = image.Rect(552, 540, 1012, 700)
+	lightOff    = image.Rect(60, 740, 520, 900)
+	lightMaxBtn = image.Rect(552, 740, 1012, 900)
+)
+
+// lightTap is what a tap at pt does on the front light screen.
+func lightTap(v SettingsView, pt image.Point) Action {
+	if v.MaxLevel <= 0 {
+		return Action{}
+	}
+	set := func(n int) Action { return Action{Kind: ActSetLight, Level: max(0, min(n, v.MaxLevel))} }
+	switch {
+	case pt.In(lightBar.Inset(-40)): // a generous target: a fingertip is not a pixel
+		x := max(lightBar.Min.X, min(pt.X, lightBar.Max.X))
+		return set(((x-lightBar.Min.X)*v.MaxLevel + lightBar.Dx()/2) / lightBar.Dx()) // rounded
+	case pt.In(lightMinus):
+		return set(v.Level - 1)
+	case pt.In(lightPlus):
+		return set(v.Level + 1)
+	case pt.In(lightOff):
+		return set(0)
+	case pt.In(lightMaxBtn):
+		return set(v.MaxLevel)
+	}
+	return Action{}
+}
 
 // The server address keypad: three keys across, filled row by row. An
 // address is only digits, dots and a colon, so that's all the keys there are.
@@ -185,6 +231,11 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 		if row == serverRow() {
 			return Action{Kind: ActOpenServer}
 		}
+		if v.MaxLevel > 0 && row == lightRow() {
+			return Action{Kind: ActOpenLight}
+		}
+	case SettingsLight:
+		return lightTap(v, image.Pt(x, y))
 	case SettingsServer:
 		if y >= keypadTop && width > 0 {
 			col, r := x*keypadCols/width, (y-keypadTop)/keypadKeyH
@@ -258,6 +309,8 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 		title = strings.ToUpper(boxPositions[clampBox(v.Box)])
 	case SettingsServer:
 		title = "SIGNALK SERVER"
+	case SettingsLight:
+		title = "BACKLIGHT"
 	}
 	// A back chevron where the cog is on other pages, in the same tap area.
 	chevronLeft(c, 38, int(cogY), 22, render.Black)
@@ -293,7 +346,15 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 			c.Text(b.Dx()-110, cy+16, server, 44, render.Bold, render.Right, render.Black)
 			chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
 		})
-		c.Text(40, settingsTop+(serverRow()+1)*settingsRowH+60,
+		footRow := serverRow() + 1
+		if v.MaxLevel > 0 {
+			row(c, lightRow(), "Backlight", func(cy int) {
+				c.Text(b.Dx()-110, cy+16, lightLabel(v.Level, v.MaxLevel), 44, render.Bold, render.Right, render.Black)
+				chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
+			})
+			footRow++
+		}
+		c.Text(40, settingsTop+footRow*settingsRowH+60,
 			"* set individually, not from the preset", 36, render.Regular, render.Left, render.Dark)
 		// Which build this is, so it's plain from the screen that an update
 		// has actually been picked up (a replaced file isn't running until
@@ -312,6 +373,9 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 
 	case SettingsServer:
 		drawServerEditor(c, v)
+
+	case SettingsLight:
+		drawLight(c, v)
 
 	case SettingsPickBox:
 		current := NormalizeBoxes(boxes)[clampBox(v.Box)]
@@ -348,6 +412,41 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 			row(c, i, label, func(cy int) { radio(c, b.Dx()-80, cy, current == sym) })
 		}
 	}
+}
+
+// lightLabel is how a level reads in the list: "Off", or "12 / 24".
+func lightLabel(level, max int) string {
+	if level <= 0 {
+		return "Off"
+	}
+	return strconv.Itoa(level) + " / " + strconv.Itoa(max)
+}
+
+// drawLight draws the front light screen. Only black and white are used: it is
+// redrawn in place on every tap, under the fast waveform.
+func drawLight(c *render.Canvas, v SettingsView) {
+	b := c.Bounds()
+	level := max(0, min(v.Level, v.MaxLevel))
+	c.Text(b.Dx()/2, 270, strconv.Itoa(level), 170, render.Bold, render.Center, render.Black)
+	c.Text(b.Dx()/2, 318, "of "+strconv.Itoa(v.MaxLevel), 40, render.Regular, render.Center, render.Black)
+
+	c.FillRect(lightBar, render.Black)
+	inner := lightBar.Inset(5)
+	c.FillRect(inner, render.White)
+	if v.MaxLevel > 0 {
+		w := inner.Dx() * level / v.MaxLevel
+		c.FillRect(image.Rect(inner.Min.X, inner.Min.Y, inner.Min.X+w, inner.Max.Y), render.Black)
+	}
+
+	button := func(r image.Rectangle, label string, size float64) {
+		c.FillRect(r, render.Black)
+		c.FillRect(r.Inset(5), render.White)
+		c.Text((r.Min.X+r.Max.X)/2, (r.Min.Y+r.Max.Y)/2+int(size*0.34), label, size, render.Bold, render.Center, render.Black)
+	}
+	button(lightMinus, "-", 130)
+	button(lightPlus, "+", 130)
+	button(lightOff, "OFF", 64)
+	button(lightMaxBtn, "MAX", 64)
 }
 
 // drawServerEditor draws the address typed so far above a numeric keypad.
