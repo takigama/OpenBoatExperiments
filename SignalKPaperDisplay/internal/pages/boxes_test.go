@@ -219,7 +219,7 @@ func TestNormalizeBoxes(t *testing.T) {
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("got %v, want %v (unknown entries and missing tail take defaults)", got, want)
 	}
-	long := NormalizeBoxes([]string{"sog", "sog", "sog", "sog", "sog", "sog", "sog", "sog"})
+	long := NormalizeBoxes([]string{"sog", "sog", "sog", "sog", "sog", "sog", "sog", "sog", "sog", "sog", "sog", "sog"})
 	if len(long) != NavBoxes {
 		t.Errorf("extra entries must be dropped, got %d", len(long))
 	}
@@ -324,5 +324,23 @@ func TestBoxMetricFormatting(t *testing.T) {
 	own.WPDistance.At = compassNow.Add(-time.Minute)
 	if m := boxMetric("wpdist", own, compassNow, metricEnv(), nil); m.ok {
 		t.Error("a stale waypoint distance must show dashes")
+	}
+}
+
+func TestOldSavedAISKindIsStillUnderstood(t *testing.T) {
+	// "ais3" was the three-closest list in settings files from before it became
+	// the closest one: it must keep its box, not fall back to a default.
+	got := NormalizeBoxes([]string{"stw", "ais3", "depth"})
+	if got[1] != BoxAIS {
+		t.Errorf("a saved ais3 became %q, want %q", got[1], BoxAIS)
+	}
+	if _, ok := BoxKindByID("ais3"); ok {
+		t.Error("ais3 is no longer a kind of its own")
+	}
+	// A file saved with six boxes gets the new default for the two it lacks.
+	def := DefaultBoxes()
+	six := NormalizeBoxes([]string{"sog", "hdg", "depth", "cog", "vmgw", "ais3"})
+	if len(six) != NavBoxes || six[6] != def[6] || six[7] != def[7] {
+		t.Errorf("six saved boxes became %v", six)
 	}
 }

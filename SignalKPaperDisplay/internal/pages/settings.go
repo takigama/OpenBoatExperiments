@@ -182,7 +182,8 @@ func ApplyServerKey(text, key string) string {
 
 // boxPositions names the Nav boxes for the list, in box order.
 var boxPositions = [NavBoxes]string{
-	"Top left", "Top right", "Middle left", "Middle right", "Bottom left", "Bottom right",
+	"Top left", "Top right", "Second left", "Second right",
+	"Third left", "Third right", "Bottom left", "Bottom right",
 }
 
 // ParentScreen is where Back goes from a screen: pickers return to the list

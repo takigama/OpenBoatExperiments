@@ -38,47 +38,74 @@ func navBoat(ships int) signalk.Snapshot {
 	return s
 }
 
-func TestNavHasSixBoxesAndEachShowsSomething(t *testing.T) {
+func TestNavHasEightBoxesAndEachShowsSomething(t *testing.T) {
 	c := renderNav(t, navBoat(3))
 	b := c.Bounds()
-	for i := 0; i < 6; i++ {
+	if NavBoxes != 8 {
+		t.Fatalf("NavBoxes = %d, want 8", NavBoxes)
+	}
+	for i := 0; i < NavBoxes; i++ {
 		cell := navCell(b, i)
 		inner := cell.Inset(8)
 		if inked(c, inner) == 0 {
 			t.Errorf("box %d is empty", i)
 		}
 	}
-	// Boxes tile the area under the header: two across, three down.
+	// Boxes tile the area under the header: two across, four down.
 	if navCell(b, 1).Min.X != navCell(b, 0).Max.X || navCell(b, 2).Min.Y != navCell(b, 0).Max.Y {
 		t.Error("the boxes should sit edge to edge")
 	}
-	if navCell(b, 5).Max.X != b.Dx() {
-		t.Errorf("the grid should span the full width, last box ends at %d of %d", navCell(b, 5).Max.X, b.Dx())
+	if navCell(b, NavBoxes-1).Max.X != b.Dx() {
+		t.Errorf("the grid should span the full width, last box ends at %d of %d", navCell(b, NavBoxes-1).Max.X, b.Dx())
+	}
+	if last := navCell(b, NavBoxes-1).Max.Y; last > b.Dy() || last < b.Dy()-4 {
+		t.Errorf("the grid should run to the bottom of the screen, ends at %d of %d", last, b.Dy())
 	}
 }
 
-func TestNavAISListShowsUpToThreeNearest(t *testing.T) {
+func TestNavClosestAISShowsOnlyTheNearest(t *testing.T) {
 	cell := navCell(image.Rect(0, 0, 1072, 1448), 5).Inset(8)
 	none := inked(renderNav(t, navBoat(0)), cell)
 	one := inked(renderNav(t, navBoat(1)), cell)
 	three := inked(renderNav(t, navBoat(3)), cell)
-	four := inked(renderNav(t, navBoat(4)), cell)
-	if !(one > 0 && three > one) {
-		t.Errorf("ink should grow with contacts: none=%d one=%d three=%d", none, one, three)
+	if !(none > 0 && one > 0 && differs(renderNav(t, navBoat(0)), renderNav(t, navBoat(1)))) {
+		t.Errorf("a contact should change the box: none=%d one=%d", none, one)
 	}
-	if four != three {
-		t.Errorf("only the three nearest are listed: three=%d four=%d", three, four)
+	// More ships further off change nothing: only the closest is shown.
+	if one != three || !sameInRect(renderNav(t, navBoat(1)), renderNav(t, navBoat(3)), cell) {
+		t.Errorf("only the closest contact is shown: one=%d three=%d", one, three)
 	}
 }
 
-func TestNavAISListWithoutAFixShowsDashesNotShips(t *testing.T) {
+// sameInRect reports whether two renders are identical inside r.
+func sameInRect(a, b *render.Canvas, r image.Rectangle) bool {
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		for x := r.Min.X; x < r.Max.X; x++ {
+			if a.Img.GrayAt(x, y).Y != b.Img.GrayAt(x, y).Y {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func TestNavClosestAISNamesTheShipAndWithoutAFixShowsDashes(t *testing.T) {
 	s := navBoat(3)
 	s.Own.Pos.At = compassNow.Add(-time.Minute)
 	cell := navCell(image.Rect(0, 0, 1072, 1448), 5).Inset(8)
 	withFix := inked(renderNav(t, navBoat(3)), cell)
 	noFix := inked(renderNav(t, s), cell)
 	if noFix >= withFix {
-		t.Errorf("with no fix the list must not show ships: %d vs %d", noFix, withFix)
+		t.Errorf("with no fix the box must not show a ship: %d vs %d", noFix, withFix)
+	}
+	// A long name is cut to fit the label line before the diamond, not run off the box.
+	long := navBoat(1)
+	long.Targets[0].Name = "AN EXTREMELY LONG SHIP NAME THAT CANNOT FIT"
+	c := renderNav(t, long)
+	cell5 := navCell(c.Bounds(), 5)
+	beyond := image.Rect(cell5.Max.X-30, cell5.Min.Y+30, cell5.Max.X, cell5.Min.Y+90) // the label line, past the diamond
+	if inked(c, beyond) != 0 {
+		t.Errorf("the name ran %d px of ink into the right margin", inked(c, beyond))
 	}
 }
 

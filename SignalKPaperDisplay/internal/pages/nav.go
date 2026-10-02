@@ -126,11 +126,12 @@ func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time, e
 	c.HLine(0, b.Dx(), headerH, 4, render.Black)
 }
 
-// The Nav page is a grid of six boxes, two across and three down, numbered
+// The Nav page is a grid of eight boxes, two across and four down, numbered
 // left to right then top to bottom. Each shows whatever the user picked
 // (see BoxKinds); by default speed over ground, heading, depth, course over
-// ground, velocity made good, and the three nearest AIS contacts.
-const navCols, navRows = 2, 3
+// ground, velocity made good, the closest AIS contact, and the apparent wind
+// speed and angle.
+const navCols, navRows = 2, 4
 
 // navCell is box i (0..5) of the Nav grid on a canvas with bounds b.
 func navCell(b image.Rectangle, i int) image.Rectangle {
@@ -159,7 +160,7 @@ func vmg(own signalk.Own, now time.Time) (float64, bool) {
 	return speed.V * math.Abs(math.Cos(own.TWD.V-own.Heading.V)), true
 }
 
-// Nav is the six-box dashboard, in the user's chosen units. What each box
+// Nav is the eight-box dashboard, in the user's chosen units. What each box
 // shows is Env.Boxes (the user's choice, from the settings screens).
 func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	Header(c, "NAV", s, now, e)
@@ -180,7 +181,7 @@ func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	for i, id := range kinds {
 		cell := navCell(b, i)
 		if id == BoxAIS {
-			drawAISList(c, cell, contacts, haveFix, e)
+			drawClosestAISBox(c, cell, contacts, haveFix, e, size)
 			continue
 		}
 		drawMetric(c, cell, boxMetric(id, own, now, e, contacts), size)
@@ -193,44 +194,26 @@ func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	c.VLine(b.Dx()/navCols-1, headerH+4, b.Dy(), 3, render.Mid)
 }
 
-// drawAISList fills a box with the nearest few AIS contacts: the same solid
-// or hollow diamond as on the compass (closing / opening) beside each name,
-// with its distance on the line below. Two lines, not one, so a long name
-// has the whole width. With no contacts it says so - or shows "--" when
-// there's no position fix to measure from.
-func drawAISList(c *render.Canvas, r image.Rectangle, contacts []ais.Contact, haveFix bool, e Env) {
-	const rows, nameSize, rangeSize = 3, 36.0, 46.0
-	c.Text(r.Min.X+40, r.Min.Y+80, "CLOSEST AIS", 52, render.Bold, render.Left, render.Dark)
-
-	top := r.Min.Y + 104
-	rowH := (r.Max.Y - top) / rows
+// drawClosestAISBox fills a box with the closest AIS contact, like any other
+// box: its distance as the big number, and its name in the label ("AIS AURA"),
+// with the same solid or hollow diamond as on the compass (closing / opening)
+// at the end of the label line. With no contact it says NONE - or shows "--"
+// when there's no position fix to measure from. size is the value size every
+// box shares.
+func drawClosestAISBox(c *render.Canvas, r image.Rectangle, contacts []ais.Contact, haveFix bool, e Env, size float64) {
 	if len(contacts) == 0 {
-		msg := "NONE"
-		if !haveFix {
-			msg = "--"
-		}
-		c.Text(r.Min.X+40, top+rowH, msg, 64, render.Bold, render.Left, render.Black)
+		drawMetric(c, r, metric{label: "CLOSEST AIS", value: "NONE", ok: haveFix}, size)
 		return
 	}
-	if len(contacts) > rows {
-		contacts = contacts[:rows]
-	}
-	nameX := r.Min.X + 90
-	for i, k := range contacts {
-		y := top + i*rowH
-		nameBase, rangeBase := y+38, y+92
+	k := contacts[0] // nearest first
+	value, unit := e.Units.Format("range", k.Range)
+	// The label gives way to the diamond at its right-hand end.
+	label := fitText(c, "AIS "+strings.ToUpper(k.DisplayName()), 52, render.Bold, r.Dx()-40-100)
+	drawMetric(c, r, metric{label: label, value: value, unit: unit, ok: true}, size)
 
-		// Diamond marker, pointing up like the compass's blips, centred on
-		// the whole entry.
-		px, py := float64(r.Min.X+56), float64(y+(nameBase+rangeBase)/2-y)-8
-		c.FillPolygon(diamond(px, py, 0, -1, 24, 16), render.Black)
-		if !k.Closing {
-			c.FillPolygon(diamond(px, py, 0, -1, 12, 8), render.White)
-		}
-
-		name := fitText(c, strings.ToUpper(k.DisplayName()), nameSize, render.Bold, r.Max.X-30-nameX)
-		c.Text(nameX, nameBase, name, nameSize, render.Bold, render.Left, render.Black)
-		value, unit := e.Units.Format("range", k.Range)
-		leftValue(c, nameX, rangeBase, value, unit, rangeSize)
+	px, py := float64(r.Max.X-62), float64(r.Min.Y+80)-52*0.36
+	c.FillPolygon(diamond(px, py, 0, -1, 26, 18), render.Black)
+	if !k.Closing {
+		c.FillPolygon(diamond(px, py, 0, -1, 13, 9), render.White)
 	}
 }

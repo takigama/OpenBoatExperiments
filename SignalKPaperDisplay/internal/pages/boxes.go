@@ -19,8 +19,13 @@ type BoxKind struct {
 }
 
 // BoxAIS is the one kind that isn't a single number: it fills its box with
-// the nearest AIS contacts.
-const BoxAIS = "ais3"
+// the closest AIS contact - its name and distance.
+const BoxAIS = "ais1"
+
+// legacyBoxKinds maps kind IDs that older settings files may hold to what they
+// are called now. "ais3" was the three-closest list, which is now just the
+// closest one.
+var legacyBoxKinds = map[string]string{"ais3": BoxAIS}
 
 // BoxKinds is everything a Nav box can show, in the order the settings picker
 // lists it. Add a row here and a case in boxMetric and it appears there.
@@ -41,7 +46,7 @@ var BoxKinds = []BoxKind{
 	{"wpdist", "Waypoint distance", "WPT DIST"},
 	{"wpttg", "Time to waypoint", "WPT TIME"},
 	{"wpttw", "Time to WP at speed", "WPT TIME@SPD"},
-	{BoxAIS, "3 closest AIS", "CLOSEST AIS"},
+	{BoxAIS, "Closest AIS", "CLOSEST AIS"},
 
 	{"cpa", "Closest approach", "CPA"},
 	{"tcpa", "Time to closest", "TCPA"},
@@ -74,7 +79,7 @@ const NavBoxes = navCols * navRows
 
 // DefaultBoxes is the Nav page's layout until the user changes it.
 func DefaultBoxes() []string {
-	return []string{"sog", "hdg", "depth", "cog", "vmgw", BoxAIS}
+	return []string{"sog", "hdg", "depth", "cog", "vmgw", BoxAIS, "aws", "awa"}
 }
 
 // BoxKindByID finds a kind by its stored ID.
@@ -94,8 +99,12 @@ func NormalizeBoxes(ids []string) []string {
 	out := DefaultBoxes()
 	for i := range out {
 		if i < len(ids) {
-			if _, ok := BoxKindByID(ids[i]); ok {
-				out[i] = ids[i]
+			id := ids[i]
+			if now, ok := legacyBoxKinds[id]; ok {
+				id = now
+			}
+			if _, ok := BoxKindByID(id); ok {
+				out[i] = id
 			}
 		}
 	}

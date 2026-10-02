@@ -15,8 +15,8 @@ build image cross-compiles every target.
 Early, but running on a real Kindle Paperwhite 3. Working now:
 
 - SignalK client + data model with staleness tracking
-- Pages: a large rotating Compass and a six-box Nav grid (SOG, heading,
-  depth, COG, VMG, and the three closest AIS contacts), selectable at runtime.
+- Pages: a large rotating Compass and an eight-box Nav grid (SOG, heading,
+  depth, COG, VMG, the closest AIS contact, wind speed and angle), selectable at runtime.
   VMG is velocity made good to the wind: boat speed (through the water if sent,
   else over the ground) times the cosine of the true wind angle, so it needs
   true wind direction and heading. COG shows "--" while barely moving.
@@ -25,7 +25,7 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   waypoint, depth, water and air temperature, air pressure, humidity, apparent
   and true wind, waypoint bearing / distance / time-to-go / time at current
   speed / ETA / cross-track error, closest point of approach (CPA) and time to
-  it (TCPA) for the ship that will pass closest, the 3 closest AIS contacts,
+  it (TCPA) for the ship that will pass closest, the closest AIS contact,
   rate of turn, pitch, roll, rudder angle, autopilot mode and target, the
   house battery (volts, charge, amps), the engine (RPM, temperature, oil
   pressure, fuel rate) and the fresh, grey and black water tanks. Values that
