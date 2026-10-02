@@ -1,0 +1,16 @@
+# Which Kindle gets which profile. install.sh reads this from GitHub.
+#
+# One line per platform: the platform's directory name, then key=value rules.
+# A Kindle matches a line when EVERY rule on it matches; the first matching line
+# wins. The values come from what the installer reports for the Kindle (and
+# tools/kindle-probe.sh prints the same things):
+#
+#   codename   FBInk's device codename (fbink -e: deviceCodename)
+#   serial     the first four characters of the serial number
+#   size       the screen in pixels, WIDTHxHEIGHT
+#
+# To add a Kindle: make platforms/<name> (copy platforms/kindle-basic), add a
+# line here, and release. Prefer codename: it names the exact model.
+
+kindle-basic  codename=Eanab
+kindle-pw3    serial=G090 size=1072x1448

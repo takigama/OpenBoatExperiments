@@ -107,11 +107,13 @@ cp "$BIN" "$STAGE/paperdisplay"
 cp "$PLATFORM/profile.json" "$STAGE/profile.json"
 cp "$FBINK" "$STAGE/fbink"
 # Launcher/helper scripts that live next to this one (other than deploy.sh and
-# uninstall.sh, which run on your PC).
+# uninstall.sh, which run on your PC, and device-uninstall.sh, which goes over
+# as uninstall.sh: the Kindle's own copy, the same one the installer leaves).
 for f in "$HERE"/*.sh; do
-  case "$(basename "$f")" in deploy.sh|uninstall.sh) continue ;; esac
+  case "$(basename "$f")" in deploy.sh|uninstall.sh|device-uninstall.sh) continue ;; esac
   [ -f "$f" ] && cp "$f" "$STAGE/"
 done
+cp "$HERE/device-uninstall.sh" "$STAGE/uninstall.sh"
 # Example config (launcher.conf.example) - never launcher.conf itself, so a
 # deploy can't overwrite the device's real settings.
 for f in "$HERE"/*.example; do
@@ -224,4 +226,4 @@ fi
 
 echo
 echo "Done. To change settings later, tap the cog on the screen. To take it all off the"
-echo "Kindle again: bash $(dirname "$0")/uninstall.sh $HOST $PORT"
+echo "Kindle again: bash $(dirname "$0")/uninstall.sh $HOST $PORT   (or, on the Kindle: sh $DIR/uninstall.sh)"

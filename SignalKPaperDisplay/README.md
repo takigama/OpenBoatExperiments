@@ -103,42 +103,70 @@ stops the app and brings the stock UI back within a minute.
 ### Installing
 
 You need a Kindle that is jailbroken, with KOReader installed and its SSH
-server working (the launcher uses KOReader's Dropbear), and a PC with WSL (or
-Linux), Docker, git and ssh. Then one command does it all:
+server working (the launcher uses KOReader's Dropbear). Then, **on the Kindle**
+(an ssh session, or KOReader's terminal), one command does it all:
 
 ```
-bash platforms/<platform>/install/deploy.sh <ip-address> [port] --signalk <host:port>
+curl -sL https://raw.githubusercontent.com/takigama/OpenBoatExperiments/master/SignalKPaperDisplay/install.sh | sh -s -- --signalk <host:port>
 ```
 
-where `<platform>` is `kindle-pw3` (Paperwhite 3) or `kindle-basic` (the
-8th-generation Kindle) and `--signalk` is your SignalK server. It builds the
-app and FBInk if they aren't built yet, copies the files and checks their
-checksums, writes `launcher.conf`, adds the launcher to the Kindle's crontab
-(through `mntroot rw` ... `mntroot ro`, backing the table up first), starts it
-and shows you the log. ssh asks for the password once. It is safe to run again
-to update the files; `--help` lists the options (`--remove-startssh`,
-`--no-cron`, `--no-start`, `--files-only`).
+where `--signalk` is your SignalK server. It works out which Kindle this is and
+whether there is a profile for it (`platforms/devices.txt`), and says so. If
+there isn't, it stops without changing anything and tells you to run the
+collector described under "Adding a device". If there is, it downloads the app
+(checked against its published SHA-256) and FBInk, writes `launcher.conf`, adds
+the launcher to the Kindle's crontab (through `mntroot rw` ... `mntroot ro`,
+backing the table up first), starts it, shows you the log, and leaves an
+`uninstall.sh` beside the app. It is safe to run again to update.
 
-To take it off again and give the Kindle back to the stock software:
+Add `--check` first to see what it found and what it would do without changing
+anything. Other options: `--platform NAME` (use a profile the Kindle wasn't
+matched to), `--ref TAG` (install an older release), `--remove-startssh`,
+`--no-cron`, `--no-start`, `--dir`; `--help` lists them.
+
+From a PC instead, the same script reaches the Kindle over ssh (the Kindle still
+downloads everything itself, so it needs internet):
 
 ```
-bash platforms/<platform>/install/uninstall.sh <ip-address> [port]
+sh install.sh --host <ip-address> [--port 2223] --signalk <host:port>
 ```
 
-(`--keep-ssh` leaves the launcher doing just its ssh keep-alive; `--purge`
-also deletes the files and settings.) With the launcher gone, ssh stays up
-only until the next reboot; start it again from KOReader's menu.
+To take it off again and give the Kindle back to the stock software, on the
+Kindle:
+
+```
+sh /mnt/us/signalk/uninstall.sh
+```
+
+or, even with the files gone, `curl ... install.sh | sh -s -- --uninstall`, or
+from a PC `bash platforms/<platform>/install/uninstall.sh <ip-address> [port]`.
+(`--keep-ssh` leaves the launcher doing just its ssh keep-alive; `--purge` also
+deletes the files and settings.) With the launcher gone, ssh stays up only until
+the next reboot; start it again from KOReader's menu.
+
+#### Developing: installing a local build
+
+`platforms/<platform>/install/deploy.sh <ip-address> [port] --signalk <host:port>`
+(`kindle-pw3` or `kindle-basic`) is the developer's route: run on a PC with WSL
+(or Linux), Docker, git and ssh, it builds the app and FBInk if they aren't
+built yet and pushes *your* build to the Kindle over one ssh connection,
+checking checksums, then does the same configuration, cron and start steps.
+`--files-only`, `--no-cron` and `--no-start` skip steps.
+
+FBInk is built by `bash tools/fbink/build.sh`: KOReader's bundled `fbink` has
+image support compiled out, so a full build is made from source in Docker with
+KOReader's prebuilt cross-toolchain. The installer downloads a prebuilt copy
+committed in `tools/fbink/prebuilt/` (GPLv3, built by that script from FBInk's
+v1.25.0 sources) with its checksum. `bash scripts/test_install.sh` tests the
+installer and uninstaller, `bash scripts/test_launcher.sh` the launcher and
+`bash scripts/test_install_cron.sh` the crontab editor, against stand-ins for
+the Kindle and for GitHub.
 
 A different Kindle needs a platform directory of its own: copy `kindle-basic`,
 set the screen size, touch device and (if it has one) front light in
-`profile.json`, and the stock jobs to stop in `launcher.conf.example`. See
+`profile.json`, the stock jobs to stop in `launcher.conf.example`, and a line
+in `platforms/devices.txt` that says which Kindle it is. See
 `platforms/kindle-basic/README.md` for how to find them.
-
-FBInk comes from `bash tools/fbink/build.sh`: KOReader's bundled `fbink` has
-image support compiled out, so a full build is made from source in Docker
-with KOReader's prebuilt cross-toolchain. `bash scripts/test_launcher.sh`
-tests the launcher, and `bash scripts/test_install_cron.sh` the crontab editor,
-against stand-ins for the Kindle's commands.
 
 ## Updating from GitHub
 
@@ -195,7 +223,7 @@ suggested `profile.json` and `build.env`. Paste it into an issue:
 
 It changes nothing and prints no MAC or IP address, WiFi names or full serial.
 Start the new platform by copying `platforms/kindle-basic` and applying the
-report.
+report; add a line for it to `platforms/devices.txt`.
 
 1. `mkdir platforms/<name>` with `profile.json` and `build.env`.
 2. `make <name>` - the Makefile discovers it automatically.
