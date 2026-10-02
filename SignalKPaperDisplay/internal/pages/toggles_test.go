@@ -37,8 +37,8 @@ func windSpeeds(aws, tws float64) signalk.Snapshot {
 
 // The wind widget's name: two rows over the speed.
 var (
-	windRow1 = image.Rect(24, 968, 150, 1002)  // "APP" / "TRU"
-	windRow2 = image.Rect(24, 1004, 190, 1040) // "WIND"
+	windRow1 = image.Rect(24, 942, 170, 992)  // "APP" / "TRU"
+	windRow2 = image.Rect(24, 994, 190, 1042) // "WIND"
 	windVal  = image.Rect(24, 1050, 330, 1140)
 )
 
@@ -79,7 +79,7 @@ func differsIn(a, b *render.Canvas, r image.Rectangle) bool { return !sameInRect
 
 func TestWindWidgetStaysUpWhileEitherWindIsKnown(t *testing.T) {
 	none := renderCompassEnv(t, windSpeeds(math.NaN(), math.NaN()), Env{})
-	if inked(none, image.Rect(24, 968, 200, 1145)) != 0 { // left of where the compass ring runs
+	if inked(none, image.Rect(24, 935, 185, 1145)) != 0 { // left of where the compass ring runs
 		t.Error("with no wind speed at all the widget must not be drawn")
 	}
 	if WindWidgetShown(windSpeeds(math.NaN(), math.NaN()).Own) {

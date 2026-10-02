@@ -180,7 +180,7 @@ func SpeedBoxRect(b image.Rectangle) image.Rectangle {
 func WindWidgetRect(b image.Rectangle) image.Rectangle {
 	top, h := compassLayout(b)
 	bottom := top + h
-	return image.Rect(0, bottom-190, 330, bottom)
+	return image.Rect(0, bottom-225, 330, bottom)
 }
 
 // WindWidgetShown reports whether the wind speed widget is on screen: once the
@@ -414,9 +414,10 @@ func drawWindSpeed(c *render.Canvas, own signalk.Own, now time.Time, e Env, xLef
 	if reading.Fresh(now, StaleAfter) {
 		value, _ = e.Units.Format(metricID, reading.V)
 	}
-	// All solid black: the name changes while the screen is up.
-	const rowSize = 40.0
-	c.Text(xLeft, yBottom-132, name, rowSize, render.Bold, render.Left, render.Black)
+	// All solid black: the name changes while the screen is up. The same size
+	// the "WIND" label has always had, one row over the other.
+	const rowSize = 57.0
+	c.Text(xLeft, yBottom-146, name, rowSize, render.Bold, render.Left, render.Black)
 	c.Text(xLeft, yBottom-96, "WIND", rowSize, render.Bold, render.Left, render.Black)
 	leftValue(c, xLeft, yBottom, value, unit, 114)
 }

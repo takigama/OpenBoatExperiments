@@ -158,6 +158,11 @@ func (a *App) batteryNow(now time.Time) *battery.Status {
 		return nil
 	}
 	a.battErr = ""
+	// Say when it goes on or off the charger, with what the device reported: the
+	// log is how to tell, from outside, what the indicator was working from.
+	if prev := a.battStat; prev == nil || prev.Plugged != st.Plugged || prev.Charging != st.Charging {
+		log.Printf("battery: %d%%, plugged in %v, charging %v", st.Percent, st.Plugged, st.Charging)
+	}
 	a.battStat = &st
 	return a.battStat
 }

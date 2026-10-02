@@ -92,11 +92,17 @@ func (s *Sysfs) Read() (Status, error) {
 	switch strings.ToLower(state) {
 	case "charging":
 		st.Charging, st.Plugged = true, true
-	case "full":
-		st.Plugged = true // full only happens on external power
+	case "full", "not charging":
+		st.Plugged = true // full, or held off charging, only happens on external power
+	case "discharging":
+		// The battery says it is running the device. Trust that over any other
+		// supply: some stay "online" after the cable comes out (a USB port that
+		// is still powered, say), which used to leave the plug showing.
+		return st, nil
 	}
-	// Any other supply that is online (a charger, USB) means plugged in; some
-	// chargers also say so with a "charging" file of their own.
+	// The battery doesn't say (or says plugged): any other supply that is online
+	// (a charger, USB) means plugged in; some chargers also say so with a
+	// "charging" file of their own.
 	others, _ := filepath.Glob(filepath.Join(s.root, "*"))
 	for _, d := range others {
 		if d == s.bat {
