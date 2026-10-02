@@ -27,3 +27,16 @@ Facts gathered from a real unit over SSH (Dropbear on port 2223):
 ```
 make kindle-pw3        # -> dist/kindle-pw3/paperdisplay (static ARMv7)
 ```
+
+## ssh keep-alive
+
+`startpaper.sh` also keeps dropbear (ssh) running, so you don't need a separate
+`startssh.sh` cron job. When ssh is healthy a run costs nothing extra - it only
+reads the pid file and `/proc/<pid>/comm` with shell builtins. Every fifth run
+(and straight after starting dropbear) it also opens the firewall
+(`iptables -P INPUT ACCEPT`) and keeps the screensaver off. The older job did
+all of that, plus a new dropbear that failed to bind its port, on every
+minute, which showed up as a stall right on the minute.
+
+Settings in `launcher.conf`: `KEEP_SSH=0` to turn it off, `SSH_PORT`,
+`DROPBEAR` (the binary) and `SSH_PIDFILE`.

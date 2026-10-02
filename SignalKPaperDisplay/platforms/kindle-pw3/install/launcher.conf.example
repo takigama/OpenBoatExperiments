@@ -16,3 +16,10 @@ SIGNALK_HOST=10.0.0.76:3001
 
 # Extra paperdisplay flags, e.g. a slower but smoother waveform:
 # EXTRA_ARGS="-waveform GL16"
+
+# The launcher also keeps ssh (dropbear) running, so no separate startssh cron
+# job is needed. Defaults shown; change them only if yours differ.
+# KEEP_SSH=1
+# SSH_PORT=2223
+# DROPBEAR=/mnt/us/koreader/dropbear
+# SSH_PIDFILE=/tmp/dropbear_alt.pid

@@ -13,6 +13,9 @@ trap 'rm -rf "$T"' EXIT
 export T
 mkdir -p "$T/bin" "$T/dir" "$T/jobs"
 export DIR="$T/dir" STATE="$T/state"
+# ssh keep-alive stand-ins: a dropbear that only records how it was started, a
+# pid file, and an uptime that is not a maintenance minute unless a test says so.
+export DROPBEAR="$T/dropbear" SSH_PIDFILE="$T/dropbear.pid" UPTIME_FILE="$T/uptime"
 
 # --- stand-ins ----------------------------------------------------------------
 cat > "$T/bin/initctl" <<'EOF'
@@ -28,6 +31,14 @@ cat > "$T/bin/start" <<'EOF'
 #!/bin/sh
 touch "$T/jobs/$1"; echo "start $1" >> "$T/calls"
 EOF
+cat > "$T/dropbear" <<'EOF'
+#!/bin/sh
+echo "dropbear $*" >> "$T/calls"
+EOF
+cat > "$T/bin/iptables" <<'EOF'
+#!/bin/sh
+echo "iptables $*" >> "$T/calls"
+EOF
 cat > "$T/bin/lipc-set-prop" <<'EOF'
 #!/bin/sh
 echo "lipc $*" >> "$T/calls"
@@ -38,7 +49,12 @@ cat > "$T/bin/pidof" <<'EOF'
 [ -f "$T/running" ] && { echo 2147483000; exit 0; }
 exit 1
 EOF
-chmod +x "$T"/bin/*
+chmod +x "$T"/bin/* "$T/dropbear"
+# A running dropbear, for the "already there" cases: a process whose
+# /proc comm is "dropbear", with its pid in the pid file.
+mkdir -p "$T/live"; cp "$(command -v sleep)" "$T/live/dropbear"
+live_dropbear() { "$T/live/dropbear" 120 & echo $! > "$SSH_PIDFILE"; LIVE=$!; }
+stop_dropbear() { [ -n "${LIVE:-}" ] && kill "$LIVE" 2>/dev/null; LIVE=""; }
 
 # The stand-in app. Recreated by reset, because a rollback test replaces it
 # with the "previous version" stub and the next test must start from the
@@ -65,7 +81,8 @@ starts() { [ -f "$T/started" ] && wc -l < "$T/started" || echo 0; }
 called() { grep -qx "$1" "$T/calls" 2>/dev/null; }
 not_called() { ! grep -q "$1" "$T/calls" 2>/dev/null; }
 logged() { grep -q "$1" "$DIR/paperdisplay.log" 2>/dev/null; }
-reset() { rm -rf "$T/started" "$T/calls" "$T/running" "$STATE" "$DIR/paperdisplay.log" "$DIR/disable" "$DIR/pause" \
+reset() { stop_dropbear; echo 61.5 0 > "$UPTIME_FILE"; rm -f "$SSH_PIDFILE"
+          rm -rf "$T/started" "$T/calls" "$T/running" "$STATE" "$DIR/paperdisplay.log" "$DIR/disable" "$DIR/pause" \
           "$DIR/paperdisplay.prev" "$DIR/paperdisplay.bad"; rm -f "$T/jobs"/*; touch "$T/jobs/framework" "$T/jobs/lab126_gui"; make_app; }
 
 echo "no config: refuses to start"
@@ -85,8 +102,10 @@ check "hides the stock status bar" called "lipc com.lab126.pillow disableEnableP
 check "keeps the screen awake" called "lipc com.lab126.powerd preventScreenSaver 1"
 
 echo "already running: never starts a second copy"
-reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"
+# ssh is up too, which is the normal state: this is the path taken every minute.
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"; live_dropbear
 launch
+stop_dropbear
 check "nothing started" test "$(starts)" = 0
 # This is the every-minute path, so it must stay cheap: no lipc round trips
 # and no job changes - nothing is recorded in the calls file at all.
@@ -144,6 +163,53 @@ reset; printf 'SIGNALK_HOST=h:1\nSTOP_JOBS="framework"\n' > "$DIR/launcher.conf"
 launch; wait_exit
 check "stops the framework" called "stop framework"
 check "leaves lab126_gui alone" not_called 'stop lab126_gui'
+
+echo "ssh keep-alive: starts dropbear only when it is not running"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"
+launch
+check "starts dropbear the way startssh.sh did" called "dropbear -E -R -p2223 -P $SSH_PIDFILE"
+check "opens the firewall after starting it" called "iptables -P INPUT ACCEPT"
+check "keeps the screensaver off after starting it" called "lipc com.lab126.powerd preventScreenSaver 1"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"
+live_dropbear
+launch
+check "a running dropbear is left alone" not_called "dropbear"
+check "and nothing else is run that minute" not_called "iptables\|lipc"
+echo 120.3 0 > "$UPTIME_FILE"   # minute 2: not a multiple of 5
+launch
+check "still nothing two minutes in" not_called "iptables\|lipc"
+echo 300.9 0 > "$UPTIME_FILE"   # minute 5
+launch
+check "housekeeping every fifth minute: firewall" called "iptables -P INPUT ACCEPT"
+check "housekeeping every fifth minute: screensaver" called "lipc com.lab126.powerd preventScreenSaver 1"
+check "housekeeping does not restart dropbear" not_called "dropbear"
+stop_dropbear
+
+echo "ssh keep-alive: a stale pid file does not count"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"
+echo 1 > "$SSH_PIDFILE"      # pid 1 exists but is not dropbear
+launch
+check "restarts it" called "dropbear -E -R -p2223 -P $SSH_PIDFILE"
+
+echo "ssh keep-alive: survives the pause and disable switches"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$DIR/pause"
+launch
+check "dropbear started with the pause file present" called "dropbear -E -R -p2223 -P $SSH_PIDFILE"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$DIR/disable"
+launch
+check "dropbear started with the disable file present" called "dropbear -E -R -p2223 -P $SSH_PIDFILE"
+
+echo "ssh keep-alive: settings"
+reset; printf 'SIGNALK_HOST=h:1\nKEEP_SSH=0\n' > "$DIR/launcher.conf"; touch "$T/running"
+launch
+check "KEEP_SSH=0 turns it off" not_called "dropbear\|iptables"
+reset; printf 'SIGNALK_HOST=h:1\nSSH_PORT=2022\n' > "$DIR/launcher.conf"; touch "$T/running"
+launch
+check "SSH_PORT is respected" called "dropbear -E -R -p2022 -P $SSH_PIDFILE"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"; rm -f "$T/dropbear"
+launch
+check "a missing dropbear binary is not an error" not_called "iptables"
+stop_dropbear
 
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]

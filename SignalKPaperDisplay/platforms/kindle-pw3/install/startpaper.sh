@@ -71,6 +71,60 @@ take_screen() {
 # daemon, turned out not to be it).
 STOP_JOBS="${STOP_JOBS:-framework lab126_gui}"
 
+# --- ssh keep-alive -----------------------------------------------------------
+# This used to be a separate cron job (startssh.sh) that, every minute, set
+# powerd's screensaver property, ran iptables and started a new dropbear that
+# immediately failed to bind the port the running one held. Three process
+# launches and a D-Bus round trip, on the minute, for nothing. Here the check
+# that matters is free - it only reads files with shell builtins - and the
+# rest runs when there is something to do.
+#
+# Settings (launcher.conf): KEEP_SSH=0 turns this off; SSH_PORT, DROPBEAR (the
+# binary) and SSH_PIDFILE say where things are.
+KEEP_SSH="${KEEP_SSH:-1}"
+SSH_PORT="${SSH_PORT:-2223}"
+DROPBEAR="${DROPBEAR:-/mnt/us/koreader/dropbear}"
+SSH_PIDFILE="${SSH_PIDFILE:-/tmp/dropbear_alt.pid}"
+UPTIME_FILE="${UPTIME_FILE:-/proc/uptime}"
+MAINTAIN_EVERY=5      # minutes between the housekeeping below
+
+# Is the dropbear we started still there? The pid file names the listener;
+# /proc/<pid>/comm confirms the pid hasn't been reused by something else.
+dropbear_alive() {
+  pid=""; comm=""
+  [ -r "$SSH_PIDFILE" ] && read pid < "$SSH_PIDFILE"
+  [ -n "$pid" ] && [ -r "/proc/$pid/comm" ] && read comm < "/proc/$pid/comm"
+  [ "$comm" = dropbear ]
+}
+
+# True one run in MAINTAIN_EVERY, going by uptime so no extra process is needed.
+maintenance_minute() {
+  read up _ < "$UPTIME_FILE" || return 1
+  up="${up%.*}"
+  [ $(( up / 60 % MAINTAIN_EVERY )) -eq 0 ]
+}
+
+keep_ssh() {
+  [ "$KEEP_SSH" = 1 ] && [ -x "$DROPBEAR" ] || return 0
+  started=0
+  if ! dropbear_alive; then
+    log "dropbear is not running - starting it on port $SSH_PORT"
+    (cd "${DROPBEAR%/*}" && "$DROPBEAR" -E -R -p"$SSH_PORT" -P "$SSH_PIDFILE") >/dev/null 2>&1
+    started=1
+  fi
+  # Every few minutes (and straight after starting dropbear): let the port
+  # through the firewall, which the Kindle's own scripts can close again when
+  # wifi reconnects, and keep the screensaver off, which powerd forgets.
+  if [ "$started" = 1 ] || maintenance_minute; then
+    iptables -P INPUT ACCEPT >/dev/null 2>&1
+    lipc-set-prop com.lab126.powerd preventScreenSaver 1 >/dev/null 2>&1
+  fi
+}
+
+# Before the pause and disable switches on purpose: those are about the app
+# and the screen, and ssh is how you would get in to use them.
+keep_ssh
+
 # --- pause switch -------------------------------------------------------------
 # While this file exists the launcher does nothing: it doesn't start the app
 # and doesn't restore the stock UI either. For experiments and maintenance,
