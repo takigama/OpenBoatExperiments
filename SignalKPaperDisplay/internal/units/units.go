@@ -99,6 +99,7 @@ var Metrics = []Metric{
 	{"aws", "Apparent wind speed", Speed},
 	{"tws", "True wind speed", Speed},
 	{"depth", "Depth", Depth},
+	{"watertemp", "Water temperature", Temperature},
 	{"range", "AIS target range", Distance},
 }
 

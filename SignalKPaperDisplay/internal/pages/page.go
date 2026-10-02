@@ -24,8 +24,8 @@ type Page struct {
 // All lists the screens in the order they're cycled through.
 func All() []Page {
 	return []Page{
+		{ID: "compass", Title: "Compass", Draw: Compass}, // the default, so it comes first
 		{ID: "nav", Title: "Numbers", Draw: Nav},
-		{ID: "compass", Title: "Compass", Draw: Compass},
 	}
 }
 

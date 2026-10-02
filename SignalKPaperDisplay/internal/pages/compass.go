@@ -10,6 +10,12 @@ import (
 	"signalkpaperdisplay/internal/signalk"
 )
 
+// SlowStaleAfter is the staleness limit for values that change slowly (fuel
+// level, water temperature): sensors for those often report every few
+// seconds or even minutes, so the 5s limit used for speed and heading would
+// flash them to "--" constantly.
+const SlowStaleAfter = 2 * time.Minute
+
 // compassLabel names the points of the card: N/E/S/W at the cardinals, then
 // the usual compass-card convention of degrees/10 (3, 6, 12, 15 ...).
 func compassLabel(deg int) string {
@@ -28,7 +34,10 @@ func compassLabel(deg int) string {
 
 // Compass shows a large rotating compass card (heading up, with a fixed
 // marker at the top) over a split row with speed on the left and depth on
-// the right.
+// the right. Inside the compass area: a wind pointer on the rim, water
+// temperature top right, and fuel gauges bottom right. Each of those only
+// appears once the server has actually sent that value - nothing is drawn
+// for data the boat doesn't have.
 func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	Header(c, "COMPASS", s, now)
 	b := c.Bounds()
@@ -89,15 +98,106 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	}
 	c.Text(int(cx), int(cy+r*0.20), text, r*0.5, render.Bold, render.Center, shade)
 
+	// Apparent wind: shown only while it's live. The card is heading-up, so
+	// the pointer sits at the wind angle measured from the bow.
+	if own.AWA.Fresh(now, StaleAfter) {
+		drawWindPointer(c, cx, cy, r, own.AWA.V)
+	}
+
+	boxBottom := top + compassH
+	drawWaterTemp(c, own, now, e, b.Dx()-28, top+10)
+	drawFuelGauges(c, own.Fuel, now, b.Dx()-28, boxBottom-8)
+
 	// Split row underneath: speed | depth.
-	splitTop := top + compassH
-	c.HLine(0, b.Dx(), splitTop, 3, render.Mid)
-	c.VLine(b.Dx()/2-1, splitTop, b.Dy(), 3, render.Mid)
+	c.HLine(0, b.Dx(), boxBottom, 3, render.Mid)
+	c.VLine(b.Dx()/2-1, boxBottom, b.Dy(), 3, render.Mid)
 
 	sogVal, sogUnit := e.Units.Format("sog", own.SOG.V)
 	depthVal, depthUnit := e.Units.Format("depth", own.Depth.V)
-	drawMetric(c, image.Rect(0, splitTop+3, b.Dx()/2-1, b.Dy()),
+	drawMetric(c, image.Rect(0, boxBottom+3, b.Dx()/2-1, b.Dy()),
 		metric{label: "SPEED", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal})
-	drawMetric(c, image.Rect(b.Dx()/2+2, splitTop+3, b.Dx(), b.Dy()),
+	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
 		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal})
+}
+
+// drawWindPointer draws a bold arrowhead on the compass rim, pointing in
+// toward the centre, at angle (radians clockwise from the bow). A white halo
+// goes down first so it stays readable where it crosses the ticks.
+func drawWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
+	ux, uy := math.Sin(angle), -math.Cos(angle) // outward from the centre
+	vx, vy := -uy, ux                           // across it
+	tri := func(tipR, baseR, half float64) []image.Point {
+		pt := func(along, across float64) image.Point {
+			return image.Pt(int(math.Round(cx+ux*along+vx*across)), int(math.Round(cy+uy*along+vy*across)))
+		}
+		return []image.Point{pt(tipR, 0), pt(baseR, -half), pt(baseR, half)}
+	}
+	c.FillPolygon(tri(r-92, r+40, 42), render.White) // halo
+	c.FillPolygon(tri(r-76, r+34, 30), render.Black)
+}
+
+// rightValue draws "value unit" with the pair's right edge at xRight.
+func rightValue(c *render.Canvas, xRight, baseline int, value, unit string, size float64, shade uint8) {
+	unitSize := size * 0.45
+	wu := c.TextWidth(unit, unitSize, render.Bold)
+	c.Text(xRight, baseline, unit, unitSize, render.Bold, render.Right, render.Dark)
+	c.Text(xRight-wu-int(size*0.08), baseline, value, size, render.Bold, render.Right, shade)
+}
+
+// drawWaterTemp draws the temperature in the top-right corner of the
+// compass area - but only once the server has sent one.
+func drawWaterTemp(c *render.Canvas, own signalk.Own, now time.Time, e Env, xRight, yTop int) {
+	if !own.WaterTemp.Valid() {
+		return
+	}
+	value, unit := "--", ""
+	shade := render.Mid
+	_, unit = e.Units.Format("watertemp", 0)
+	if own.WaterTemp.Fresh(now, SlowStaleAfter) {
+		value, _ = e.Units.Format("watertemp", own.WaterTemp.V)
+		shade = render.Black
+	}
+	c.Text(xRight, yTop+34, "WATER", 34, render.Bold, render.Right, render.Dark)
+	rightValue(c, xRight, yTop+34+66, value, unit, 68, shade)
+}
+
+// drawFuelGauges draws one small bar per fuel tank the server reports,
+// bottom-right of the compass area, with the right edge at xRight and the
+// bottom at yBottom. With no tanks reported it draws nothing at all.
+func drawFuelGauges(c *render.Canvas, tanks []signalk.Tank, now time.Time, xRight, yBottom int) {
+	const (
+		barW, barH = 46, 104
+		pitch      = 78
+		maxTanks   = 3
+	)
+	if len(tanks) == 0 {
+		return
+	}
+	if len(tanks) > maxTanks {
+		tanks = tanks[:maxTanks]
+	}
+	barBottom := yBottom - 38 // room under the bars for the percentage
+	c.Text(xRight, barBottom-barH-14, "FUEL", 34, render.Bold, render.Right, render.Dark)
+
+	for i, t := range tanks {
+		x1 := xRight - (len(tanks)-1-i)*pitch
+		x0 := x1 - barW
+		fresh := t.Level.Fresh(now, SlowStaleAfter)
+
+		frame := render.Black
+		if !fresh {
+			frame = render.Mid
+		}
+		c.FillRect(image.Rect(x0, barBottom-barH, x1, barBottom), frame)
+		c.FillRect(image.Rect(x0+4, barBottom-barH+4, x1-4, barBottom-4), render.White)
+
+		label := "--"
+		if fresh {
+			level := math.Min(math.Max(t.Level.V, 0), 1)
+			fill := int(level * float64(barH-8))
+			c.FillRect(image.Rect(x0+4, barBottom-4-fill, x1-4, barBottom-4), render.Black)
+			label = fmt.Sprintf("%.0f%%", level*100)
+		}
+		c.Text((x0+x1)/2, yBottom-6, label, 30, render.Bold, render.Center, frame)
+	}
 }

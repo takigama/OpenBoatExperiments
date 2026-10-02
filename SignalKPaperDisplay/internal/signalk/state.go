@@ -37,11 +37,21 @@ func (p Position) Fresh(now time.Time, maxAge time.Duration) bool {
 	return p.Valid() && now.Sub(p.At) <= maxAge
 }
 
-// Own is this vessel's data. Angles are radians, speeds m/s, depth metres.
+// Tank is one fuel tank. Level is a ratio, 0 (empty) to 1 (full), as
+// SignalK reports it.
+type Tank struct {
+	ID    string // the tank's id in SignalK, e.g. "0" in tanks.fuel.0
+	Level Reading
+}
+
+// Own is this vessel's data. Angles are radians, speeds m/s, depth metres,
+// temperature kelvin.
 type Own struct {
 	Heading, COG, SOG, STW Reading
 	AWA, AWS, TWD, TWS     Reading
 	Depth                  Reading
+	WaterTemp              Reading
+	Fuel                   []Tank // sorted by ID, so the gauges keep their order
 	Pos                    Position
 }
 
@@ -64,19 +74,24 @@ type Snapshot struct {
 type State struct {
 	mu        sync.RWMutex
 	own       Own
+	fuel      map[string]Reading // tank id -> level
 	targets   map[string]*Target
 	connected bool
 	lastMsg   time.Time
 }
 
 func NewState() *State {
-	return &State{targets: map[string]*Target{}}
+	return &State{targets: map[string]*Target{}, fuel: map[string]Reading{}}
 }
 
 func (s *State) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snap := Snapshot{Own: s.own, Connected: s.connected, LastMessage: s.lastMsg}
+	for id, lvl := range s.fuel {
+		snap.Own.Fuel = append(snap.Own.Fuel, Tank{ID: id, Level: lvl})
+	}
+	sort.Slice(snap.Own.Fuel, func(i, j int) bool { return snap.Own.Fuel[i].ID < snap.Own.Fuel[j].ID })
 	for _, t := range s.targets {
 		snap.Targets = append(snap.Targets, *t)
 	}
@@ -118,10 +133,28 @@ func setPos(p *Position, raw json.RawMessage, now time.Time) {
 	}
 }
 
+// fuelTankID pulls the tank id out of a path like tanks.fuel.0.currentLevel.
+func fuelTankID(path string) (string, bool) {
+	rest, ok := strings.CutPrefix(path, "tanks.fuel.")
+	if !ok {
+		return "", false
+	}
+	id, ok := strings.CutSuffix(rest, ".currentLevel")
+	return id, ok && id != ""
+}
+
 func (s *State) applyOwn(path string, raw json.RawMessage, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if id, ok := fuelTankID(path); ok {
+		r := s.fuel[id]
+		setNum(&r, raw, now)
+		s.fuel[id] = r
+		return
+	}
 	switch path {
+	case "environment.water.temperature":
+		setNum(&s.own.WaterTemp, raw, now)
 	case "navigation.headingTrue":
 		setNum(&s.own.Heading, raw, now)
 	case "navigation.courseOverGroundTrue":

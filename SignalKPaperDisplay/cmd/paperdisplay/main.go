@@ -53,7 +53,7 @@ func main() {
 		fbinkBin     = flag.String("fbink", "", "fbink binary, for -display fbink (default: the one beside this binary; KOReader's bundled one can't draw images)")
 		waveform     = flag.String("waveform", "DU", "e-ink waveform for partial updates with -display fbink: DU is fast (~290ms on a Paperwhite 3, coarse grays), GL16 or \"\" (FBInk's choice) is slower (~540ms) but smoother; full refreshes always use full quality")
 		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for eips/fbink (use tmpfs, not flash)")
-		pageID       = flag.String("page", "nav", "page to show: nav, compass")
+		pageID       = flag.String("page", "compass", "page to start on: compass, nav")
 		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset or unit:<metric>")
 		settingsPath = flag.String("settings", "settings.json", "unit settings file (missing = metric defaults)")
 		fullEvery    = flag.Duration("full-refresh", 5*time.Minute, "flashing full refresh interval, to clear e-ink ghosting")
