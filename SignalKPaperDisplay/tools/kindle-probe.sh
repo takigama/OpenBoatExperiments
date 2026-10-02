@@ -113,14 +113,21 @@ report_block() {
     TOUCH_DEV="/dev/input/$ev"; TOUCH_PROTO="$proto"; TOUCH_NAME="$name"
   fi
 }
-while IFS= read -r line; do
+# Read the list into a variable first: on the Kindle a shell that reads
+# /proc/bus/input/devices line by line blocks. Blank lines vanish when the text
+# is split, so each block is told apart by its "I:" line instead.
+DEVS="$(cat /proc/bus/input/devices 2>/dev/null)"
+OLDIFS="$IFS"; IFS='
+'; set -f
+for line in $DEVS; do
   case "$line" in
+    "I: "*)          report_block; name=""; handlers=""; abs="" ;;
     "N: Name="*)     name="${line#N: Name=}" ;;
     "H: Handlers="*) handlers="${line#H: Handlers=}" ;;
     "B: ABS="*)      abs="${line#B: ABS=}" ;;
-    "")              report_block; name=""; handlers=""; abs="" ;;
   esac
-done < /proc/bus/input/devices
+done
+IFS="$OLDIFS"; set +f
 report_block
 ls /dev/input 2>/dev/null | tr '\n' ' '; echo
 
@@ -194,7 +201,7 @@ echo "  GOOS=linux"; echo "  GOARCH=$GOARCH"; [ -n "$GOARM" ] && echo "  GOARM=$
 case "$GOARM" in 5|6) echo "  (older than the Paperwhite 3's ARMv7: untested - needs a legacy FBInk and a check for hardware floating point: $FEATS)" ;; esac
 
 MODEL="$(echo "$FBV" | sed -n 's/.*Detected a \(.*\) (.*/\1/p' | head -1)"
-SLUG="$(echo "${MODEL:-$(head -c 4 /proc/usid 2>/dev/null)}" | tr 'A-Z ' 'a-z-' | tr -cd 'a-z0-9-')"
+SLUG="$(echo "${MODEL:-$(head -c 4 /proc/usid 2>/dev/null)}" | tr 'A-Z ' 'a-z-' | tr -cd 'a-z0-9-' | sed 's/^kindle-//')"
 echo
 echo "profile.json:"
 echo "{"

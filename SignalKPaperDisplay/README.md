@@ -186,6 +186,17 @@ differs per device lives in `platforms/<name>/`:
 
 ## Adding a device
 
+On a rooted Kindle with SSH or a terminal (KOReader's will do), one command
+prints a read-only report of everything a new profile needs: screen size and
+DPI, the touch panel and its protocol, front light, stock jobs, cron, and a
+suggested `profile.json` and `build.env`. Paste it into an issue:
+
+    curl -sL https://raw.githubusercontent.com/takigama/OpenBoatExperiments/master/SignalKPaperDisplay/tools/kindle-probe.sh | sh
+
+It changes nothing and prints no MAC or IP address, WiFi names or full serial.
+Start the new platform by copying `platforms/kindle-basic` and applying the
+report.
+
 1. `mkdir platforms/<name>` with `profile.json` and `build.env`.
 2. `make <name>` - the Makefile discovers it automatically.
 3. If the device needs a different way of drawing or reading touch, add an
