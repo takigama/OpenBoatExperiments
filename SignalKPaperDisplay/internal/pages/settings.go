@@ -17,6 +17,10 @@ const (
 	SettingsPickUnit                         // choose a unit for View.Metric
 )
 
+// Version is the running release number, shown at the foot of the settings
+// list. main sets it from the build stamp.
+var Version = "0"
+
 // SettingsView is the dialog's navigation state. The app owns it; drawing
 // and tap handling are pure functions of it, so both are easy to test.
 type SettingsView struct {
@@ -185,6 +189,10 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool) {
 		})
 		c.Text(40, settingsTop+(invertRow()+1)*settingsRowH+60,
 			"* set individually, not from the preset", 36, render.Regular, render.Left, render.Dark)
+		// Which build this is, so it's plain from the screen that an update
+		// has actually been picked up (a replaced file isn't running until
+		// the app restarts).
+		c.Text(b.Dx()-40, b.Dy()-40, "v"+Version, 36, render.Regular, render.Right, render.Dark)
 
 	case SettingsPickPreset:
 		for i, p := range units.Presets() {

@@ -90,6 +90,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	pages.Version = version
+
 	if *showVersion {
 		log.Printf("paperdisplay v%s, platform %s", version, prof.Name)
 		return

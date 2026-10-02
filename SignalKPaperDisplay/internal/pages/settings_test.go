@@ -116,3 +116,24 @@ func TestSettingsScreensDraw(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsListShowsTheVersion(t *testing.T) {
+	draw := func(v string) *render.Canvas {
+		old := Version
+		Version = v
+		defer func() { Version = old }()
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Settings(c, SettingsView{}, units.Settings{}, false)
+		return c
+	}
+	foot := image.Rect(700, 1380, 1072, 1448)
+	if inked(draw("19"), foot) == 0 {
+		t.Error("the version should be drawn at the foot of the settings list")
+	}
+	if !differs(draw("19"), draw("20")) {
+		t.Error("a different version should look different")
+	}
+}
