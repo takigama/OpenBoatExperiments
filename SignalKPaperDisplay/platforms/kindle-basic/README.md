@@ -24,19 +24,25 @@ real screen. So this device needs no pages of its own: it is the Paperwhite's
 layout at 56% size. Touches are converted back to design units before they are
 matched against tap areas.
 
-## Still to verify on the device
+## Verified on the device
 
-- **Orientation.** `fb0/rotate` is 3 and the framebuffer is 608 wide; FBInk should
-  cope, but until it has been seen drawing, an upside-down or sideways picture is
-  possible. The profile's `rotation` field is not used by any code yet.
-- **Touch axes.** Measure with `./paperdisplay -touch-test` and record `swapXY`,
-  `invertX` and `invertY` in `profile.json` if the mapping isn't straight.
-- **The stock UI.** Found with `initctl list`: the Java UI is the `framework`
-  job and the status bar (`JunoStatusBarDriver`) is a job of its own, `statusbar`.
-  `launcher.conf.example` here sets `STOP_JOBS="framework statusbar"`; `pillow` and
-  `webreader` are also running and may need adding if something paints over us.
-- **FBInk.** The `kindlepw2` build we ship should run here (KOReader uses it for
-  every Kindle from the Paperwhite 2 on).
+- **Orientation and drawing.** FBInk identifies it as a Kindle Basic 2 (`Eanab`,
+  Heisenberg), 600x800 at 167 dpi, and copes with the rotated framebuffer: the
+  picture is upright (read back from `/dev/fb0`), and a full refresh takes about
+  0.57 s (render 53 ms, FBInk 500 ms).
+- **Touch.** `event0` maps straight to the screen with no `swapXY` or inversion:
+  the cog opens settings, the left and right thirds change page, and the compass
+  page's wind widget and speed box respond.
+- **The stock UI.** The Java UI is the `framework` job and the status bar
+  (`JunoStatusBarDriver`) is a job of its own, `statusbar`. `launcher.conf.example`
+  here sets `STOP_JOBS="framework statusbar"`, which leaves the screen to us.
+  `pillow` and `webreader` also keep running and have not been a problem.
+- **Battery.** `bd7181x_bat` is read through sysfs like the Paperwhite's.
+- **FBInk.** The shared `kindlepw2` build runs here.
+
+## Not applicable
+
+- No front light, so the Backlight setting is hidden (the profile declares none).
 
 ## Install
 
