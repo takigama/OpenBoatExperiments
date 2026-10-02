@@ -65,6 +65,36 @@ func TestPresetAppliesToEverythingAndResetsOverrides(t *testing.T) {
 	}
 }
 
+func TestNauticalPreset(t *testing.T) {
+	var s Settings
+	if err := s.SetPreset(PresetNautical); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"sog": "kn", "stw": "kn", "aws": "kn", "tws": "kn", // every speed in knots
+		"depth": "ft", "range": "nm",
+	}
+	for metric, sym := range want {
+		if got := s.UnitFor(metric).Symbol; got != sym {
+			t.Errorf("nautical %s = %s, want %s", metric, got, sym)
+		}
+	}
+	// Knots are the preset's own default, so they aren't "set individually".
+	if s.IsOverridden("sog") {
+		t.Error("sog should not read as overridden under the nautical preset")
+	}
+	// Every preset must name a valid unit for every quantity, or UnitFor
+	// would silently return a zero unit for some metric.
+	for _, name := range Presets() {
+		p := Settings{Preset: name}
+		for _, m := range Metrics {
+			if u := p.UnitFor(m.ID); u.Symbol == "" || u.Symbol == "?" {
+				t.Errorf("preset %s has no valid unit for %s", name, m.ID)
+			}
+		}
+	}
+}
+
 func TestOverrideLeavesOtherMetricsAlone(t *testing.T) {
 	s := Settings{Preset: PresetImperial}
 	if err := s.SetUnit("sog", "kn"); err != nil {

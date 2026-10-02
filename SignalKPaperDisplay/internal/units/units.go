@@ -116,6 +116,7 @@ func metricByID(id string) (Metric, bool) {
 const (
 	PresetMetric   = "metric"
 	PresetImperial = "imperial"
+	PresetNautical = "nautical"
 )
 
 var presets = map[string]map[Quantity]string{
@@ -125,10 +126,15 @@ var presets = map[string]map[Quantity]string{
 	PresetImperial: {
 		Speed: "mph", Depth: "ft", Distance: "mi", Temperature: "°F", Pressure: "inHg",
 	},
+	// The usual boating mix: knots and nautical miles, depth in feet, and
+	// the metric temperature and pressure that marine forecasts use.
+	PresetNautical: {
+		Speed: "kn", Depth: "ft", Distance: "nm", Temperature: "°C", Pressure: "hPa",
+	},
 }
 
 // Presets lists the preset names in display order.
-func Presets() []string { return []string{PresetMetric, PresetImperial} }
+func Presets() []string { return []string{PresetMetric, PresetImperial, PresetNautical} }
 
 // Settings is the user's unit choices. The zero value is the metric preset
 // with no overrides.
