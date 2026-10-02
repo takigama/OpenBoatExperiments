@@ -141,9 +141,9 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	sogVal, sogUnit := e.Units.Format("sog", own.SOG.V)
 	depthVal, depthUnit := e.Units.Format("depth", own.Depth.V)
 	drawMetric(c, image.Rect(0, boxBottom+3, b.Dx()/2-1, b.Dy()),
-		metric{label: "SPEED", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal})
+		metric{label: "SPEED", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal}, 0)
 	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
-		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal})
+		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal}, 0)
 }
 
 // cogMinSpeed is the slowest we'll trust a course over ground at: GPS

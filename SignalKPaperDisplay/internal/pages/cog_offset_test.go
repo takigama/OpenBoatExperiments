@@ -131,14 +131,14 @@ func TestUnitsAndStaleValuesAreSolidBlack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	drawMetric(c, cell, metric{label: "SPEED", unit: "km/h", value: "", ok: true})
+	drawMetric(c, cell, metric{label: "SPEED", unit: "km/h", value: "", ok: true}, 0)
 	if got := darkest(c, lower); got > 10 {
 		t.Errorf("the unit is drawn in grey %d; it must be solid black to survive the fast waveform", got)
 	}
 
 	// A stale value shows as dashes, and those must be black too, not greyed out.
 	c, _ = render.NewCanvas(cell.Dx(), cell.Dy())
-	drawMetric(c, cell, metric{label: "SPEED", unit: "", value: "9.9", ok: false})
+	drawMetric(c, cell, metric{label: "SPEED", unit: "", value: "9.9", ok: false}, 0)
 	if got := darkest(c, lower); got > 10 {
 		t.Errorf("a stale value is drawn in grey %d; it must be solid black", got)
 	}

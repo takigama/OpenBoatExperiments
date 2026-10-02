@@ -15,7 +15,11 @@ build image cross-compiles every target.
 Early, but running on a real Kindle Paperwhite 3. Working now:
 
 - SignalK client + data model with staleness tracking
-- Pages: Numbers and a large rotating Compass, selectable at runtime
+- Pages: a large rotating Compass and a six-box Nav grid (SOG, heading,
+  depth, COG, VMG, and the three closest AIS contacts), selectable at runtime.
+  VMG is velocity made good to the wind: boat speed (through the water if sent,
+  else over the ground) times the cosine of the true wind angle, so it needs
+  true wind direction and heading. COG shows "--" while barely moving
 - Per-metric unit settings (metric/imperial preset plus overrides)
 - Drawing via FBInk (~0.9 s per frame on a Paperwhite 3, including our own
   page rendering; skips unchanged frames, rations partial refreshes, fast DU
