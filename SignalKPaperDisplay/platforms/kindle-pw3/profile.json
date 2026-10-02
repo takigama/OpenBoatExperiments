@@ -8,6 +8,8 @@
   "fetch": "curl",
   "frontlight": {
     "sysfs": "/sys/class/backlight/*",
+    "steps": 24,
+    "gamma": 2,
     "lipc": "com.lab126.powerd flIntensity",
     "lipcMax": 24
   },

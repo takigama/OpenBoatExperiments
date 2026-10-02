@@ -39,9 +39,11 @@ type Profile struct {
 
 // Frontlight locates a device's light; see package frontlight.
 type Frontlight struct {
-	Sysfs   string `json:"sysfs,omitempty"`   // glob for the backlight directory
-	Lipc    string `json:"lipc,omitempty"`    // "service property", used if there is no sysfs light
-	LipcMax int    `json:"lipcMax,omitempty"` // how many levels the lipc property has
+	Sysfs   string  `json:"sysfs,omitempty"`   // glob for the backlight directory
+	Steps   int     `json:"steps,omitempty"`   // levels to offer on a sysfs light with a much finer raw range
+	Gamma   float64 `json:"gamma,omitempty"`   // curve from step to raw value; 0 means 2
+	Lipc    string  `json:"lipc,omitempty"`    // "service property", used if there is no sysfs light
+	LipcMax int     `json:"lipcMax,omitempty"` // how many levels the lipc property has
 }
 
 func Load(path string) (*Profile, error) {

@@ -21,7 +21,7 @@ func detectLight(prof *profile.Profile, displayKind, settingsView string) frontl
 		return nil
 	}
 	l, err := frontlight.Detect(frontlight.Config{
-		Sysfs: prof.Frontlight.Sysfs, Lipc: prof.Frontlight.Lipc, LipcMax: prof.Frontlight.LipcMax,
+		Sysfs: prof.Frontlight.Sysfs, Steps: prof.Frontlight.Steps, Gamma: prof.Frontlight.Gamma, Lipc: prof.Frontlight.Lipc, LipcMax: prof.Frontlight.LipcMax,
 	})
 	if err != nil {
 		log.Printf("front light: %v - the backlight setting is not available", err)

@@ -121,9 +121,14 @@ func (a *App) InitLight() {
 		return
 	}
 	level, err := a.Light.Level()
-	if a.Brightness != nil {
-		level = *a.Brightness
+	if b := a.Brightness; b != nil && *b >= 0 && *b <= a.Light.Max() {
+		level = *b
 		err = a.Light.Set(level)
+	} else if b != nil {
+		// Saved on a different scale (v30 first offered the raw 0-4095): not
+		// a level any more, so leave the light as the device has it.
+		log.Printf("front light: ignoring saved brightness %d, outside 0-%d", *b, a.Light.Max())
+		a.Brightness = nil
 	}
 	if err != nil {
 		log.Printf("front light: %v", err)

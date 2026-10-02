@@ -496,3 +496,31 @@ func TestNoLightMeansNoBacklightRow(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSavedBrightnessOnTheOldRawScaleIsIgnored(t *testing.T) {
+	// v30 first offered 0-4095; a value saved then is not a level now.
+	light := frontlight.NewFake(24, 9)
+	a := lightApp(t, "", light)
+	old := 2048
+	a.Brightness = &old
+	a.InitLight()
+	if len(light.Sets) != 0 {
+		t.Errorf("an out-of-range saved value was applied: %v", light.Sets)
+	}
+	if a.Brightness != nil {
+		t.Error("the stale value should be dropped so it is not saved again")
+	}
+	if v := a.withLight(a.settingsView); v.Level != 9 {
+		t.Errorf("the screen should show where the light really is (9), got %d", v.Level)
+	}
+	// Edge values are fine.
+	for _, ok := range []int{0, 24} {
+		v := ok
+		a := lightApp(t, "", frontlight.NewFake(24, 5))
+		a.Brightness = &v
+		a.InitLight()
+		if a.Brightness == nil {
+			t.Errorf("brightness %d is in range and must be kept", ok)
+		}
+	}
+}

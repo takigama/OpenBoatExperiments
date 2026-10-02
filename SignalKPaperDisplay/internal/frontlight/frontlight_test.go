@@ -129,3 +129,90 @@ func TestDetectPrefersSysfsAndFailsCleanly(t *testing.T) {
 		t.Error("an empty config has no light")
 	}
 }
+
+func steppedLight(t *testing.T, rawMax string, raw string) (*Sysfs, string) {
+	t.Helper()
+	glob := fakeBacklight(t, "bl", rawMax, raw)
+	l, err := Detect(Config{Sysfs: glob, Steps: 24, Gamma: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ok := l.(*Sysfs)
+	if !ok {
+		t.Fatalf("got %T", l)
+	}
+	return s, filepath.Join(filepath.Dir(glob), "bl", "brightness")
+}
+
+func TestStepsHideTheRawRange(t *testing.T) {
+	l, _ := steppedLight(t, "4095", "0")
+	if l.Max() != 24 {
+		t.Fatalf("max = %d, want 24 steps, not the raw 4095", l.Max())
+	}
+	// Off is off, full is full, and everything between rises steadily.
+	if l.raw(0) != 0 || l.raw(24) != 4095 {
+		t.Errorf("ends: raw(0)=%d raw(24)=%d", l.raw(0), l.raw(24))
+	}
+	prev := -1
+	for n := 0; n <= 24; n++ {
+		r := l.raw(n)
+		if r <= prev {
+			t.Errorf("step %d raw %d does not rise above step %d raw %d", n, r, n-1, prev)
+		}
+		prev = r
+	}
+	// The lowest step must be visibly lit: at least 1/256 of full.
+	if l.raw(1) < 4095/256 {
+		t.Errorf("step 1 is raw %d, too dim to count as on", l.raw(1))
+	}
+	// Squared: the middle step is about a quarter of the raw range.
+	if r := l.raw(12); r < 900 || r > 1100 {
+		t.Errorf("step 12 is raw %d, want about a quarter of 4095", r)
+	}
+}
+
+func TestStepsRoundTripThroughTheFile(t *testing.T) {
+	l, file := steppedLight(t, "4095", "0")
+	for n := 0; n <= 24; n++ {
+		if err := l.Set(n); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := l.Level(); err != nil || got != n {
+			t.Errorf("Set(%d) then Level() = %d, %v", n, got, err)
+		}
+	}
+	l.Set(24)
+	if b, _ := os.ReadFile(file); string(b) != "4095" {
+		t.Errorf("the file holds %q at the top step, want the raw maximum 4095", b)
+	}
+	l.Set(99) // clamped to the top step
+	if n, _ := l.Level(); n != 24 {
+		t.Errorf("Set(99) read back as %d", n)
+	}
+}
+
+func TestStepsReadAValueTheStockSoftwareSet(t *testing.T) {
+	// Raw values not on our grid read as the nearest step.
+	l, file := steppedLight(t, "4095", "4095")
+	os.WriteFile(file, []byte("1000\n"), 0o644)
+	if n, _ := l.Level(); n != 12 {
+		t.Errorf("raw 1000 reads as step %d, want 12 (raw 1024)", n)
+	}
+	os.WriteFile(file, []byte("0\n"), 0o644)
+	if n, _ := l.Level(); n != 0 {
+		t.Errorf("raw 0 reads as step %d", n)
+	}
+	os.WriteFile(file, []byte("5000\n"), 0o644) // beyond the maximum
+	if n, _ := l.Level(); n != 24 {
+		t.Errorf("raw 5000 reads as step %d", n)
+	}
+}
+
+func TestStepsNotUsedWhenTheRawRangeIsAlreadySmall(t *testing.T) {
+	// A light with only 10 levels asked for 24 steps keeps its own 10.
+	glob := fakeBacklight(t, "bl", "10", "0")
+	l, err := Detect(Config{Sysfs: glob, Steps: 24})
+	if err != nil || l.Max() != 10 {
+		t.Errorf("max = %d, %v; want the raw 10", l.Max(), err)
+	}
+}
