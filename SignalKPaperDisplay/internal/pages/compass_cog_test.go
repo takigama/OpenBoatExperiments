@@ -74,6 +74,29 @@ func TestCOGLineFollowsTheCourseAndPassesOutsideTheRing(t *testing.T) {
 	}
 }
 
+func TestCOGStemOnlySpansTheOuterPartOfTheCard(t *testing.T) {
+	const cx, cy = 536, 622
+	r := 466.0 // a variable: int(0.7*r) on a constant won't compile
+	// A course due east (heading north) is a horizontal line along y=cy.
+	east := renderCompass(t, moving(math.Pi/2))
+	none := renderCompass(t, withoutCOG(moving(0)))
+
+	// Present in the outer part of the card...
+	outerX := cx + int(0.7*r)
+	outer := image.Rect(outerX, cy-4, outerX+30, cy+5)
+	if inked(east, outer) <= inked(none, outer) {
+		t.Error("the stem should be there in the outer part of the card")
+	}
+	// ...but absent nearer the middle, where it used to run.
+	for _, frac := range []float64{0.30, 0.45, 0.55} {
+		x := cx + int(frac*r)
+		cell := image.Rect(x, cy-4, x+20, cy+5)
+		if inked(east, cell) != inked(none, cell) {
+			t.Errorf("the stem should not reach as far in as %.0f%% of the radius", frac*100)
+		}
+	}
+}
+
 func TestCOGCrossbarShowsEvenWhenTheStemIsHiddenUnderTheHeadingLine(t *testing.T) {
 	// COG exactly equal to heading: the COG stem lies under the (thicker)
 	// heading line and disappears, so the crossbar past the ring is the only

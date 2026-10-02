@@ -142,39 +142,22 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 const cogMinSpeed = 0.3
 
 // drawCOG draws the course-over-ground line, rel radians clockwise from the
-// bow: a thin stem from just outside the heading digits to a little past the
-// compass ring, finished with a short crossbar like a stretched T. It's
-// shorter and thinner than the heading line, which runs to the top of the
-// compass area.
+// bow: a thin stem spanning just the outer part of the card and a little
+// past the compass ring, finished with a short crossbar like a stretched T.
+// It's much shorter and thinner than the heading line, which runs from the
+// middle to the top of the compass area.
 func drawCOG(c *render.Canvas, cx, cy, r, rel float64, shade uint8) {
 	const (
-		stem      = 5
-		capHalf   = 18 // half the crossbar's length
-		pastRing  = 34 // how far beyond the ring the stem ends
-		digitHalf = 0.52
-		digitUp   = 0.21 // above the centre, matching where the heading line starts
-		digitDown = 0.25
+		stem     = 5
+		capHalf  = 18   // half the crossbar's length
+		pastRing = 34   // how far beyond the ring the stem ends
+		inner    = 0.60 // where the stem starts, as a fraction of the ring radius
 	)
+	// 0.60 clears the heading digits whichever way the line points: the
+	// farthest corner of the box around them is only ~0.58 of the radius out.
 	ux, uy := math.Sin(rel), -math.Cos(rel)
-
-	// Start where the ray leaves the box around the heading digits, so the
-	// line never strikes through them whichever way it points.
-	t := math.Inf(1)
-	if math.Abs(ux) > 1e-9 {
-		t = math.Min(t, digitHalf*r/math.Abs(ux))
-	}
-	limit := digitDown
-	if uy < 0 {
-		limit = digitUp
-	}
-	if math.Abs(uy) > 1e-9 {
-		t = math.Min(t, limit*r/math.Abs(uy))
-	}
 	end := r + pastRing
-	if t >= end {
-		return
-	}
-	c.Line(cx+ux*t, cy+uy*t, cx+ux*end, cy+uy*end, stem, shade)
+	c.Line(cx+ux*inner*r, cy+uy*inner*r, cx+ux*end, cy+uy*end, stem, shade)
 
 	vx, vy := -uy, ux // across the line
 	c.Line(cx+ux*end+vx*capHalf, cy+uy*end+vy*capHalf, cx+ux*end-vx*capHalf, cy+uy*end-vy*capHalf, stem, shade)
