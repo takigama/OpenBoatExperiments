@@ -558,7 +558,7 @@ func drawWaypointPointer(c *render.Canvas, cx, cy, r, angle float64) {
 
 // waypointLabelGap is the clear space between the waypoint pointer's base and
 // the W under it, in pixels.
-const waypointLabelGap = 2.0
+const waypointLabelGap = 5.0
 
 // rightValue draws "value unit" with the pair's right edge at xRight.
 func rightValue(c *render.Canvas, xRight, baseline int, value, unit string, size float64, shade uint8) {

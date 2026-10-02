@@ -209,7 +209,7 @@ func TestWaypointPointerIsHollowAndPointsOutward(t *testing.T) {
 func TestWaypointPointerHasAWUnderIt(t *testing.T) {
 	// Turned to starboard the pointer's base is the vertical line at x=926
 	// (r-76 from the card's centre). The W is on the base side - to its left
-	// - turned a quarter so its top faces the triangle, and 2px clear of it.
+	// - turned a quarter so its top faces the triangle, and 5px clear of it.
 	c := renderCompass(t, withWaypoint(math.Pi/2))
 	none := renderCompass(t, noWaypoint(withWaypoint(math.Pi/2)))
 	label := image.Rect(860, 596, 926, 650)
@@ -217,16 +217,17 @@ func TestWaypointPointerHasAWUnderIt(t *testing.T) {
 		t.Errorf("a W should sit just inside the pointer's base: %d vs %d inked", inked(c, label), inked(none, label))
 	}
 	// The gap: the pixel columns between the W's top and the pointer's base
-	// hold none of the W (ticks that were already there are not counted).
-	gap := image.Rect(924, 612, 926, 632)
+	// (x = 921..925, 5 px) hold none of the W (ticks that were already there
+	// are not counted).
+	gap := image.Rect(921, 612, 926, 632)
 	if inked(c, gap) != inked(none, gap) {
-		t.Errorf("the 2px gap under the pointer has %d inked pixels added", inked(c, gap)-inked(none, gap))
+		t.Errorf("the 5px gap under the pointer has %d inked pixels added", inked(c, gap)-inked(none, gap))
 	}
 	// And the W reaches right up to the gap: its ink starts within a pixel or
 	// two of it, not floating further in.
-	nearGap := image.Rect(920, 596, 924, 650)
+	nearGap := image.Rect(916, 596, 921, 650)
 	if inked(c, nearGap) <= inked(none, nearGap) {
-		t.Error("the W should come right up to the 2px gap")
+		t.Error("the W should come right up to the 5px gap")
 	}
 
 	// Dead ahead the pointer is at the top and the W is below its base, upright.
@@ -257,7 +258,7 @@ func TestWaypointLabelTurnsWithThePointerAtEveryAngle(t *testing.T) {
 			t.Fatalf("angle %d: nothing drawn", deg)
 		}
 		ux, uy := math.Sin(rad), -math.Cos(rad)
-		d := 466.0 - 76 - 2 - 20 // the ink's middle, about 20px in from the 2px gap
+		d := 466.0 - 76 - 5 - 20 // the ink's middle, about 20px in from the 5px gap
 		x, y := 536+int(ux*d), 622+int(uy*d)
 		changed := 0
 		for yy := y - 34; yy < y+34; yy++ {
