@@ -1,0 +1,13 @@
+{
+  "name": "kindle-basic",
+  "description": "Kindle Basic (touch, no front light), 600x800, firmware 5.15.1, serial prefix G000",
+  "width": 600,
+  "height": 800,
+  "grayLevels": 16,
+  "rotation": 0,
+  "fetch": "curl",
+  "touch": {
+    "device": "/dev/input/event0",
+    "protocol": "mt-slot"
+  }
+}

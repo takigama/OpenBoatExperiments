@@ -8,7 +8,7 @@ import (
 
 func inkBox(c *Canvas) image.Rectangle {
 	r := image.Rectangle{Min: image.Pt(1<<30, 1<<30), Max: image.Pt(-1, -1)}
-	b := c.Bounds()
+	b := c.Img.Bounds() // device pixels: Bounds() is the design area, which can be larger
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
 			if c.Img.GrayAt(x, y).Y < 128 {

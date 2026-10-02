@@ -3,6 +3,7 @@
 # password once, and nothing here ever stores or sends it.
 #
 #   bash platforms/kindle-pw3/install/deploy.sh [host] [port]
+#   bash platforms/kindle-basic/install/deploy.sh <host> [port]   (the Kindle Basic)
 #
 # Defaults: 10.0.0.164, port 2223 (KOReader's Dropbear). Override with
 # arguments or KINDLE_HOST / KINDLE_PORT / KINDLE_USER / KINDLE_DIR.
@@ -20,12 +21,16 @@ USER="${KINDLE_USER:-root}"
 DIR="${KINDLE_DIR:-/mnt/us/signalk}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PLATFORM="$(dirname "$HERE")"
+# Another Kindle's own deploy.sh can reuse this one: it sets DEPLOY_PLATFORM_DIR
+# to its directory (for the profile and the binary's name) and keeps the shared
+# launcher scripts here. On its own this deploys the Paperwhite 3.
+PLATFORM="${DEPLOY_PLATFORM_DIR:-$(dirname "$HERE")}"
 ROOT="$(cd "$PLATFORM/../.." && pwd)"
-BIN="$ROOT/dist/kindle-pw3/paperdisplay"
+NAME="$(basename "$PLATFORM")"
+BIN="$ROOT/dist/$NAME/paperdisplay"
 
 if [ ! -f "$BIN" ]; then
-  echo "Missing $BIN - build it first:  make kindle-pw3" >&2
+  echo "Missing $BIN - build it first:  make $NAME" >&2
   exit 1
 fi
 

@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/color"
 	"log"
+	"math"
 	"sync"
 	"time"
 
@@ -223,6 +224,8 @@ func (a *App) unitsNow() units.Settings {
 // middle is deliberately inert, so a stray tap there does nothing. While
 // settings are open every tap belongs to the settings screens.
 func (a *App) HandleEvent(ev input.Event) {
+	// Touches arrive in device pixels; every tap area is in design units.
+	ev.X, ev.Y = a.toDesign(ev.X, ev.Y)
 	a.mu.Lock()
 	open := a.settingsOpen
 	a.mu.Unlock()
@@ -241,7 +244,7 @@ func (a *App) HandleEvent(ev input.Event) {
 		return
 	}
 
-	w, h := a.Display.Size()
+	w, h := a.designSize()
 	if ev.Kind == input.Tap && a.compassTap(image.Pt(ev.X, ev.Y), image.Rect(0, 0, w, h)) {
 		return
 	}
@@ -291,6 +294,28 @@ func (a *App) compassTap(pt image.Point, b image.Rectangle) bool {
 	}
 	a.nudge()
 	return true
+}
+
+// designScale is how many device pixels there are to a design unit.
+func (a *App) designScale() float64 {
+	w, _ := a.Display.Size()
+	return float64(w) / float64(pages.DesignWidth)
+}
+
+// designSize is the screen's size in design units, which is what the pages
+// and their tap areas are in.
+func (a *App) designSize() (w, h int) {
+	_, dh := a.Display.Size()
+	return pages.DesignWidth, int(math.Round(float64(dh) / a.designScale()))
+}
+
+// toDesign converts a point in device pixels to design units.
+func (a *App) toDesign(x, y int) (int, int) {
+	s := a.designScale()
+	if s == 1 {
+		return x, y
+	}
+	return int(math.Round(float64(x) / s)), int(math.Round(float64(y) / s))
 }
 
 // takeForce reports, and clears, whether a redraw was asked for past the
@@ -348,8 +373,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	a.mu.Unlock()
 	view = a.withLight(view)
 
-	w, _ := a.Display.Size()
-	act := pages.SettingsTap(view, ev.X, ev.Y, w)
+	act := pages.SettingsTap(view, ev.X, ev.Y, pages.DesignWidth)
 	if act.Kind == pages.ActNone {
 		return
 	}
@@ -489,7 +513,7 @@ func (a *App) heartbeat(now time.Time) {
 // Frame renders the current page (or the settings screens) for the given moment.
 func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	w, h := a.Display.Size()
-	c, err := render.NewCanvas(w, h)
+	c, err := render.NewScaledCanvas(w, h, pages.DesignWidth)
 	if err != nil {
 		return nil, err
 	}

@@ -46,20 +46,24 @@ func drawHeartbeat(c *render.Canvas, width int, on bool, bg uint8) {
 	c.Disc(x, y, heartbeatR, shade)
 }
 
-// HeartbeatImage renders just the dot's area, for updating it on its own.
+// HeartbeatImage renders just the dot's area, for updating it on its own, on a
+// screen devW pixels wide (the page is laid out in design units and scaled to
+// that). It returns the image and where on the screen it goes, in device pixels.
 // banner is true while the black NO DATA bar is showing, since the dot then
 // has to be white on black to be seen at all.
-func HeartbeatImage(width int, on, banner bool) (*image.Gray, image.Rectangle) {
-	rect := HeartbeatRect(width)
+func HeartbeatImage(devW int, on, banner bool) (*image.Gray, image.Rectangle) {
+	scale := float64(devW) / float64(DesignWidth)
+	rect := render.ScaleRect(HeartbeatRect(DesignWidth), scale)
 	bg := render.White
 	if banner {
 		bg = render.Black
 	}
-	c, err := render.NewCanvas(width, rect.Max.Y+1)
+	// Only the top of the screen is needed: down to the bottom of the dot.
+	c, err := render.NewScaledCanvas(devW, rect.Max.Y+1, DesignWidth)
 	if err != nil {
 		return nil, rect
 	}
 	c.FillRect(c.Bounds(), bg)
-	drawHeartbeat(c, width, on, bg)
+	drawHeartbeat(c, DesignWidth, on, bg)
 	return c.Img.SubImage(rect).(*image.Gray), rect
 }

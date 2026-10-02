@@ -8,6 +8,7 @@ import (
 
 	"signalkpaperdisplay/internal/display"
 	"signalkpaperdisplay/internal/pages"
+	"signalkpaperdisplay/internal/render"
 )
 
 // guardHeader repaints the header strip now and then, whatever the app thinks
@@ -46,8 +47,7 @@ func (a *App) guardHeader(now time.Time) {
 		log.Printf("header guard: %v", err)
 		return
 	}
-	w, _ := a.Display.Size()
-	band := pages.HeaderBand(w)
+	band := render.ScaleRect(pages.HeaderBand(pages.DesignWidth), a.designScale())
 	err = rd.ShowRegion(img.SubImage(band).(*image.Gray), band.Min.X, band.Min.Y)
 	if err != nil && !errors.Is(err, display.ErrNoRegion) && err.Error() != a.lastGuardErr {
 		a.lastGuardErr = err.Error()

@@ -9,6 +9,12 @@ import (
 	"signalkpaperdisplay/internal/units"
 )
 
+// DesignWidth is the width, in design units, that every page is laid out in.
+// A screen of another width draws the same layout scaled (see render.Canvas),
+// so it needs no pages of its own; the design height follows from the screen's
+// shape. 1072 is the Kindle Paperwhite 3's width, which the layout was made on.
+const DesignWidth = 1072
+
 // Env is everything a page needs besides live data: the user's settings.
 type Env struct {
 	Units units.Settings

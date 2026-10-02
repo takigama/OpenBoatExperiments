@@ -5,17 +5,19 @@ import (
 	"math"
 )
 
-// inkMask draws s upright and black on white into a scratch image and returns
-// it with the rectangle that actually holds ink. Measuring the ink, not the
-// font's nominal box, is what lets a caller put something an exact number of
-// pixels away from the letters.
-func (c *Canvas) inkMask(s string, size float64, w Weight) (*image.Gray, image.Rectangle) {
-	tw := c.TextWidth(s, size, w)
+// inkMask draws str upright and black on white into a scratch image, at devSize
+// pixels (device pixels, not design units), and returns it with the rectangle
+// that actually holds ink. Measuring the ink, not the font's nominal box, is
+// what lets a caller put something an exact number of pixels away from the
+// letters.
+func (c *Canvas) inkMask(str string, devSize float64, w Weight) (*image.Gray, image.Rectangle) {
+	scratch := &Canvas{faces: c.faces} // scale 0: drawn 1:1
+	tw := scratch.TextWidth(str, devSize, w)
 	pad := 6
-	img := image.NewGray(image.Rect(0, 0, tw+2*pad, int(size*1.6)+2*pad))
-	scratch := &Canvas{Img: img, faces: c.faces}
+	img := image.NewGray(image.Rect(0, 0, tw+2*pad, int(devSize*1.6)+2*pad))
+	scratch.Img = img
 	scratch.FillRect(img.Bounds(), White)
-	scratch.Text(pad, pad+int(size*1.15), s, size, w, Left, Black)
+	scratch.Text(pad, pad+int(devSize*1.15), str, devSize, w, Left, Black)
 
 	ink := image.Rectangle{Min: image.Pt(1<<30, 1<<30), Max: image.Pt(-1, -1)}
 	for y := 0; y < img.Rect.Dy(); y++ {
@@ -32,19 +34,30 @@ func (c *Canvas) inkMask(s string, size float64, w Weight) (*image.Gray, image.R
 	return img, ink
 }
 
-// InkSize is the width and height of the pixels s is made of when drawn
-// upright at this size - tighter than the font's own advance and line height.
-func (c *Canvas) InkSize(s string, size float64, w Weight) (width, height int) {
-	_, ink := c.inkMask(s, size, w)
-	return ink.Dx(), ink.Dy()
+// design converts a length in device pixels to design units.
+func (c *Canvas) design1(v int) int {
+	if c.s() == 1 {
+		return v
+	}
+	return int(math.Round(float64(v) / c.s()))
 }
 
-// TextRotated draws s with the middle of its ink at (cx, cy), turned angle
+// InkSize is the width and height, in design units, of the pixels str is made
+// of when drawn upright at this size - tighter than the font's own advance and
+// line height.
+func (c *Canvas) InkSize(str string, size float64, w Weight) (width, height int) {
+	_, ink := c.inkMask(str, size*c.s(), w)
+	return c.design1(ink.Dx()), c.design1(ink.Dy())
+}
+
+// TextRotated draws str with the middle of its ink at (cx, cy), turned angle
 // radians clockwise about that point (0 is upright, pi/2 reads downwards, pi is
 // upside-down). The letters are drawn upright once and resampled, so edges
 // stay anti-aliased at any angle. It returns the ink's size before turning.
-func (c *Canvas) TextRotated(cx, cy float64, s string, size float64, w Weight, angle float64, shade uint8) (inkW, inkH int) {
-	mask, ink := c.inkMask(s, size, w)
+func (c *Canvas) TextRotated(cx, cy float64, str string, size float64, w Weight, angle float64, shade uint8) (inkW, inkH int) {
+	sc := c.s()
+	cx, cy = cx*sc, cy*sc // from here on, device pixels
+	mask, ink := c.inkMask(str, size*sc, w)
 	if ink.Empty() {
 		return 0, 0
 	}
@@ -73,5 +86,5 @@ func (c *Canvas) TextRotated(cx, cy float64, s string, size float64, w Weight, a
 			c.blend(x, y, shade, sample(px-0.5, py-0.5))
 		}
 	}
-	return ink.Dx(), ink.Dy()
+	return c.design1(ink.Dx()), c.design1(ink.Dy())
 }
