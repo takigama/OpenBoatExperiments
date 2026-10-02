@@ -5,6 +5,7 @@
   "height": 1448,
   "grayLevels": 16,
   "rotation": 0,
+  "fetch": "curl",
   "touch": {
     "device": "/dev/input/event1",
     "protocol": "mt-slot"

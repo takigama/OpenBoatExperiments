@@ -20,11 +20,14 @@ func TestEipsSkipsIdenticalFramesButHonoursFullRefresh(t *testing.T) {
 	}
 	img := image.NewGray(image.Rect(0, 0, 4, 4))
 
+	var drew []bool
 	show := func(full bool) {
 		t.Helper()
-		if err := e.Show(img, full); err != nil {
+		d, err := e.Show(img, full)
+		if err != nil {
 			t.Fatal(err)
 		}
+		drew = append(drew, d)
 	}
 
 	show(false) // first frame always draws
@@ -32,6 +35,10 @@ func TestEipsSkipsIdenticalFramesButHonoursFullRefresh(t *testing.T) {
 	img.Pix[0] = 200
 	show(false) // changed -> draws
 	show(true)  // identical but forced full refresh -> draws, flashing
+
+	if want := []bool{true, false, true, true}; !reflect.DeepEqual(drew, want) {
+		t.Errorf("drew = %v, want %v", drew, want)
+	}
 
 	want := [][]string{
 		{"-g", e.Tmp},

@@ -76,11 +76,17 @@ func drawMetric(c *render.Canvas, r image.Rectangle, m metric) {
 func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
 	b := c.Bounds()
 	lost := !s.Connected || !s.LastMessage.After(now.Add(-StaleAfter))
+	// The clock is drawn by us, in the title's font, since the stock Kindle
+	// status bar is gone once we own the screen. It's in local time, so the
+	// device's timezone has to be set correctly.
+	clock := now.Format("15:04")
 	if lost {
 		c.FillRect(image.Rect(0, 0, b.Dx(), headerH), render.Black)
 		c.Text(b.Dx()/2, 64, "NO DATA", 60, render.Bold, render.Center, render.White)
+		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.White)
 	} else {
 		c.Text(40, 64, title, 56, render.Bold, render.Left, render.Black)
+		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.Black)
 	}
 	c.HLine(0, b.Dx(), headerH, 4, render.Black)
 }

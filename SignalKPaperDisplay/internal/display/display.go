@@ -10,6 +10,8 @@ type Display interface {
 	// Size is the frame size Show expects, in pixels.
 	Size() (w, h int)
 	// Show puts img on screen. fullRefresh asks e-ink panels for a flashing
-	// full-screen refresh (clears ghosting); other displays ignore it.
-	Show(img *image.Gray, fullRefresh bool) error
+	// full-screen refresh (clears ghosting); other displays ignore it. drew
+	// is false when the frame was identical to what's already shown and
+	// nothing was sent to the panel.
+	Show(img *image.Gray, fullRefresh bool) (drew bool, err error)
 }

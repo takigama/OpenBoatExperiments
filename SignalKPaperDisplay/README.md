@@ -12,13 +12,45 @@ build image cross-compiles every target.
 
 ## Status
 
-Early. Working now: SignalK client + data model with staleness tracking, the
-Nav page, PNG preview output, and drawing to a real Kindle Paperwhite 3 via
-its built-in `eips` (skipping unchanged frames, with a periodic flashing
-full refresh to clear ghosting), plus `platforms/kindle-pw3/install/deploy.sh`
-to copy it onto the device. Not built yet: touch input and page switching,
-the Wind and AIS pages, an FBInk driver (needed for Kobo), and the on-device
-launcher script (start at boot, supervise, fall back to the stock UI).
+Early, but running on a real Kindle Paperwhite 3. Working now:
+
+- SignalK client + data model with staleness tracking
+- Pages: Numbers and a large rotating Compass, selectable at runtime
+- Per-metric unit settings (metric/imperial preset plus overrides)
+- Drawing via the Kindle's built-in `eips` (skips unchanged frames, rations
+  partial refreshes, flashing full refresh periodically and on page change),
+  and PNG preview output for working on a PC
+- Touch: tap the left/right third (or swipe) to change page
+- A clock in the header, drawn by the app
+- Self-update from GitHub releases (see below)
+- `platforms/kindle-pw3/install/deploy.sh` to copy a build onto the device
+
+Not built yet: the settings dialog, Wind and AIS pages, front-light sliders,
+an FBInk driver (`eips` takes ~3.5 s per refresh; FBInk should be far faster,
+and Kobo needs it), and the on-device launcher script (start at boot,
+supervise, fall back to the stock UI).
+
+## Updating from GitHub
+
+Devices update themselves from GitHub releases. A manifest in the repo
+(`update/manifest.json`) lists, per platform, the newest version, its
+download URL and SHA-256. On the device:
+
+```
+./paperdisplay -check-update     # report whether a newer release exists
+./paperdisplay -update           # install it (then restart the app)
+./paperdisplay ... -update-every 6h   # check periodically while running
+```
+
+The download is verified against the manifest's SHA-256 before anything on
+disk is touched; the previous binary is kept as `paperdisplay.prev` for
+rollback. Downloads go through `curl` on devices whose profile says
+`"fetch": "curl"` (the Kindle), otherwise Go's own HTTP client.
+
+To publish a release: bump `VERSION`, run `bash scripts/release.sh` from WSL
+(builds every platform, creates the GitHub release, rewrites the manifest),
+then commit and push `update/manifest.json`. Devices only see the new
+version once the manifest is pushed.
 
 ## Layout
 

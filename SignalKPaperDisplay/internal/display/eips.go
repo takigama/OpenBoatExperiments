@@ -32,18 +32,18 @@ func frameHash(img *image.Gray) uint64 {
 	return h.Sum64()
 }
 
-func (e *Eips) Show(img *image.Gray, fullRefresh bool) error {
+func (e *Eips) Show(img *image.Gray, fullRefresh bool) (bool, error) {
 	// An unchanged frame isn't worth a panel refresh - every redraw costs
 	// ghosting and a flash of work for nothing. A forced full refresh still
 	// goes through, since its whole point is to clear the panel.
 	sum := frameHash(img)
 	if e.haveLast && sum == e.last && !fullRefresh {
-		return nil
+		return false, nil
 	}
 
 	e.png = PNG{W: e.W, H: e.H, Path: e.Tmp}
-	if err := e.png.Show(img, false); err != nil {
-		return err
+	if _, err := e.png.Show(img, false); err != nil {
+		return false, err
 	}
 
 	args := []string{"-g", e.Tmp}
@@ -59,8 +59,8 @@ func (e *Eips) Show(img *image.Gray, fullRefresh bool) error {
 		}
 	}
 	if out, err := run(ctx, args...); err != nil {
-		return fmt.Errorf("eips %v: %w: %s", args, err, out)
+		return false, fmt.Errorf("eips %v: %w: %s", args, err, out)
 	}
 	e.last, e.haveLast = sum, true
-	return nil
+	return true, nil
 }

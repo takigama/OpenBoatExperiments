@@ -9,6 +9,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"syscall"
 	"time"
 
 	"signalkpaperdisplay/internal/app"
@@ -17,6 +19,26 @@ import (
 	"signalkpaperdisplay/internal/signalk"
 	"signalkpaperdisplay/internal/units"
 )
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+const defaultManifest = "https://raw.githubusercontent.com/takigama/OpenBoatExperiments/master/SignalKPaperDisplay/update/manifest.json"
+
+// forceExitAfterCancel guarantees the process dies shortly after Ctrl-C or
+// SIGTERM. Closing a device file does not interrupt a read already blocked
+// on it, and an eips child can hang, so without this a stuck goroutine can
+// keep the process alive - which on a boat means a hard kill.
+func forceExitAfterCancel(ctx context.Context) {
+	go func() {
+		<-ctx.Done()
+		time.Sleep(2 * time.Second)
+		log.Print("shutdown timed out, forcing exit")
+		os.Exit(1)
+	}()
+}
 
 func main() {
 	var (
@@ -33,15 +55,62 @@ func main() {
 		once         = flag.Bool("once", false, "render a single frame after -wait, then exit (for previews)")
 		wait         = flag.Duration("wait", 3*time.Second, "with -once: how long to collect data first")
 		interval     = flag.Duration("interval", time.Second, "redraw interval")
+		touch        = flag.Bool("touch", false, "read the touchscreen named in the profile (tap sides / swipe to change page)")
+		minRefresh   = flag.Duration("min-refresh", 6*time.Second, "shortest gap between partial refreshes (0 = redraw on every change); page changes ignore it")
+		manifestURL  = flag.String("manifest", defaultManifest, "update manifest URL")
+		fetchKind    = flag.String("fetch", "", "how to download updates: curl or http (default: the profile's setting, else http)")
+		curlBin      = flag.String("curl", "curl", "curl binary, for -fetch curl")
+		checkUpdate  = flag.Bool("check-update", false, "report whether a newer release exists, then exit")
+		doUpdate     = flag.Bool("update", false, "install a newer release if there is one, then exit")
+		updateEvery  = flag.Duration("update-every", 0, "check for and install updates this often while running (0 = never); the launcher restarts the new version")
+		showVersion  = flag.Bool("version", false, "print the version and exit")
+		touchTest    = flag.Bool("touch-test", false, "print raw and mapped touch events, then exit on Ctrl-C (to measure a device's orientation)")
 	)
 	flag.Parse()
 
+	// On a device the profile is deployed right beside the binary, so don't
+	// make anyone spell out its path.
 	if *profilePath == "" {
-		log.Fatal("-profile is required, e.g. -profile platforms/kindle-pw3/profile.json")
+		if exe, err := os.Executable(); err == nil {
+			if cand := filepath.Join(filepath.Dir(exe), "profile.json"); fileExists(cand) {
+				*profilePath = cand
+			}
+		}
+	}
+	if *profilePath == "" {
+		log.Fatal("-profile is required (or put profile.json next to the binary), e.g. -profile platforms/kindle-pw3/profile.json")
 	}
 	prof, err := profile.Load(*profilePath)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if *showVersion {
+		log.Printf("paperdisplay v%s, platform %s", version, prof.Name)
+		return
+	}
+
+	kind := *fetchKind
+	if kind == "" {
+		kind = prof.Fetch
+	}
+	fetcher := newFetcher(kind, *curlBin)
+	if *checkUpdate || *doUpdate {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		forceExitAfterCancel(ctx)
+		if _, err := runUpdate(ctx, fetcher, *manifestURL, prof.Name, *doUpdate); err != nil {
+			log.Fatalf("update: %v", err)
+		}
+		return
+	}
+
+	if *touchTest {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		forceExitAfterCancel(ctx)
+		runTouchTest(ctx, prof)
+		return
 	}
 
 	var disp display.Display
@@ -60,19 +129,37 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, Units: unitSettings}
+	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Units: unitSettings}
 
 	if !a.SetPage(*pageID) {
 		log.Fatalf("unknown -page %q", *pageID)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	forceExitAfterCancel(ctx)
 	go client.Run(ctx)
+
+	if *updateEvery > 0 && !*once {
+		go autoUpdate(ctx, fetcher, *manifestURL, prof.Name, *updateEvery, stop)
+	}
+
+	if *touch {
+		dev, err := openTouch(prof)
+		if err != nil {
+			log.Fatalf("touch: %v", err)
+		}
+		defer dev.Close()
+		go func() {
+			if err := dev.Run(ctx, nil, a.HandleEvent); err != nil {
+				log.Printf("touch stopped: %v", err)
+			}
+		}()
+	}
 
 	if *once {
 		time.Sleep(*wait)
-		if err := a.Show(time.Now(), true); err != nil {
+		if _, err := a.Show(time.Now(), true); err != nil {
 			log.Fatal(err)
 		}
 		log.Printf("wrote %s (%dx%d, profile %s)", *out, prof.Width, prof.Height, prof.Name)
