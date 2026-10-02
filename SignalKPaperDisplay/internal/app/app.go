@@ -71,6 +71,15 @@ type App struct {
 	battErr   string
 	battEvery time.Duration
 
+	// What the compass page's two tappable widgets show: the wind speed (true or
+	// apparent) and the speed (SOG, STW, VMG). Not saved - they start as apparent
+	// wind and SOG on every boot. Guarded by mu.
+	windTrue bool
+	speed    pages.SpeedSource
+	// force asks for a redraw at once, past the partial-refresh rationing, for a
+	// tap that changes a value on the same screen (not a new page).
+	force bool
+
 	// Verbose logs every screen refresh. Off, only slow ones are logged: one
 	// line every couple of seconds is a megabyte a day on a device with little
 	// room to spare.
@@ -227,7 +236,10 @@ func (a *App) HandleEvent(ev input.Event) {
 		return
 	}
 
-	w, _ := a.Display.Size()
+	w, h := a.Display.Size()
+	if ev.Kind == input.Tap && a.compassTap(image.Pt(ev.X, ev.Y), image.Rect(0, 0, w, h)) {
+		return
+	}
 	action := ""
 	switch {
 	case ev.Kind == input.SwipeLeft, ev.Kind == input.Tap && ev.X > w*2/3:
@@ -245,6 +257,45 @@ func (a *App) HandleEvent(ev input.Event) {
 	}
 	log.Printf("touch: %s at (%d,%d) -> %s (%s)", ev.Kind, ev.X, ev.Y, action, a.currentPage().ID)
 	a.nudge()
+}
+
+// compassTap handles a tap on one of the compass page's two tappable widgets,
+// reporting whether it was on one. They sit in the left third of the screen,
+// where a tap would otherwise mean "previous page", so these win there.
+func (a *App) compassTap(pt image.Point, b image.Rectangle) bool {
+	if a.currentPage().ID != "compass" {
+		return false
+	}
+	switch {
+	case pt.In(pages.WindWidgetRect(b)) && pages.WindWidgetShown(a.State.Snapshot().Own):
+		a.mu.Lock()
+		a.windTrue = !a.windTrue
+		now := a.windTrue
+		a.force = true
+		a.mu.Unlock()
+		log.Printf("touch: tap at (%d,%d) -> wind speed shows %s", pt.X, pt.Y, map[bool]string{false: "apparent", true: "true"}[now])
+	case pt.In(pages.SpeedBoxRect(b)):
+		a.mu.Lock()
+		a.speed = a.speed.Next()
+		label := a.speed.Label()
+		a.force = true
+		a.mu.Unlock()
+		log.Printf("touch: tap at (%d,%d) -> speed shows %s", pt.X, pt.Y, label)
+	default:
+		return false
+	}
+	a.nudge()
+	return true
+}
+
+// takeForce reports, and clears, whether a redraw was asked for past the
+// rationing.
+func (a *App) takeForce() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	f := a.force
+	a.force = false
+	return f
 }
 
 // SetPage switches to the page with the given ID, reporting whether it exists.
@@ -445,10 +496,13 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	invert := a.invertNow()
 	boxes := a.boxesNow()
 	server := a.serverNow()
+	a.mu.Lock()
+	windTrue, speed := a.windTrue, a.speed
+	a.mu.Unlock()
 	if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
-		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now)})
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed})
 	}
 	if invert {
 		invertInPlace(c.Img)
@@ -538,11 +592,12 @@ func (a *App) Run(ctx context.Context) {
 		now := time.Now()
 		full := a.takePageChanged() || lastFull.IsZero() ||
 			(a.FullRefreshEvery > 0 && now.Sub(lastFull) >= a.FullRefreshEvery)
+		forced := a.takeForce()
 		// Partial refreshes are rationed: a slow panel (eips takes ~3.5s a
 		// frame) redrawing on every tick would be busy nearly all the time,
 		// so a tap's page change would queue behind it. Full refreshes
 		// (page changes, the periodic flash) always go straight through.
-		if full || a.MinRefresh <= 0 || now.Sub(lastDraw) >= a.MinRefresh {
+		if full || forced || a.MinRefresh <= 0 || now.Sub(lastDraw) >= a.MinRefresh {
 			started := time.Now()
 			drew, err := a.Show(now, full)
 			took := time.Since(started)

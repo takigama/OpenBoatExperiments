@@ -45,11 +45,10 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	b := c.Bounds()
 	own := s.Own
 
-	top := headerH + 4
+	top, compassH := compassLayout(b)
 	// The compass gets most of the screen; speed and depth are just a
 	// compact strip underneath. It's limited by whichever is tighter: the
 	// screen width, or the height left once the lubber marker has its room.
-	compassH := (b.Dy() - top) * 78 / 100
 	cx, cy := float64(b.Dx())/2, float64(top)+float64(compassH)/2
 	r := math.Min(float64(b.Dx())/2-30, float64(compassH)/2-62)
 
@@ -154,12 +153,58 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	c.HLine(0, b.Dx(), boxBottom, 3, render.Mid)
 	c.VLine(b.Dx()/2-1, boxBottom, b.Dy(), 3, render.Mid)
 
-	sogVal, sogUnit := e.Units.Format("sog", own.SOG.V)
 	depthVal, depthUnit := e.Units.Format("depth", own.Depth.V)
-	drawMetric(c, image.Rect(0, boxBottom+3, b.Dx()/2-1, b.Dy()),
-		metric{label: "SPEED", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal}, 0)
+	speed := speedMetric(own, now, e)
+	drawMetric(c, SpeedBoxRect(b), speed, 0)
 	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
 		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal}, 0)
+}
+
+// compassLayout is where the compass area sits: its top, and its height. The
+// strip of speed and depth is underneath.
+func compassLayout(b image.Rectangle) (top, height int) {
+	top = headerH + 4
+	return top, (b.Dy() - top) * 78 / 100
+}
+
+// SpeedBoxRect is the speed box at the bottom left of the compass page, which a
+// tap cycles through the speed sources.
+func SpeedBoxRect(b image.Rectangle) image.Rectangle {
+	top, h := compassLayout(b)
+	return image.Rect(0, top+h+3, b.Dx()/2-1, b.Dy())
+}
+
+// WindWidgetRect is the area the wind speed widget sits in - a good deal bigger
+// than its text, since a fingertip on a moving boat isn't precise. A tap there
+// (while the widget is showing) switches between true and apparent wind.
+func WindWidgetRect(b image.Rectangle) image.Rectangle {
+	top, h := compassLayout(b)
+	bottom := top + h
+	return image.Rect(0, bottom-190, 330, bottom)
+}
+
+// WindWidgetShown reports whether the wind speed widget is on screen: once the
+// server has sent either wind speed. It stays up (with dashes) if the one
+// chosen is missing, so there is always something to tap to reach the other.
+func WindWidgetShown(own signalk.Own) bool { return own.AWS.Valid() || own.TWS.Valid() }
+
+// speedMetric is the speed box: SOG, speed through the water or VMG to the
+// wind, as the user last tapped it, labelled with which.
+func speedMetric(own signalk.Own, now time.Time, e Env) metric {
+	m := metric{label: e.Speed.Label(), liveLabel: true}
+	switch e.Speed {
+	case SpeedSTW:
+		m.value, m.unit = e.Units.Format("stw", own.STW.V)
+		m.ok = own.STW.Fresh(now, StaleAfter)
+	case SpeedVMG:
+		v, ok := vmg(own, now)
+		m.value, m.unit = e.Units.Format("sog", v)
+		m.ok = ok
+	default:
+		m.value, m.unit = e.Units.Format("sog", own.SOG.V)
+		m.ok = own.SOG.Fresh(now, StaleAfter)
+	}
+	return m
 }
 
 // headingDrop is where the heading digits' baseline sits below the centre of
@@ -351,19 +396,28 @@ func drawClosestAIS(c *render.Canvas, contacts []ais.Contact, e Env, xLeft, yTop
 	leftValue(c, xLeft, yTop+34+66, value, unit, 68)
 }
 
-// drawWindSpeed shows the apparent wind speed in the bottom-left corner of
-// the compass area, opposite the fuel gauges - but only once the server has
-// sent one. Once seen, it shows "--" if it goes stale rather than vanishing.
+// drawWindSpeed shows a wind speed in the bottom-left corner of the compass
+// area, opposite the fuel gauges - the apparent wind or the true wind, as the
+// user last tapped it - once the server has sent either. The name takes two
+// rows ("APP" over "WIND", or "TRU" over "WIND") above the speed. If the one
+// chosen goes stale or was never sent it shows "--" rather than vanishing.
 func drawWindSpeed(c *render.Canvas, own signalk.Own, now time.Time, e Env, xLeft, yBottom int) {
-	if !own.AWS.Valid() {
+	if !WindWidgetShown(own) {
 		return
 	}
-	value := "--"
-	_, unit := e.Units.Format("aws", 0)
-	if own.AWS.Fresh(now, StaleAfter) {
-		value, _ = e.Units.Format("aws", own.AWS.V)
+	name, metricID, reading := "APP", "aws", own.AWS
+	if e.WindTrue {
+		name, metricID, reading = "TRU", "tws", own.TWS
 	}
-	c.Text(xLeft, yBottom-112, "WIND", 57, render.Bold, render.Left, render.Black)
+	value := "--"
+	_, unit := e.Units.Format(metricID, 0)
+	if reading.Fresh(now, StaleAfter) {
+		value, _ = e.Units.Format(metricID, reading.V)
+	}
+	// All solid black: the name changes while the screen is up.
+	const rowSize = 40.0
+	c.Text(xLeft, yBottom-132, name, rowSize, render.Bold, render.Left, render.Black)
+	c.Text(xLeft, yBottom-96, "WIND", rowSize, render.Bold, render.Left, render.Black)
 	leftValue(c, xLeft, yBottom, value, unit, 114)
 }
 

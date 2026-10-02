@@ -561,3 +561,146 @@ func TestNavBoxPickerOpensOnTheCurrentChoicesPageAndPages(t *testing.T) {
 		t.Errorf("saved boxes = %v, %v", saved.Boxes, err)
 	}
 }
+
+func compassApp(t *testing.T) *App {
+	t.Helper()
+	st := signalk.NewState()
+	a := &App{State: st, Display: &display.PNG{W: 1072, H: 1448}, Units: units.Settings{Preset: units.PresetMetric}}
+	if !a.SetPage("compass") {
+		t.Fatal("no compass page")
+	}
+	a.takePageChanged()
+	return a
+}
+
+// seeWind makes the server "send" wind speeds, so the widget is on screen.
+func seeWind(a *App, aws, tws float64) {
+	a.State.ApplyForTest("environment.wind.speedApparent", aws)
+	a.State.ApplyForTest("environment.wind.speedTrue", tws)
+}
+
+func TestTappingTheWindWidgetSwitchesApparentAndTrue(t *testing.T) {
+	a := compassApp(t)
+	seeWind(a, 6, 9)
+	widget := pages.WindWidgetRect(image.Rect(0, 0, 1072, 1448))
+	x, y := (widget.Min.X+widget.Max.X)/2, (widget.Min.Y+widget.Max.Y)/2
+	if a.windTrue {
+		t.Fatal("it should start as apparent wind")
+	}
+	before, _ := a.Frame(time.Unix(2000, 0))
+	a.HandleEvent(tap(x, y))
+	if !a.windTrue {
+		t.Fatal("a tap on the widget should switch to the true wind")
+	}
+	if a.currentPage().ID != "compass" {
+		t.Errorf("tapping the widget changed the page to %s - it is in the left third, but the widget wins", a.currentPage().ID)
+	}
+	if a.takePageChanged() {
+		t.Error("switching the wind is not a new picture: it must not force a full-screen flash")
+	}
+	if !a.takeForce() {
+		t.Error("the change should ask for an immediate redraw, past the refresh rationing")
+	}
+	after, _ := a.Frame(time.Unix(2000, 0))
+	if sameImage(before, after) {
+		t.Error("the frame should change when the wind is switched")
+	}
+	a.HandleEvent(tap(x, y))
+	if a.windTrue {
+		t.Error("a second tap should go back to apparent")
+	}
+}
+
+func sameImage(a, b *image.Gray) bool {
+	for i := range a.Pix {
+		if a.Pix[i] != b.Pix[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestWindWidgetTapDoesNothingSpecialWhenItIsNotShown(t *testing.T) {
+	a := compassApp(t) // no wind data: no widget
+	widget := pages.WindWidgetRect(image.Rect(0, 0, 1072, 1448))
+	a.HandleEvent(tap(widget.Min.X+60, (widget.Min.Y+widget.Max.Y)/2))
+	if a.windTrue {
+		t.Error("there is no widget to switch")
+	}
+	// It is just a left-third tap again: previous page.
+	if a.currentPage().ID == "compass" {
+		t.Error("with no widget there the tap should have paged back")
+	}
+}
+
+func TestTappingTheSpeedBoxCyclesSOGSTWVMGAndBootsAsSOG(t *testing.T) {
+	a := compassApp(t)
+	if a.speed != pages.SpeedSOG {
+		t.Fatalf("speed should boot as SOG, got %v", a.speed)
+	}
+	box := pages.SpeedBoxRect(image.Rect(0, 0, 1072, 1448))
+	x, y := (box.Min.X+box.Max.X)/2, (box.Min.Y+box.Max.Y)/2
+	var labels []string
+	for i := 0; i < 4; i++ {
+		a.HandleEvent(tap(x, y))
+		labels = append(labels, a.speed.Label())
+		if a.currentPage().ID != "compass" {
+			t.Fatalf("tap %d paged away to %s", i+1, a.currentPage().ID)
+		}
+	}
+	want := []string{"STW", "VMG", "SOG", "STW"}
+	for i := range want {
+		if labels[i] != want[i] {
+			t.Fatalf("taps give %v, want %v", labels, want)
+		}
+	}
+	if !a.takeForce() || a.takePageChanged() {
+		t.Error("speed taps should force a redraw but not a page flash")
+	}
+	// A fresh app is back on SOG: nothing is saved.
+	if b := compassApp(t); b.speed != pages.SpeedSOG || b.windTrue {
+		t.Error("a new run should start on SOG and apparent wind")
+	}
+}
+
+func TestEdgeTapsStillPageAndOnlyOnTheCompassPage(t *testing.T) {
+	a := compassApp(t)
+	seeWind(a, 6, 9)
+	// Left third, above the widgets: previous page, as ever.
+	a.HandleEvent(tap(100, 400))
+	if a.currentPage().ID == "compass" {
+		t.Error("a left-third tap away from the widgets should still page back")
+	}
+	// On another page the widget rectangles mean nothing.
+	b := compassApp(t)
+	seeWind(b, 6, 9)
+	b.SetPage("nav")
+	b.takePageChanged()
+	box := pages.SpeedBoxRect(image.Rect(0, 0, 1072, 1448))
+	b.HandleEvent(tap((box.Min.X+box.Max.X)/2-300, (box.Min.Y+box.Max.Y)/2))
+	if b.speed != pages.SpeedSOG {
+		t.Error("the speed box does not exist on the Nav page")
+	}
+	// Taps while settings are open belong to settings, not these widgets.
+	c := compassApp(t)
+	seeWind(c, 6, 9)
+	c.HandleEvent(tap(30, 40)) // open settings
+	w := pages.WindWidgetRect(image.Rect(0, 0, 1072, 1448))
+	c.HandleEvent(tap(w.Min.X+60, (w.Min.Y+w.Max.Y)/2))
+	if c.windTrue {
+		t.Error("a tap in settings must not switch the wind")
+	}
+}
+
+func TestRunRedrawsAtOnceForAForcedDraw(t *testing.T) {
+	a := compassApp(t)
+	if a.takeForce() {
+		t.Error("nothing forced yet")
+	}
+	a.mu.Lock()
+	a.force = true
+	a.mu.Unlock()
+	if !a.takeForce() || a.takeForce() {
+		t.Error("takeForce should report once and clear")
+	}
+}

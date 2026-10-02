@@ -357,3 +357,10 @@ func (s *State) applyTarget(context, path string, raw json.RawMessage, now time.
 		setNum(&t.SOG, raw, now)
 	}
 }
+
+// ApplyForTest stores a number as if the server had just sent it, for tests of
+// code that sits above this package.
+func (s *State) ApplyForTest(path string, v float64) {
+	raw, _ := json.Marshal(v)
+	s.applyOwn(path, raw, time.Now())
+}

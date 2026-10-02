@@ -49,6 +49,11 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   stock UI if it can't stay up (see "Running it on the Kindle")
 - Touch: tap the left/right third (or swipe) to change page; tap the cog
   at the top left to open settings
+- On the compass page two things can be tapped: the wind speed widget (bottom
+  left) switches between apparent ("APP WIND") and true ("TRU WIND"), and the
+  speed box under the compass cycles SOG, speed through water (STW) and VMG,
+  with its label saying which. Neither is saved: every boot starts on apparent
+  wind and SOG. A tap there wins over the left-third "previous page" tap
 - The compass page is also the dashboard: AIS contacts as diamonds on the rim
   (solid = closing, hollow = opening, bigger = nearer), the wind as two markers pointing in at the
   rim - the apparent wind an "A" (a solid head over two hollow legs) and the

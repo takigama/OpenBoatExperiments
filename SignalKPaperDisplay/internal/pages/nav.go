@@ -48,6 +48,11 @@ type metric struct {
 	label, unit string
 	value       string
 	ok          bool
+	// liveLabel draws the label in solid black. Static labels are grey, which is
+	// fine because they are only drawn on a full refresh; a label that changes
+	// while the screen is up (the speed box's SOG/STW/VMG) is redrawn in place
+	// under the fast waveform, which can't show grey.
+	liveLabel bool
 }
 
 // A note on shades, since it caused a real bug: anything that is redrawn in
@@ -61,7 +66,11 @@ func drawMetric(c *render.Canvas, r image.Rectangle, m metric, maxSize float64) 
 	if !m.ok {
 		value = "--" // the dashes say "stale"; greying them out would just make them vanish
 	}
-	c.Text(r.Min.X+40, r.Min.Y+80, m.label, 52, render.Bold, render.Left, render.Dark)
+	labelShade := render.Dark
+	if m.liveLabel {
+		labelShade = render.Black
+	}
+	c.Text(r.Min.X+40, r.Min.Y+80, m.label, 52, render.Bold, render.Left, labelShade)
 
 	baseline := r.Max.Y - int(float64(r.Dy())*0.2)
 	size, unitSize, gap, wv, wu := fitMetric(c, r, value, m.unit, maxSize)
@@ -195,11 +204,10 @@ func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 }
 
 // drawClosestAISBox fills a box with the closest AIS contact, like any other
-// box: its distance as the big number, and its name in the label ("AIS AURA"),
-// with the same solid or hollow diamond as on the compass (closing / opening)
-// at the end of the label line. With no contact it says NONE - or shows "--"
-// when there's no position fix to measure from. size is the value size every
-// box shares.
+// box: its distance as the big number, its name in the label ("AIS AURA"), and
+// under the number whether it is CLOSING or OPENING (getting nearer or further).
+// With no contact it says NONE - or shows "--" when there's no position fix to
+// measure from. size is the value size every box shares.
 func drawClosestAISBox(c *render.Canvas, r image.Rectangle, contacts []ais.Contact, haveFix bool, e Env, size float64) {
 	if len(contacts) == 0 {
 		drawMetric(c, r, metric{label: "CLOSEST AIS", value: "NONE", ok: haveFix}, size)
@@ -207,13 +215,13 @@ func drawClosestAISBox(c *render.Canvas, r image.Rectangle, contacts []ais.Conta
 	}
 	k := contacts[0] // nearest first
 	value, unit := e.Units.Format("range", k.Range)
-	// The label gives way to the diamond at its right-hand end.
-	label := fitText(c, "AIS "+strings.ToUpper(k.DisplayName()), 52, render.Bold, r.Dx()-40-100)
+	label := fitText(c, "AIS "+strings.ToUpper(k.DisplayName()), 52, render.Bold, r.Dx()-80)
 	drawMetric(c, r, metric{label: label, value: value, unit: unit, ok: true}, size)
 
-	px, py := float64(r.Max.X-62), float64(r.Min.Y+80)-52*0.36
-	c.FillPolygon(diamond(px, py, 0, -1, 26, 18), render.Black)
-	if !k.Closing {
-		c.FillPolygon(diamond(px, py, 0, -1, 13, 9), render.White)
+	word := "OPENING"
+	if k.Closing {
+		word = "CLOSING"
 	}
+	// Solid black, like the number: this changes while the screen is up.
+	c.Text((r.Min.X+r.Max.X)/2, r.Max.Y-20, word, 46, render.Bold, render.Center, render.Black)
 }

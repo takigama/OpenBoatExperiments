@@ -16,6 +16,33 @@ type Env struct {
 	// Battery is the device's own battery, shown in the middle of the header;
 	// nil when it can't be read, and then nothing is drawn.
 	Battery *battery.Status
+	// The two things the user can tap to change on the compass page. Neither is
+	// saved: both start the same way on every boot (apparent wind, SOG).
+	WindTrue bool        // the wind speed widget shows the true wind, not the apparent
+	Speed    SpeedSource // which speed the speed box shows
+}
+
+// SpeedSource says which speed the compass page's speed box shows.
+type SpeedSource int
+
+const (
+	SpeedSOG SpeedSource = iota // speed over ground - the default
+	SpeedSTW                    // speed through the water
+	SpeedVMG                    // velocity made good to the wind
+)
+
+// Next is the source a tap on the box moves on to, going round in a circle.
+func (s SpeedSource) Next() SpeedSource { return (s + 1) % 3 }
+
+// Label is the name the box shows for a source.
+func (s SpeedSource) Label() string {
+	switch s {
+	case SpeedSTW:
+		return "STW"
+	case SpeedVMG:
+		return "VMG"
+	}
+	return "SOG"
 }
 
 // Page is one selectable screen. Draw must be a pure function of its
