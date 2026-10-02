@@ -285,3 +285,115 @@ func TestBoxesRoundTripThroughTheFile(t *testing.T) {
 		t.Errorf("old file: %+v %v", f, err)
 	}
 }
+
+// pressKey taps one keypad key: a character, "back", "clear" or "save".
+func pressKey(a *App, key string) {
+	pos := map[string][2]int{"1": {0, 0}, "2": {0, 1}, "3": {0, 2}, "4": {1, 0}, "5": {1, 1}, "6": {1, 2},
+		"7": {2, 0}, "8": {2, 1}, "9": {2, 2}, ".": {3, 0}, "0": {3, 1}, ":": {3, 2},
+		"back": {4, 0}, "clear": {4, 1}, "save": {4, 2}}
+	p := pos[key]
+	a.HandleEvent(tap(p[1]*1072/3+1072/6, 380+p[0]*180+90))
+}
+
+// typeKeys taps the keypad keys for each character of text.
+func typeKeys(a *App, text string) {
+	for _, ch := range text {
+		pressKey(a, string(ch))
+	}
+}
+
+func TestChangingTheSignalKServer(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	var moved []string
+	a := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, SettingsPath: path,
+		Units: units.Settings{Preset: units.PresetMetric}, DefaultServer: "10.0.0.76:3001",
+		OnServerChange: func(h string) { moved = append(moved, h) }}
+	a.HandleEvent(tap(30, 40))
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+3)))
+	if a.settingsView.Screen != pages.SettingsServer || a.settingsView.Text != "10.0.0.76:3001" {
+		t.Fatalf("view = %+v, want the editor showing the current server", a.settingsView)
+	}
+
+	// Edit the last number: 3001 -> 3000 by backspace and typing.
+	pressKey(a, "back")
+	pressKey(a, "back")
+	typeKeys(a, "0")
+	typeKeys(a, "0")
+	if a.settingsView.Text != "10.0.0.76:3000" {
+		t.Fatalf("text = %q", a.settingsView.Text)
+	}
+
+	// A bad address is refused with a reason and nothing changes.
+	pressKey(a, "clear")
+	typeKeys(a, "300.1.1.1")
+	pressKey(a, "save")
+	if a.settingsView.Screen != pages.SettingsServer || a.settingsView.Err == "" {
+		t.Fatalf("a bad address should stay in the editor with an error, got %+v", a.settingsView)
+	}
+	if len(moved) != 0 || a.Server != "" {
+		t.Errorf("a refused address changed the server: %q %v", a.Server, moved)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("a refused address must not be saved")
+	}
+	// Typing again clears the complaint.
+	pressKey(a, "back")
+	if a.settingsView.Err != "" {
+		t.Error("the error should go once you edit")
+	}
+
+	// A good one: saved, applied, persisted, back to the list.
+	pressKey(a, "clear")
+	typeKeys(a, "192.168.4.2")
+	pressKey(a, "save")
+	if a.settingsView.Screen != pages.SettingsRoot {
+		t.Errorf("after saving the dialog should return to the list, got %+v", a.settingsView)
+	}
+	if a.Server != "192.168.4.2:3000" {
+		t.Errorf("server = %q, want the port defaulted", a.Server)
+	}
+	if len(moved) != 1 || moved[0] != "192.168.4.2:3000" {
+		t.Errorf("the connection should have been moved once: %v", moved)
+	}
+	saved, err := settings.Load(path)
+	if err != nil || saved.Server != "192.168.4.2:3000" {
+		t.Errorf("saved = %+v, %v", saved, err)
+	}
+
+	// Saving the same address again isn't a change.
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+3)))
+	pressKey(a, "save")
+	if len(moved) != 1 {
+		t.Errorf("re-saving the same server reconnected: %v", moved)
+	}
+
+	// Back from the editor discards what was typed.
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+3)))
+	pressKey(a, "clear")
+	typeKeys(a, "9.9.9.9")
+	a.HandleEvent(tap(30, 40))
+	if a.settingsView.Screen != pages.SettingsRoot || a.Server != "192.168.4.2:3000" {
+		t.Errorf("back should discard: view %+v server %q", a.settingsView, a.Server)
+	}
+}
+
+func TestSavingOtherSettingsDoesNotPinTheDefaultServer(t *testing.T) {
+	// With no server chosen, the launcher's address applies. Saving some other
+	// setting must not write that address into settings.json, or later changes
+	// to the launcher's config would be ignored.
+	path := filepath.Join(t.TempDir(), "settings.json")
+	a := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, SettingsPath: path,
+		Units: units.Settings{Preset: units.PresetMetric}, DefaultServer: "10.0.0.76:3001"}
+	a.HandleEvent(tap(30, 40))
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+1))) // invert
+	saved, err := settings.Load(path)
+	if err != nil || !saved.Invert {
+		t.Fatalf("saved = %+v, %v", saved, err)
+	}
+	if saved.Server != "" {
+		t.Errorf("the default server was pinned into the file: %q", saved.Server)
+	}
+	if got := a.serverNow(); got != "10.0.0.76:3001" {
+		t.Errorf("effective server = %q", got)
+	}
+}

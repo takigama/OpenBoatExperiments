@@ -24,7 +24,7 @@ func TestSettingsTapRoot(t *testing.T) {
 			t.Errorf("row %d = %+v, want unit picker for %s", i+1, got, m.ID)
 		}
 	}
-	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+3), 1072); got.Kind != ActNone {
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+4), 1072); got.Kind != ActNone {
 		t.Errorf("a tap below the list = %+v, want nothing", got)
 	}
 	if got := SettingsTap(root, 500, headerH+5, 1072); got.Kind != ActNone {
@@ -48,11 +48,11 @@ func TestInvertRowShowsItsState(t *testing.T) {
 	// The On/Off text is at the right end of the invert row.
 	on, off := func() *render.Canvas {
 		c, _ := render.NewCanvas(1072, 1448)
-		Settings(c, SettingsView{}, units.Settings{}, true, nil)
+		Settings(c, SettingsView{}, units.Settings{}, true, nil, "")
 		return c
 	}(), func() *render.Canvas {
 		c, _ := render.NewCanvas(1072, 1448)
-		Settings(c, SettingsView{}, units.Settings{}, false, nil)
+		Settings(c, SettingsView{}, units.Settings{}, false, nil, "")
 		return c
 	}()
 	y := rowY(len(units.Metrics) + 1)
@@ -104,7 +104,7 @@ func TestSettingsScreensDraw(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		Settings(c, v, u, false, nil)
+		Settings(c, v, u, false, nil, "")
 		dark := 0
 		for _, p := range c.Img.Pix {
 			if p < 128 {
@@ -126,7 +126,7 @@ func TestSettingsListShowsTheVersion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		Settings(c, SettingsView{}, units.Settings{}, false, nil)
+		Settings(c, SettingsView{}, units.Settings{}, false, nil, "")
 		return c
 	}
 	foot := image.Rect(700, 1380, 1072, 1448)
@@ -189,7 +189,7 @@ func TestSettingsBoxScreensDraw(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		Settings(c, v, units.Settings{}, false, []string{"stw"})
+		Settings(c, v, units.Settings{}, false, []string{"stw"}, "")
 		if inked(c, image.Rect(0, headerH+10, 1072, 1448)) == 0 {
 			t.Errorf("%+v drew nothing", v)
 		}
@@ -197,10 +197,100 @@ func TestSettingsBoxScreensDraw(t *testing.T) {
 	// The picker marks the current choice.
 	draw := func(boxes []string) *render.Canvas {
 		c, _ := render.NewCanvas(1072, 1448)
-		Settings(c, SettingsView{Screen: SettingsPickBox, Box: 0}, units.Settings{}, false, boxes)
+		Settings(c, SettingsView{Screen: SettingsPickBox, Box: 0}, units.Settings{}, false, boxes, "")
 		return c
 	}
 	if !differs(draw([]string{"sog"}), draw([]string{"stw"})) {
 		t.Error("the picker should show which kind is selected")
+	}
+}
+
+func TestServerRowAndKeypadTaps(t *testing.T) {
+	const w = 1072
+	if got := SettingsTap(SettingsView{}, 500, SettingsRowY(len(units.Metrics)+3), w); got.Kind != ActOpenServer {
+		t.Errorf("the row after Nav boxes should open the server editor, got %+v", got)
+	}
+
+	v := SettingsView{Screen: SettingsServer}
+	keyAt := func(row, col int) Action {
+		return SettingsTap(v, col*w/3+w/6, keypadTop+row*keypadKeyH+keypadKeyH/2, w)
+	}
+	want := [][]string{{"1", "2", "3"}, {"4", "5", "6"}, {"7", "8", "9"}, {".", "0", ":"}, {"back", "clear", "save"}}
+	for r, keys := range want {
+		for c, id := range keys {
+			if got := keyAt(r, c); got.Kind != ActServerKey || got.Value != id {
+				t.Errorf("key (%d,%d) = %+v, want %q", r, c, got, id)
+			}
+		}
+	}
+	if got := SettingsTap(v, 500, keypadTop-20, w); got.Kind != ActNone {
+		t.Errorf("above the keypad nothing should happen, got %+v", got)
+	}
+	if got := SettingsTap(v, 500, keypadTop+5*keypadKeyH+10, w); got.Kind != ActNone {
+		t.Errorf("below the keypad nothing should happen, got %+v", got)
+	}
+	// The whole keypad is on screen.
+	if bottom := keypadTop + 5*keypadKeyH; bottom > 1448 {
+		t.Errorf("the keypad runs off the screen: bottom at %d", bottom)
+	}
+	// The root list, with its extra row, still fits.
+	if bottom := SettingsRowY(serverRow()) + settingsRowH/2; bottom > 1380 {
+		t.Errorf("the server row is too low (%d) to leave room for the footnote", bottom)
+	}
+}
+
+func TestApplyServerKey(t *testing.T) {
+	text := ""
+	for _, k := range []string{"1", "9", "2", ".", "1", "6", "8", ":", "3", "0", "0", "0"} {
+		text = ApplyServerKey(text, k)
+	}
+	if text != "192.168:3000" {
+		t.Fatalf("typed %q", text)
+	}
+	if got := ApplyServerKey(text, "back"); got != "192.168:300" {
+		t.Errorf("back = %q", got)
+	}
+	if got := ApplyServerKey("", "back"); got != "" {
+		t.Errorf("back on nothing = %q", got)
+	}
+	if got := ApplyServerKey(text, "clear"); got != "" {
+		t.Errorf("clear = %q", got)
+	}
+	long := ""
+	for i := 0; i < 100; i++ {
+		long = ApplyServerKey(long, "1")
+	}
+	if len(long) != maxServerLen {
+		t.Errorf("length %d, want it capped at %d", len(long), maxServerLen)
+	}
+}
+
+func TestServerEditorDraws(t *testing.T) {
+	draw := func(v SettingsView, server string) *render.Canvas {
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Settings(c, v, units.Settings{}, false, nil, server)
+		return c
+	}
+	typed := draw(SettingsView{Screen: SettingsServer, Text: "10.0.0.76:3001"}, "")
+	empty := draw(SettingsView{Screen: SettingsServer}, "")
+	field := image.Rect(40, 130, 1032, 250)
+	if inked(typed, field.Inset(8)) <= inked(empty, field.Inset(8)) {
+		t.Error("the typed address should appear in the field")
+	}
+	if inked(empty, image.Rect(0, keypadTop, 1072, keypadTop+5*keypadKeyH)) == 0 {
+		t.Error("the keypad should be drawn")
+	}
+	hint := image.Rect(40, 280, 1032, 330)
+	if !differs(draw(SettingsView{Screen: SettingsServer, Err: "port must be 1-65535"}, ""), empty) ||
+		inked(draw(SettingsView{Screen: SettingsServer, Err: "port must be 1-65535"}, ""), hint) == 0 {
+		t.Error("an error message should replace the hint")
+	}
+	// The list shows the server in use.
+	row := image.Rect(500, SettingsRowY(serverRow())-40, 1000, SettingsRowY(serverRow())+40)
+	if inked(draw(SettingsView{}, "10.0.0.76:3001"), row) <= inked(draw(SettingsView{}, ""), row) {
+		t.Error("the list should show the current server")
 	}
 }

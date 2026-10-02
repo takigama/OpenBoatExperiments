@@ -43,6 +43,13 @@ type App struct {
 	// short or unknown entries take their defaults). Like Units, it changes
 	// from the touch handler, so inside the app use boxesNow().
 	Boxes []string
+	// Server is the SignalK server chosen in settings, as "host:port"; empty
+	// means none was chosen and DefaultServer (the -signalk flag) is used.
+	Server        string
+	DefaultServer string
+	// OnServerChange is called, with the new "host:port", after the user saves
+	// a different server, so the connection can be moved to it.
+	OnServerChange func(hostPort string)
 	// SettingsPath is where settings changes are saved; empty means don't persist.
 	SettingsPath string
 
@@ -198,6 +205,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 
 	a.mu.Lock()
 	var err error
+	var newServer string // set when a different server was saved
 	switch act.Kind {
 	case pages.ActBack:
 		if view.Screen == pages.SettingsRoot {
@@ -221,14 +229,33 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	case pages.ActOpenBoxPicker:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsPickBox, Box: act.Box}
+	case pages.ActOpenServer:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsServer, Text: a.serverLocked()}
+	case pages.ActServerKey:
+		switch act.Value {
+		case "save":
+			norm, perr := settings.NormalizeServer(view.Text)
+			if perr != nil {
+				a.settingsView.Err = perr.Error()
+				break
+			}
+			if norm != a.serverLocked() {
+				a.Server = norm
+				newServer = norm
+			}
+			a.settingsView = pages.SettingsView{}
+		default:
+			a.settingsView.Text = pages.ApplyServerKey(a.settingsView.Text, act.Value)
+			a.settingsView.Err = ""
+		}
 	case pages.ActSetBox:
 		a.Boxes = pages.NormalizeBoxes(a.Boxes)
 		a.Boxes[act.Box] = act.Value
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	}
 	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit ||
-		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox
-	saved := settings.File{Settings: a.Units.Clone(), Invert: a.Invert, Boxes: append([]string(nil), a.Boxes...)}
+		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || newServer != ""
+	saved := settings.File{Settings: a.Units.Clone(), Invert: a.Invert, Boxes: append([]string(nil), a.Boxes...), Server: a.Server}
 	a.pageChanged = true // every screen is a different picture: full refresh
 	a.mu.Unlock()
 
@@ -238,6 +265,12 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	if changed && a.SettingsPath != "" {
 		if err := settings.Save(a.SettingsPath, saved); err != nil {
 			log.Printf("settings: could not save %s: %v", a.SettingsPath, err)
+		}
+	}
+	if newServer != "" {
+		log.Printf("settings: SignalK server is now %s", newServer)
+		if a.OnServerChange != nil {
+			a.OnServerChange(newServer)
 		}
 	}
 	log.Printf("touch: settings tap at (%d,%d)", ev.X, ev.Y)
@@ -289,8 +322,9 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	u := a.unitsNow()
 	invert := a.invertNow()
 	boxes := a.boxesNow()
+	server := a.serverNow()
 	if open {
-		pages.Settings(c, view, u, invert, boxes)
+		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
 		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes})
 	}
@@ -298,6 +332,21 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 		invertInPlace(c.Img)
 	}
 	return c.Img, nil
+}
+
+// serverLocked is the SignalK server in use: the one chosen in settings, else
+// the default. The caller holds a.mu.
+func (a *App) serverLocked() string {
+	if a.Server != "" {
+		return a.Server
+	}
+	return a.DefaultServer
+}
+
+func (a *App) serverNow() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.serverLocked()
 }
 
 // boxesNow returns a private, normalised copy of the Nav box layout.

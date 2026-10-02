@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"signalkpaperdisplay/internal/units"
 )
@@ -23,11 +25,15 @@ type File struct {
 	// IDs, left to right then top to bottom. Missing or unknown entries fall
 	// back to the defaults, so a short or old file is fine.
 	Boxes []string `json:"boxes,omitempty"`
+	// Server is the SignalK server as "host:port". When set it wins over the
+	// -signalk flag (and so the launcher's SIGNALK_HOST), so a change made on
+	// the device sticks.
+	Server string `json:"server,omitempty"`
 }
 
 // Clone returns an independent copy (the unit overrides are a map).
 func (f File) Clone() File {
-	return File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...)}
+	return File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...), Server: f.Server}
 }
 
 // Load reads the file at path. A missing file is not an error - it just means
@@ -68,4 +74,58 @@ func Save(path string, f File) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// DefaultPort is SignalK's usual port, used when an address has none.
+const DefaultPort = 3000
+
+// NormalizeServer checks a typed server address and returns it as
+// "host:port". The host is an IPv4 address or a hostname; a missing port
+// becomes DefaultPort.
+func NormalizeServer(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	host, port := s, strconv.Itoa(DefaultPort)
+	if i := strings.LastIndex(s, ":"); i >= 0 {
+		host, port = s[:i], s[i+1:]
+	}
+	if host == "" {
+		return "", fmt.Errorf("no address")
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("port must be 1-65535")
+	}
+	if !validHost(host) {
+		return "", fmt.Errorf("not a valid address")
+	}
+	return host + ":" + port, nil
+}
+
+func validHost(h string) bool {
+	labels := strings.Split(h, ".")
+	numeric := true
+	for _, l := range labels {
+		if l == "" || len(l) > 63 {
+			return false
+		}
+		for _, r := range l {
+			switch {
+			case r >= '0' && r <= '9':
+			case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '-':
+				numeric = false
+			default:
+				return false
+			}
+		}
+	}
+	if numeric { // looks like an IPv4 address, so it has to be one
+		if len(labels) != 4 {
+			return false
+		}
+		for _, l := range labels {
+			if n, _ := strconv.Atoi(l); n > 255 || len(l) > 3 {
+				return false
+			}
+		}
+	}
+	return true
 }

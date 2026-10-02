@@ -45,8 +45,11 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   bottom left, fuel gauges bottom right. Each of these is drawn only once the
   server has sent that data, and shows "--" if it later goes stale
 - Settings: the imperial/metric/nautical preset, a unit for every metric, and
-  an "Invert colours" switch (white on black), saved to `settings.json` beside
-  the app (tap the back arrow to leave)
+  an "Invert colours" switch (white on black), and the SignalK server address
+  (typed on an on-screen keypad; the app reconnects at once), saved to
+  `settings.json` beside the app (tap the back arrow to leave). A server set
+  there beats the launcher's `SIGNALK_HOST` / the `-signalk` flag, which is
+  only the default until one is chosen
 - A clock in the header, drawn by the app, with a heartbeat dot beside it that
   blinks every second (redrawn as its own tiny region, so it costs almost
   nothing) - if it stops, the app or the panel has hung

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,6 +22,35 @@ type Client struct {
 	State *State
 
 	self string // the server's id for our own vessel, from its hello message
+
+	mu      sync.Mutex
+	url     string             // the address in use, once SetServer has changed it
+	cancel  context.CancelFunc // ends the current connection
+	changed bool               // the server was changed since the last connection ended
+}
+
+// SetServer points the client at a different "host:port" and reconnects to it
+// at once. Everything learned from the old server is forgotten. It's safe to
+// call while Run is running.
+func (c *Client) SetServer(hostPort string) {
+	c.mu.Lock()
+	c.url = StreamURL(hostPort)
+	c.changed = true
+	cancel := c.cancel
+	c.mu.Unlock()
+	c.State.Reset()
+	if cancel != nil {
+		cancel() // the dropped connection makes Run reconnect, to the new address
+	}
+}
+
+// takeChanged reports, and clears, whether the server was changed.
+func (c *Client) takeChanged() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ch := c.changed
+	c.changed = false
+	return ch
 }
 
 // StreamURL builds the WebSocket URL for a "host:port" server address.
@@ -39,6 +69,11 @@ func (c *Client) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if c.takeChanged() {
+			log.Printf("signalk: server changed, reconnecting")
+			backoff = time.Second
+			continue // no waiting: the new address hasn't failed yet
+		}
 		if time.Since(started) > 30*time.Second {
 			backoff = time.Second // it worked for a while - retry quickly
 		}
@@ -54,13 +89,25 @@ func (c *Client) Run(ctx context.Context) {
 	}
 }
 
-func (c *Client) session(ctx context.Context) error {
+func (c *Client) session(parent context.Context) error {
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+	// The address and the means of ending this connection are taken together,
+	// so a SetServer that comes after this point is sure to end it.
+	c.mu.Lock()
+	url := c.url
+	if url == "" {
+		url = c.URL
+	}
+	c.cancel = cancel
+	c.mu.Unlock()
+
 	hdr := http.Header{}
 	if c.Token != "" {
 		hdr.Set("Authorization", "Bearer "+c.Token)
 	}
 	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second}
-	conn, _, err := dialer.DialContext(ctx, c.URL, hdr)
+	conn, _, err := dialer.DialContext(ctx, url, hdr)
 	if err != nil {
 		return err
 	}

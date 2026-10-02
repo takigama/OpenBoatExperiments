@@ -17,6 +17,7 @@ const (
 	SettingsPickUnit                         // choose a unit for View.Metric
 	SettingsBoxes                            // the six Nav boxes and what each shows
 	SettingsPickBox                          // choose what box View.Box shows
+	SettingsServer                           // type in the SignalK server address
 )
 
 // Version is the running release number, shown at the foot of the settings
@@ -29,6 +30,8 @@ type SettingsView struct {
 	Screen SettingsScreen
 	Metric string // which metric SettingsPickUnit is for
 	Box    int    // which Nav box SettingsPickBox is for, 0..NavBoxes-1
+	Text   string // SettingsServer: the address typed so far
+	Err    string // SettingsServer: why the last Save was refused
 }
 
 type ActionKind int
@@ -44,6 +47,8 @@ const (
 	ActOpenBoxes                   // root -> the list of Nav boxes
 	ActOpenBoxPicker               // boxes -> what-to-show picker for Action.Box
 	ActSetBox                      // box Action.Box shows kind Action.Value
+	ActOpenServer                  // root -> the server address editor
+	ActServerKey                   // a keypad key, Action.Value: a character, "back", "clear" or "save"
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -54,7 +59,7 @@ type Action struct {
 }
 
 const (
-	settingsRowH = 120
+	settingsRowH = 104
 	settingsTop  = headerH + 30
 )
 
@@ -87,6 +92,44 @@ func invertRow() int { return len(units.Metrics) + 1 }
 
 // boxesRow is the list row that opens the Nav box layout, just after invert.
 func boxesRow() int { return invertRow() + 1 }
+
+// serverRow is the list row that opens the server address editor.
+func serverRow() int { return boxesRow() + 1 }
+
+// The server address keypad: three keys across, filled row by row. An
+// address is only digits, dots and a colon, so that's all the keys there are.
+var serverKeys = [15]struct{ ID, Label string }{
+	{"1", "1"}, {"2", "2"}, {"3", "3"},
+	{"4", "4"}, {"5", "5"}, {"6", "6"},
+	{"7", "7"}, {"8", "8"}, {"9", "9"},
+	{".", "."}, {"0", "0"}, {":", ":"},
+	{"back", ""}, {"clear", "CLR"}, {"save", "SAVE"},
+}
+
+const (
+	keypadCols   = 3
+	keypadTop    = 380
+	keypadKeyH   = 180
+	maxServerLen = 40
+)
+
+// ApplyServerKey returns the address text after a keypad key: characters are
+// added (up to a limit), "back" deletes the last one, "clear" empties it.
+func ApplyServerKey(text, key string) string {
+	switch key {
+	case "back":
+		if r := []rune(text); len(r) > 0 {
+			return string(r[:len(r)-1])
+		}
+		return text
+	case "clear":
+		return ""
+	}
+	if len(text) >= maxServerLen {
+		return text
+	}
+	return text + key
+}
 
 // boxPositions names the Nav boxes for the list, in box order.
 var boxPositions = [NavBoxes]string{
@@ -139,6 +182,16 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 		if row == boxesRow() {
 			return Action{Kind: ActOpenBoxes}
 		}
+		if row == serverRow() {
+			return Action{Kind: ActOpenServer}
+		}
+	case SettingsServer:
+		if y >= keypadTop && width > 0 {
+			col, r := x*keypadCols/width, (y-keypadTop)/keypadKeyH
+			if i := r*keypadCols + col; col >= 0 && col < keypadCols && i < len(serverKeys) {
+				return Action{Kind: ActServerKey, Value: serverKeys[i].ID}
+			}
+		}
 	case SettingsBoxes:
 		if row >= 0 && row < NavBoxes {
 			return Action{Kind: ActOpenBoxPicker, Box: row}
@@ -186,8 +239,9 @@ func row(c *render.Canvas, i int, label string, right func(cy int)) {
 }
 
 // Settings draws the settings screens. invert is the current state of the
-// invert-colours option, shown on its row; boxes is what each Nav box shows.
-func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, boxes []string) {
+// invert-colours option, shown on its row; boxes is what each Nav box shows;
+// server is the SignalK address in use, shown on its row.
+func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, boxes []string, server string) {
 	b := c.Bounds()
 
 	title := "SETTINGS"
@@ -202,6 +256,8 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 		title = "NAV BOXES"
 	case SettingsPickBox:
 		title = strings.ToUpper(boxPositions[clampBox(v.Box)])
+	case SettingsServer:
+		title = "SIGNALK SERVER"
 	}
 	// A back chevron where the cog is on other pages, in the same tap area.
 	chevronLeft(c, 38, int(cogY), 22, render.Black)
@@ -233,7 +289,11 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 			c.Text(b.Dx()-50, cy+16, state, 50, render.Bold, render.Right, render.Black)
 		})
 		row(c, boxesRow(), "Nav boxes", func(cy int) { chevronRight(c, b.Dx()-50, cy, 18, render.Dark) })
-		c.Text(40, settingsTop+(boxesRow()+1)*settingsRowH+60,
+		row(c, serverRow(), "SignalK server", func(cy int) {
+			c.Text(b.Dx()-110, cy+16, server, 44, render.Bold, render.Right, render.Black)
+			chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
+		})
+		c.Text(40, settingsTop+(serverRow()+1)*settingsRowH+60,
 			"* set individually, not from the preset", 36, render.Regular, render.Left, render.Dark)
 		// Which build this is, so it's plain from the screen that an update
 		// has actually been picked up (a replaced file isn't running until
@@ -249,6 +309,9 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 				chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
 			})
 		}
+
+	case SettingsServer:
+		drawServerEditor(c, v)
 
 	case SettingsPickBox:
 		current := NormalizeBoxes(boxes)[clampBox(v.Box)]
@@ -284,6 +347,47 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 			sym := opt.Symbol
 			row(c, i, label, func(cy int) { radio(c, b.Dx()-80, cy, current == sym) })
 		}
+	}
+}
+
+// drawServerEditor draws the address typed so far above a numeric keypad.
+func drawServerEditor(c *render.Canvas, v SettingsView) {
+	b := c.Bounds()
+	field := image.Rect(40, 130, b.Dx()-40, 250)
+	c.FillRect(field, render.Black)
+	c.FillRect(field.Inset(4), render.White)
+	c.Text(64, field.Max.Y-34, v.Text+"_", 64, render.Bold, render.Left, render.Black)
+	hint, shade := "an IP address and port, like 192.168.1.20:3000", render.Dark
+	if v.Err != "" {
+		hint, shade = v.Err, render.Black
+	}
+	c.Text(46, 310, hint, 36, render.Regular, render.Left, shade)
+
+	w := b.Dx() / keypadCols
+	for i, k := range serverKeys {
+		x0 := (i % keypadCols) * w
+		y0 := keypadTop + (i/keypadCols)*keypadKeyH
+		key := image.Rect(x0+12, y0+12, x0+w-12, y0+keypadKeyH-12)
+		fg := render.Black
+		c.FillRect(key, render.Black)
+		if k.ID == "save" {
+			fg = render.White // the one action that commits: solid
+		} else {
+			c.FillRect(key.Inset(4), render.White)
+		}
+		cx, cy := (key.Min.X+key.Max.X)/2, (key.Min.Y+key.Max.Y)/2
+		if k.ID == "back" {
+			// A backspace arrow: a left-pointing shaft and head.
+			c.Line(float64(cx-44), float64(cy), float64(cx+44), float64(cy), 8, fg)
+			c.Line(float64(cx-44), float64(cy), float64(cx-8), float64(cy-34), 8, fg)
+			c.Line(float64(cx-44), float64(cy), float64(cx-8), float64(cy+34), 8, fg)
+			continue
+		}
+		size := 84.0
+		if len(k.Label) > 1 {
+			size = 56
+		}
+		c.Text(cx, cy+int(size*0.34), k.Label, size, render.Bold, render.Center, fg)
 	}
 }
 

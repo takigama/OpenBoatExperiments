@@ -88,6 +88,19 @@ func NewState() *State {
 	return &State{targets: map[string]*Target{}, fuel: map[string]Reading{}}
 }
 
+// Reset forgets everything: our own readings, the fuel tanks and every AIS
+// target. It's for when the server changes, so nothing from the old one is
+// shown as if the new one had sent it.
+func (s *State) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.own = Own{}
+	s.fuel = map[string]Reading{}
+	s.targets = map[string]*Target{}
+	s.connected = false
+	s.lastMsg = time.Time{}
+}
+
 func (s *State) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
