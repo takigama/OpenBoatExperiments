@@ -50,7 +50,10 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
 - Touch: tap the left/right third (or swipe) to change page; tap the cog
   at the top left to open settings
 - The compass page is also the dashboard: AIS contacts as diamonds on the rim
-  (solid = closing, hollow = opening, bigger = nearer), the nearest contact's
+  (solid = closing, hollow = opening, bigger = nearer), the wind as two markers pointing in at the
+  rim - the apparent wind an "A" (a solid head over two hollow legs) and the
+  true wind a solid arrowhead, the true one drawn only when it is more than 10
+  degrees from the apparent -, the nearest contact's
   name and distance top left, water temperature top right, apparent wind speed
   bottom left, fuel gauges bottom right. Each of these is drawn only once the
   server has sent that data, and shows "--" if it later goes stale

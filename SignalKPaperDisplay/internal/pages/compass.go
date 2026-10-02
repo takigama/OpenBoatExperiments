@@ -102,11 +102,19 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		drawAIS(c, cx, cy, r, own.Heading.V, contacts)
 	}
 
-	// Apparent wind: shown only while it's live. The card is heading-up, so
-	// the pointer sits at the wind angle measured from the bow. Drawn after
-	// the blips so it stays on top where they coincide.
-	if own.AWA.Fresh(now, StaleAfter) {
-		drawWindPointer(c, cx, cy, r, own.AWA.V)
+	// The wind, as two markers: the apparent wind (an "A": a solid head over two
+	// hollow legs) and the true wind (a solid arrowhead). The card is heading-up,
+	// so each sits at its wind angle measured from the bow, pointing in. They are
+	// drawn after the blips so they stay on top where they coincide, and the true
+	// one is left out while it is within windMarkersMerge of the apparent one,
+	// where two markers would only overlap.
+	apparent, hasApparent := own.AWA.V, own.AWA.Fresh(now, StaleAfter)
+	trueRel, hasTrue := trueWindAngle(own, now)
+	if hasTrue && (!hasApparent || angleDiff(apparent, trueRel) > windMarkersMerge) {
+		drawTrueWindPointer(c, cx, cy, r, trueRel)
+	}
+	if hasApparent {
+		drawApparentWindPointer(c, cx, cy, r, apparent)
 	}
 
 	// The next waypoint: a hollow arrowhead on the rim pointing outward, the
@@ -359,20 +367,110 @@ func drawWindSpeed(c *render.Canvas, own signalk.Own, now time.Time, e Env, xLef
 	leftValue(c, xLeft, yBottom, value, unit, 114)
 }
 
-// drawWindPointer draws a bold arrowhead on the compass rim, pointing in
-// toward the centre, at angle (radians clockwise from the bow). A white halo
-// goes down first so it stays readable where it crosses the ticks.
-func drawWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
+// windMarkersMerge is how close, in radians (10 degrees), the true and apparent
+// wind may be before only the apparent marker is drawn.
+const windMarkersMerge = 10 * math.Pi / 180
+
+// trueWindAngle is where the true wind comes from relative to the bow, radians
+// clockwise from it, or false if it can't be worked out: it needs the true
+// wind direction and our heading, both live.
+func trueWindAngle(own signalk.Own, now time.Time) (float64, bool) {
+	if !own.TWD.Fresh(now, StaleAfter) || !own.Heading.Fresh(now, StaleAfter) {
+		return 0, false
+	}
+	return own.TWD.V - own.Heading.V, true
+}
+
+// angleDiff is the smallest angle between two bearings, in radians, 0..pi,
+// whichever way round the circle is shorter.
+func angleDiff(a, b float64) float64 {
+	d := math.Mod(a-b, 2*math.Pi)
+	if d < 0 {
+		d += 2 * math.Pi
+	}
+	if d > math.Pi {
+		d = 2*math.Pi - d
+	}
+	return d
+}
+
+// windFrame returns a function turning a point given as (along, across) the
+// pointer - along its axis from the card's centre outwards, across it - into
+// canvas coordinates, for a pointer at angle (radians clockwise from the bow).
+func windFrame(cx, cy, angle float64) func(along, across float64) image.Point {
 	ux, uy := math.Sin(angle), -math.Cos(angle) // outward from the centre
 	vx, vy := -uy, ux                           // across it
+	return func(along, across float64) image.Point {
+		return image.Pt(int(math.Round(cx+ux*along+vx*across)), int(math.Round(cy+uy*along+vy*across)))
+	}
+}
+
+// drawTrueWindPointer draws the true wind: a bold solid arrowhead on the
+// compass rim, pointing in toward the centre, at angle (radians clockwise from
+// the bow). A white halo goes down first so it stays readable where it crosses
+// the ticks.
+func drawTrueWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
+	pt := windFrame(cx, cy, angle)
 	tri := func(tipR, baseR, half float64) []image.Point {
-		pt := func(along, across float64) image.Point {
-			return image.Pt(int(math.Round(cx+ux*along+vx*across)), int(math.Round(cy+uy*along+vy*across)))
-		}
 		return []image.Point{pt(tipR, 0), pt(baseR, -half), pt(baseR, half)}
 	}
 	c.FillPolygon(tri(r-92, r+40, 42), render.White) // halo
 	c.FillPolygon(tri(r-76, r+34, 30), render.Black)
+}
+
+// The apparent wind marker is an "A": a solid triangular head, pointing in
+// like the true wind's, over two hollow legs that carry its sides on down to
+// the rim, with a narrow gap between them. About the size of the true wind
+// arrowhead.
+const (
+	apparentLen    = 122.0 // tip to the foot of the legs
+	apparentHalf   = 40.0  // half the width at the feet
+	apparentHead   = 0.52  // the solid head's share of the length
+	apparentGap    = 3.0   // half the gap between the legs at the top
+	apparentBorder = 3.0   // line weight of the hollow legs
+)
+
+// drawApparentWindPointer draws the apparent wind marker at angle (radians
+// clockwise from the bow), tip toward the centre.
+func drawApparentWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
+	pt := windFrame(cx, cy, angle)
+	tip := r - 76                                                          // the tip, as distance from the card's centre
+	at := func(s, across float64) image.Point { return pt(tip+s, across) } // s: distance from the tip
+	half := func(s float64) float64 { return apparentHalf * s / apparentLen }
+
+	// Halo over the ticks, the whole shape's outline and a little more.
+	c.FillPolygon([]image.Point{at(-12, 0), at(apparentLen+10, -apparentHalf-10), at(apparentLen+10, apparentHalf+10)}, render.White)
+
+	// The solid head.
+	headLen := apparentLen * apparentHead
+	hw := half(headLen)
+	c.FillPolygon([]image.Point{at(0, 0), at(headLen, -hw), at(headLen, hw)}, render.Black)
+
+	// The legs: parallelograms whose outer edge continues the head's side and
+	// whose inner edge runs parallel to it from beside the centre line. Each is
+	// drawn solid then hollowed out.
+	legW := hw - apparentGap // a leg's width across, at its top
+	for _, side := range []float64{-1, 1} {
+		quad := [][2]float64{ // (s, across)
+			{headLen, side * hw}, {headLen, side * apparentGap},
+			{apparentLen, side * (apparentHalf - legW)}, {apparentLen, side * apparentHalf},
+		}
+		pts := make([]image.Point, len(quad))
+		var cs, ca float64
+		for i, q := range quad {
+			pts[i] = at(q[0], q[1])
+			cs, ca = cs+q[0]/4, ca+q[1]/4
+		}
+		c.FillPolygon(pts, render.Black)
+		// The inside: the same shape pulled in towards its middle by the line weight.
+		inner := make([]image.Point, len(quad))
+		ks := 1 - 2*apparentBorder/(apparentLen-headLen)
+		ka := 1 - 2*apparentBorder/legW
+		for i, q := range quad {
+			inner[i] = at(cs+(q[0]-cs)*ks, ca+(q[1]-ca)*ka)
+		}
+		c.FillPolygon(inner, render.White)
+	}
 }
 
 // drawWaypointPointer draws the waypoint marker at angle (radians clockwise

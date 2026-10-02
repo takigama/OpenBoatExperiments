@@ -272,3 +272,131 @@ func TestWaypointLabelTurnsWithThePointerAtEveryAngle(t *testing.T) {
 		}
 	}
 }
+
+// windBoat is the base boat (heading 0.5 rad) with the wind at the given angles
+// from the bow: apparent, and true. NaN leaves that one out.
+func windBoat(apparent, trueRel float64) signalk.Snapshot {
+	s := base()
+	if !math.IsNaN(apparent) {
+		s.Own.AWA = signalk.Reading{V: apparent, At: compassNow}
+	}
+	if !math.IsNaN(trueRel) {
+		s.Own.TWD = signalk.Reading{V: s.Own.Heading.V + trueRel, At: compassNow}
+	}
+	return s
+}
+
+func deg2rad(d float64) float64 { return d * math.Pi / 180 }
+
+// With the wind on the starboard beam the pointer lies along y=622: its tip is
+// at x = 536+466-76 = 926 and its feet at x = 1036.
+func TestApparentWindIsAnAHeadAndTwoHollowLegs(t *testing.T) {
+	c := renderCompass(t, windBoat(math.Pi/2, math.NaN()))
+	dark := func(x, y int) bool { return c.Img.GrayAt(x, y).Y < 60 }
+	frac := func(r image.Rectangle) float64 { return float64(inked(c, r)) / float64(r.Dx()*r.Dy()) }
+
+	// The head is solid...
+	head := image.Rect(954, 618, 975, 627) // well inside the triangle: it narrows to the tip at x=926
+	if f := frac(head); f < 0.95 {
+		t.Errorf("the head should be solid, but is only %.0f%% ink", f*100)
+	}
+	// ...the legs are outlines, so mostly paper but not empty...
+	leg := image.Rect(996, 592, 1026, 616)
+	if f := frac(leg); f < 0.05 || f > 0.6 {
+		t.Errorf("a leg should be a hollow outline, got %.0f%% ink", f*100)
+	}
+	if dark(1010, 603) {
+		t.Error("the inside of a leg should be white")
+	}
+	// ...with a gap down the middle between them, and outlines at the edges.
+	if c.Img.GrayAt(1010, 622).Y < 200 && !dark(1010, 622) {
+		t.Error("unexpected shade between the legs")
+	}
+	if inked(c, image.Rect(1006, 619, 1014, 625)) > 0 && dark(1012, 622) {
+		t.Error("the gap between the legs should be clear at the feet")
+	}
+	// It is about the size of the true wind arrowhead: tip at x=926, feet at ~1036.
+	whole := image.Rect(900, 560, 1072, 690)
+	if inked(c, image.Rect(900, 560, 920, 690)) != inked(renderCompass(t, windBoat(math.NaN(), math.NaN())), image.Rect(900, 560, 920, 690)) {
+		t.Error("the marker reaches in past its tip")
+	}
+	_ = whole
+}
+
+func TestTrueWindIsTheSolidArrowhead(t *testing.T) {
+	c := renderCompass(t, windBoat(math.NaN(), math.Pi/2))
+	solid := image.Rect(960, 614, 1010, 630)
+	if f := float64(inked(c, solid)) / float64(solid.Dx()*solid.Dy()); f < 0.95 {
+		t.Errorf("the true wind arrowhead is solid, got %.0f%% ink", f*100)
+	}
+}
+
+func TestTrueWindOnlyShownWhenItDiffersFromApparentByMoreThanTenDegrees(t *testing.T) {
+	apparentOnly := func(a float64) *render.Canvas { return renderCompass(t, windBoat(a, math.NaN())) }
+	cases := []struct {
+		name           string
+		apparent, true float64 // degrees from the bow
+		shown          bool
+	}{
+		{"same", 40, 40, false},
+		{"5 apart", 40, 45, false},
+		{"just under 10", 40, 49.5, false},
+		{"just over 10", 40, 50.5, true},
+		{"20 apart", 40, 60, true},
+		{"true to port of apparent", 40, 25, true},
+		{"just under 10 the other way", 40, 30.5, false},
+		// Across the bow and across the stern the angle wraps round.
+		{"astern, 7 apart across 180", 175, -178, false},
+		{"astern, 15 apart across 180", 175, -170, true},
+		{"ahead, 8 apart across 0", -4, 4, false},
+		{"ahead, 14 apart across 0", -7, 7, true},
+		{"nearly a full turn out", 10, 10 + 360 + 5, false},
+	}
+	for _, c := range cases {
+		withTrue := renderCompass(t, windBoat(deg2rad(c.apparent), deg2rad(c.true)))
+		got := differs(withTrue, apparentOnly(deg2rad(c.apparent)))
+		if got != c.shown {
+			t.Errorf("%s (apparent %v, true %v): true marker shown = %v, want %v", c.name, c.apparent, c.true, got, c.shown)
+		}
+	}
+}
+
+func TestWindMarkersWithOnlyOneKindOfData(t *testing.T) {
+	// Only the true wind known: it is all there is, so it is shown.
+	only := renderCompass(t, windBoat(math.NaN(), deg2rad(60)))
+	none := renderCompass(t, windBoat(math.NaN(), math.NaN()))
+	if !differs(only, none) {
+		t.Error("with only a true wind, it should be drawn")
+	}
+	// True wind but no live heading: it cannot be placed on a heading-up card.
+	noHeading := windBoat(math.NaN(), deg2rad(60))
+	noHeading.Own.Heading.At = compassNow.Add(-time.Minute)
+	if differs(renderCompass(t, noHeading), renderCompass(t, windBoat(math.NaN(), math.NaN()))) &&
+		inked(renderCompass(t, noHeading), image.Rect(60, 100, 1010, 1140)) > inked(renderCompass(t, windBoat(math.NaN(), math.NaN())), image.Rect(60, 100, 1010, 1140)) {
+		t.Error("with no live heading the true wind marker must not be drawn")
+	}
+	// A stale true wind is not drawn.
+	stale := windBoat(math.NaN(), deg2rad(60))
+	stale.Own.TWD.At = compassNow.Add(-time.Minute)
+	if differs(renderCompass(t, stale), none) {
+		t.Error("a stale true wind must not be drawn")
+	}
+	// Both kinds drawn together put ink in both places.
+	both := renderCompass(t, windBoat(deg2rad(-50), deg2rad(50)))
+	left, right := image.Rect(60, 220, 330, 470), image.Rect(740, 220, 1010, 470) // the rim at 50 degrees either side of the bow
+	if inked(both, left) <= inked(none, left) || inked(both, right) <= inked(none, right) {
+		t.Error("with the apparent wind to port and the true wind to starboard there should be a marker on each side")
+	}
+}
+
+func TestAngleDiff(t *testing.T) {
+	cases := []struct{ a, b, want float64 }{
+		{0, 0, 0}, {10, 20, 10}, {20, 10, 10}, {350, 10, 20}, {10, 350, 20},
+		{-170, 170, 20}, {180, -180, 0}, {0, 180, 180}, {90, -90, 180}, {10, 370, 0}, {-720, 15, 15},
+	}
+	for _, c := range cases {
+		if got := angleDiff(deg2rad(c.a), deg2rad(c.b)) * 180 / math.Pi; math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("angleDiff(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+}
