@@ -14,8 +14,17 @@ func openTouch(prof *profile.Profile) (*input.Device, error) {
 		return nil, errors.New("profile has no touch section")
 	}
 	t := prof.Touch
-	return input.Open(t.Device, prof.Width, prof.Height,
+	d, err := input.Open(t.Device, prof.Width, prof.Height,
 		input.Orientation{SwapXY: t.SwapXY, InvertX: t.InvertX, InvertY: t.InvertY})
+	if err != nil {
+		return nil, err
+	}
+	if d.Grabbed {
+		log.Printf("touch: %s grabbed exclusively (the stock UI no longer sees taps)", t.Device)
+	} else {
+		log.Printf("touch: could not grab %s exclusively - the stock UI may react to taps too", t.Device)
+	}
+	return d, nil
 }
 
 // runTouchTest prints what the touchscreen reports, so a device's axis

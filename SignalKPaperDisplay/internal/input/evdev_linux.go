@@ -23,10 +23,14 @@ type Orientation struct {
 }
 
 type Device struct {
-	f      *os.File
-	X, Y   Axis
-	Screen struct{ W, H int }
-	Orient Orientation
+	f *os.File
+	// Grabbed reports whether we have the device exclusively. Without it the
+	// stock UI, which keeps running when only its reading app is stopped,
+	// sees every tap too - and a tap near the top pulls down its toolbar.
+	Grabbed bool
+	X, Y    Axis
+	Screen  struct{ W, H int }
+	Orient  Orientation
 }
 
 // input_absinfo from linux/input.h.
@@ -68,6 +72,13 @@ func Open(path string, screenW, screenH int, o Orientation) (*Device, error) {
 	if d.Y, err = getAbs(f, absMTPositionY); err != nil {
 		f.Close()
 		return nil, fmt.Errorf("%s: reading Y range: %w", path, err)
+	}
+	// EVIOCGRAB = _IOW('E', 0x90, int). The kernel drops the grab when the
+	// file closes, so a crash can't leave the stock UI without touch.
+	const eviocgrab = 0x40044590
+	one := int32(1)
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), eviocgrab, uintptr(unsafe.Pointer(&one))); errno == 0 {
+		d.Grabbed = true
 	}
 	return d, nil
 }
