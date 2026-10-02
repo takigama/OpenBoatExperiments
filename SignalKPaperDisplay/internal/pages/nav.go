@@ -17,10 +17,7 @@ import (
 // A frozen number that looks live is the worst failure on a boat.
 const StaleAfter = 5 * time.Second
 
-const (
-	msToKnots = 1.94384
-	headerH   = 90
-)
+const headerH = 90
 
 func degrees(rad float64) float64 {
 	d := math.Mod(rad*180/math.Pi, 360)
@@ -51,18 +48,27 @@ func drawMetric(c *render.Canvas, r image.Rectangle, m metric) {
 
 	// The unit sits immediately after the number and the pair is centred
 	// together, so it reads as one value ("4.9 kn"), not a number with a
-	// stray label on the far edge.
-	unitSize, gap, unitBase := size*0.30, int(size*0.08), baseline
-	if m.unit == "°" {
-		// A degree sign belongs at the top of the digits, tucked up against
-		// them, not on the baseline.
-		unitSize, gap, unitBase = size*0.6, int(size*0.02), baseline-int(size*0.27)
+	// stray label on the far edge. Shrink the whole thing until it fits the
+	// cell - half-width cells are much narrower than the full-width ones.
+	var unitSize, wv, wu float64
+	var gap, unitBase int
+	for ; ; size *= 0.95 {
+		unitSize, gap, unitBase = size*0.30, int(size*0.08), baseline
+		if m.unit == "°" {
+			// A degree sign belongs at the top of the digits, tucked up
+			// against them, not on the baseline.
+			unitSize, gap, unitBase = size*0.6, int(size*0.02), baseline-int(size*0.27)
+		}
+		wv = float64(c.TextWidth(value, size, render.Bold))
+		wu = float64(c.TextWidth(m.unit, unitSize, render.Bold))
+		if wv+float64(gap)+wu <= float64(r.Dx()-80) || size < 40 {
+			break
+		}
 	}
-	wv := c.TextWidth(value, size, render.Bold)
-	wu := c.TextWidth(m.unit, unitSize, render.Bold)
-	x := r.Min.X + (r.Dx()-(wv+gap+wu))/2
+	wvi := int(wv)
+	x := r.Min.X + (r.Dx()-(wvi+gap+int(wu)))/2
 	c.Text(x, baseline, value, size, render.Bold, render.Left, shade)
-	c.Text(x+wv+gap, unitBase, m.unit, unitSize, render.Bold, render.Left, render.Dark)
+	c.Text(x+wvi+gap, unitBase, m.unit, unitSize, render.Bold, render.Left, render.Dark)
 }
 
 // Header draws the top bar: the page title, and a loud inverted banner
@@ -79,19 +85,19 @@ func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
 	c.HLine(0, b.Dx(), headerH, 4, render.Black)
 }
 
-// Nav shows speed, heading and depth.
-func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time) {
+// Nav shows speed, heading and depth, in the user's chosen units.
+func Nav(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	Header(c, "NAV", s, now)
 	b := c.Bounds()
 	own := s.Own
 
+	sogVal, sogUnit := e.Units.Format("sog", own.SOG.V)
+	depthVal, depthUnit := e.Units.Format("depth", own.Depth.V)
 	metrics := []metric{
-		{label: "SPEED OVER GROUND", unit: "kn", ok: own.SOG.Fresh(now, StaleAfter),
-			value: fmt.Sprintf("%.1f", own.SOG.V*msToKnots)},
+		{label: "SPEED OVER GROUND", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal},
 		{label: "HEADING", unit: "°", ok: own.Heading.Fresh(now, StaleAfter),
 			value: fmt.Sprintf("%03.0f", degrees(own.Heading.V))},
-		{label: "DEPTH", unit: "m", ok: own.Depth.Fresh(now, StaleAfter),
-			value: fmt.Sprintf("%.1f", own.Depth.V)},
+		{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal},
 	}
 
 	top := headerH + 4

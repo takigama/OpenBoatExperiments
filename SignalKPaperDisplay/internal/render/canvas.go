@@ -8,6 +8,8 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
+	"sort"
 	"sync"
 
 	"golang.org/x/image/font"
@@ -91,6 +93,64 @@ func (c *Canvas) HLine(x0, x1, y, thick int, shade uint8) {
 
 func (c *Canvas) VLine(x, y0, y1, thick int, shade uint8) {
 	c.FillRect(image.Rect(x, y0, x+thick, y1), shade)
+}
+
+// Line draws a straight line of the given thickness between two points.
+func (c *Canvas) Line(x0, y0, x1, y1 float64, thick int, shade uint8) {
+	dx, dy := x1-x0, y1-y0
+	n := int(math.Max(math.Abs(dx), math.Abs(dy))) + 1
+	half := thick / 2
+	for i := 0; i <= n; i++ {
+		t := float64(i) / float64(n)
+		x := int(math.Round(x0 + dx*t))
+		y := int(math.Round(y0 + dy*t))
+		c.FillRect(image.Rect(x-half, y-half, x-half+thick, y-half+thick), shade)
+	}
+}
+
+// blend mixes shade into one pixel with the given coverage (0..1).
+func (c *Canvas) blend(x, y int, shade uint8, cover float64) {
+	if cover <= 0 || !image.Pt(x, y).In(c.Img.Bounds()) {
+		return
+	}
+	if cover > 1 {
+		cover = 1
+	}
+	old := float64(c.Img.GrayAt(x, y).Y)
+	c.Img.SetGray(x, y, color.Gray{Y: uint8(math.Round(old*(1-cover) + float64(shade)*cover))})
+}
+
+// Ring draws an antialiased circle outline centred on (cx, cy).
+func (c *Canvas) Ring(cx, cy, r float64, thick float64, shade uint8) {
+	reach := int(r + thick + 2)
+	for y := int(cy) - reach; y <= int(cy)+reach; y++ {
+		for x := int(cx) - reach; x <= int(cx)+reach; x++ {
+			d := math.Hypot(float64(x)-cx, float64(y)-cy)
+			c.blend(x, y, shade, thick/2-math.Abs(d-r)+0.5)
+		}
+	}
+}
+
+// FillPolygon fills a convex or simple polygon using an even-odd scanline.
+func (c *Canvas) FillPolygon(pts []image.Point, shade uint8) {
+	minY, maxY := pts[0].Y, pts[0].Y
+	for _, p := range pts {
+		minY, maxY = min(minY, p.Y), max(maxY, p.Y)
+	}
+	for y := minY; y <= maxY; y++ {
+		var xs []int
+		for i := range pts {
+			a, b := pts[i], pts[(i+1)%len(pts)]
+			if (a.Y <= y && b.Y > y) || (b.Y <= y && a.Y > y) {
+				t := float64(y-a.Y) / float64(b.Y-a.Y)
+				xs = append(xs, a.X+int(math.Round(t*float64(b.X-a.X))))
+			}
+		}
+		sort.Ints(xs)
+		for i := 0; i+1 < len(xs); i += 2 {
+			c.HLine(xs[i], xs[i+1]+1, y, 1, shade)
+		}
+	}
 }
 
 func (c *Canvas) face(size float64, w Weight) font.Face {
