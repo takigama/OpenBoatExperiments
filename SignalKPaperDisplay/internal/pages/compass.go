@@ -427,7 +427,7 @@ const (
 	apparentHalf   = 30.0  // half the width at the feet: likewise
 	apparentHead   = 0.55  // the solid head's share of the length
 	apparentGap    = 2.5   // half the gap between the legs at the top
-	apparentBorder = 2.0   // line weight of the hollow legs
+	apparentBorder = 3.0   // line weight of the hollow legs
 )
 
 // drawApparentWindPointer draws the apparent wind marker at angle (radians
