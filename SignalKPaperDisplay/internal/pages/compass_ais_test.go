@@ -99,6 +99,36 @@ func TestClosingShipsAreSolidAndOpeningOnesHollow(t *testing.T) {
 	}
 }
 
+func TestPlaceLabelAvoidsLabelsAlreadyPlaced(t *testing.T) {
+	cands := []image.Point{{500, 900}, {500, 850}, {500, 800}}
+	var placed []image.Rectangle
+
+	first, box1 := placeLabel(cands, 120, placed)
+	placed = append(placed, box1)
+	if first != cands[0] {
+		t.Fatalf("with nothing in the way the first choice should win, got %v", first)
+	}
+
+	// The next label wants the same spot: it must move to a later candidate
+	// whose box is clear of the first.
+	second, box2 := placeLabel(cands, 120, placed)
+	if second == cands[0] || box2.Overlaps(box1) {
+		t.Errorf("second label %v (%v) overlaps the first (%v)", second, box2, box1)
+	}
+	placed = append(placed, box2)
+
+	third, box3 := placeLabel(cands, 120, placed)
+	if box3.Overlaps(box1) || box3.Overlaps(box2) {
+		t.Errorf("third label %v (%v) overlaps an earlier one", third, box3)
+	}
+
+	// If nothing is free it still returns something, rather than failing.
+	placed = append(placed, box3)
+	if p, _ := placeLabel(cands, 120, placed); p != cands[len(cands)-1] {
+		t.Errorf("with every spot taken it should settle for the last, got %v", p)
+	}
+}
+
 func TestRangeLabelsOnlyForTheNearestThree(t *testing.T) {
 	s := withShipAhead(1000, 0, 0)
 	for i, d := range []float64{2000, 3000, 4000, 5000} {
@@ -115,19 +145,22 @@ func TestRangeLabelsOnlyForTheNearestThree(t *testing.T) {
 	}
 }
 
-func TestBowLineRunsFromAboveTheDigitsToTheRimAndNotBeyond(t *testing.T) {
+func TestBowLineRunsFromAboveTheDigitsToTheTopOfTheCompassArea(t *testing.T) {
 	c := renderCompass(t, base())
 	dark := func(x, y int) bool { return c.Img.GrayAt(x, y).Y < 100 }
-	// Between the heading digits and the rim the line is solid ink.
-	for _, y := range []int{200, 300, 400, 480} {
+	// Solid ink all the way: through the card, across the rim, and up the
+	// margin above it to the top of the compass area.
+	for _, y := range []int{100, 112, 125, 138, 200, 300, 400, 480} {
 		if !dark(536, y) {
 			t.Errorf("bow line missing at y=%d", y)
 		}
 	}
-	// The old triangle marker above the ring is gone.
-	for _, y := range []int{112, 125, 138} {
-		if dark(536, y) {
-			t.Errorf("unexpected ink at (536,%d): the old lubber triangle should be gone", y)
-		}
+	// It stops at the compass area; it doesn't run into the header.
+	if dark(536, 60) {
+		t.Error("the bow line should not extend into the header")
+	}
+	// And it starts above the heading digits, not through them.
+	if dark(536, 560) && !dark(500, 560) && !dark(570, 560) {
+		t.Error("a bare line at digit height would mean it cuts through the heading numbers")
 	}
 }

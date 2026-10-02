@@ -107,12 +107,12 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		drawWindPointer(c, cx, cy, r, own.AWA.V)
 	}
 
-	// The bow line: straight up from the middle of the card to the ring. The
-	// card is heading-up, so this is the boat's direction of travel, and the
-	// wind pointer and AIS blips are read against it. It starts just above
-	// the heading digits so it doesn't strike through them, and goes last so
-	// nothing else can leave a gap in it.
-	c.Line(cx, cy-r*0.21, cx, cy-r-4, 8, shade)
+	// The bow line: straight up from just above the heading digits to the
+	// very top of the compass area, just under the header. The card is
+	// heading-up, so this is the boat's direction of travel, and the wind
+	// pointer and AIS blips are read against it. It goes last so nothing
+	// else can leave a gap in it.
+	c.Line(cx, cy-r*0.21, cx, float64(top+2), 8, shade)
 
 	boxBottom := top + compassH
 	drawWaterTemp(c, own, now, e, b.Dx()-28, top+10)
@@ -144,13 +144,13 @@ func diamond(px, py, ux, uy, a, b float64) []image.Point {
 func aisMarkerSize(rangeM float64) float64 {
 	switch {
 	case rangeM <= 926: // half a mile
-		return 24
+		return 34
 	case rangeM <= 3704: // two miles
-		return 19
+		return 27
 	case rangeM <= 11112: // six miles
-		return 15
+		return 21
 	}
-	return 12
+	return 17
 }
 
 // drawAIS puts a diamond on the rim for each contact: solid if it's closing
@@ -179,23 +179,62 @@ func drawAIS(c *render.Canvas, cx, cy, r, heading float64, contacts []ais.Contac
 		}
 	}
 
+	// Labels, nearest first. Each tries successively deeper positions along
+	// its own bearing and takes the first that doesn't land on a label that's
+	// already been placed - ships that are close together would otherwise
+	// print their ranges on top of one another.
+	var placed []image.Rectangle
 	for i := 0; i < len(contacts) && i < maxLabels; i++ {
 		k := contacts[i]
-		lx, ly, _, _ := pos(k, r-96)
 		value, unit := e.Units.Format("range", k.Range)
 		label := value + " " + unit
 		w := c.TextWidth(label, 32, render.Bold)
-		// A contact nearly dead ahead would put its label on the bow line;
-		// slide the label to whichever side the contact is on, clear of it.
-		if gap := w/2 + 14; math.Abs(lx-cx) < float64(gap) {
-			if lx < cx {
-				lx = cx - float64(gap)
-			} else {
-				lx = cx + float64(gap)
+
+		var cands []image.Point
+		for _, depth := range []float64{96, 142, 188} {
+			lx, ly, _, _ := pos(k, r-depth)
+			// A contact nearly dead ahead would put its label on the bow
+			// line; slide the label to whichever side it's on, clear of it.
+			if gap := w/2 + 14; math.Abs(lx-cx) < float64(gap) {
+				if lx < cx {
+					lx = cx - float64(gap)
+				} else {
+					lx = cx + float64(gap)
+				}
+			}
+			cands = append(cands, image.Pt(int(lx), int(ly)))
+		}
+		at, box := placeLabel(cands, w, placed)
+		placed = append(placed, box)
+		c.TextHalo(at.X, at.Y+11, label, 32, render.Bold, render.Center, render.Black, render.White, 4)
+	}
+}
+
+const labelH = 44
+
+// labelBox is the area a label of width w occupies when centred on p.
+func labelBox(p image.Point, w int) image.Rectangle {
+	return image.Rect(p.X-w/2-8, p.Y-labelH/2, p.X+w/2+8, p.Y+labelH/2)
+}
+
+// placeLabel returns the first candidate position whose box doesn't overlap
+// any already placed; if every one does, it settles for the last.
+func placeLabel(cands []image.Point, w int, placed []image.Rectangle) (image.Point, image.Rectangle) {
+	for _, p := range cands {
+		box := labelBox(p, w)
+		clear := true
+		for _, q := range placed {
+			if box.Overlaps(q) {
+				clear = false
+				break
 			}
 		}
-		c.TextHalo(int(lx), int(ly)+11, label, 32, render.Bold, render.Center, render.Black, render.White, 4)
+		if clear {
+			return p, box
+		}
 	}
+	last := cands[len(cands)-1]
+	return last, labelBox(last, w)
 }
 
 // drawWindPointer draws a bold arrowhead on the compass rim, pointing in
