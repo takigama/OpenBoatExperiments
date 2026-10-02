@@ -63,6 +63,8 @@ func main() {
 		interval     = flag.Duration("interval", time.Second, "redraw interval")
 		touch        = flag.Bool("touch", false, "read the touchscreen named in the profile (tap sides / swipe to change page)")
 		headerGuard  = flag.Duration("header-guard", 10*time.Second, "repaint the header strip this often (and just after each minute starts) to clear anything the stock UI, such as its clock, has drawn over it; 0 = never")
+		logMax       = flag.Int64("log-max", 256<<10, "empty the log (stderr, when it is a file) when it reaches this many bytes, so it can never fill the device; 0 = no limit")
+		verbose      = flag.Bool("verbose", false, "log every screen refresh, not just slow or failed ones")
 		minRefresh   = flag.Duration("min-refresh", 2*time.Second, "shortest gap between partial refreshes (0 = redraw on every change); page changes ignore it")
 		manifestURL  = flag.String("manifest", defaultManifest, "update manifest URL")
 		fetchKind    = flag.String("fetch", "", "how to download updates: curl or http (default: the profile's setting, else http)")
@@ -74,6 +76,9 @@ func main() {
 		touchTest    = flag.Bool("touch-test", false, "print raw and mapped touch events, then exit on Ctrl-C (to measure a device's orientation)")
 	)
 	flag.Parse()
+	if *logMax > 0 {
+		log.SetOutput(&capWriter{f: os.Stderr, max: *logMax})
+	}
 
 	// On a device the profile is deployed right beside the binary, so don't
 	// make anyone spell out its path.
@@ -159,7 +164,7 @@ func main() {
 		host = saved.Server
 	}
 	client := &signalk.Client{URL: signalk.StreamURL(host), Token: *token, State: state}
-	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, HeaderGuardEvery: *headerGuard,
+	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Verbose: *verbose, HeaderGuardEvery: *headerGuard,
 		Units: saved.Settings, Invert: saved.Invert, Boxes: saved.Boxes, SettingsPath: *settingsPath,
 		Server: saved.Server, DefaultServer: *server, OnServerChange: client.SetServer}
 

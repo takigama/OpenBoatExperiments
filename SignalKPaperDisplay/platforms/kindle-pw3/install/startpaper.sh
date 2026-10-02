@@ -121,9 +121,20 @@ keep_ssh() {
   fi
 }
 
+# The log lives on the small user partition and must never fill it. The app
+# caps what it writes itself (-log-max); this is the backstop for everything
+# else that lands there. The app holds the file open for appending, so
+# emptying it in place is safe and it carries on writing at the start.
+LOG_MAX=524288
+trim_log() {
+  [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt "$LOG_MAX" ] || return 0
+  cp "$LOG" "$LOG.1" && : > "$LOG"
+}
+
 # Before the pause and disable switches on purpose: those are about the app
 # and the screen, and ssh is how you would get in to use them.
 keep_ssh
+maintenance_minute && trim_log
 
 # --- pause switch -------------------------------------------------------------
 # While this file exists the launcher does nothing: it doesn't start the app

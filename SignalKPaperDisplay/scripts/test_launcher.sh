@@ -211,6 +211,23 @@ launch
 check "a missing dropbear binary is not an error" not_called "iptables"
 stop_dropbear
 
+echo "log size: trimmed in the housekeeping minute, never otherwise"
+big() { head -c 600000 /dev/zero | tr '\0' 'x' > "$DIR/paperdisplay.log"; }
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"; live_dropbear
+big
+launch
+check "left alone on an ordinary minute" test "$(wc -c < "$DIR/paperdisplay.log")" -gt 500000
+echo 300.9 0 > "$UPTIME_FILE"
+launch
+check "emptied on the housekeeping minute" test "$(wc -c < "$DIR/paperdisplay.log")" -lt 1000
+check "keeps the old log as .1" test "$(wc -c < "$DIR/paperdisplay.log.1")" -gt 500000
+stop_dropbear
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running"; live_dropbear
+echo 'a small log' > "$DIR/paperdisplay.log"; echo 300.9 0 > "$UPTIME_FILE"
+launch
+check "a small log is not touched" grep -q 'a small log' "$DIR/paperdisplay.log"
+stop_dropbear
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
 

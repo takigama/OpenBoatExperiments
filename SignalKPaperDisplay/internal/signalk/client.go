@@ -59,9 +59,28 @@ func StreamURL(hostPort string) string {
 	return "ws://" + hostPort + "/signalk/v1/stream?subscribe=all"
 }
 
+// retryLog decides which failures to log. A server that is simply down fails
+// the same way every few seconds, which would fill the log for as long as it
+// stays down: the first occurrence and any change are logged, then only one
+// in sixty of a repeat.
+type retryLog struct {
+	last string
+	n    int
+}
+
+func (r *retryLog) should(err error) bool {
+	if msg := err.Error(); msg != r.last {
+		r.last, r.n = msg, 0
+		return true
+	}
+	r.n++
+	return r.n%60 == 0
+}
+
 // Run connects and reconnects until ctx is cancelled.
 func (c *Client) Run(ctx context.Context) {
 	backoff := time.Second
+	var rl retryLog
 	for ctx.Err() == nil {
 		started := time.Now()
 		err := c.session(ctx)
@@ -76,8 +95,11 @@ func (c *Client) Run(ctx context.Context) {
 		}
 		if time.Since(started) > 30*time.Second {
 			backoff = time.Second // it worked for a while - retry quickly
+			rl = retryLog{}       // and the next failure is news again
 		}
-		log.Printf("signalk: %v (retrying in %s)", err, backoff)
+		if rl.should(err) {
+			log.Printf("signalk: %v (retrying in %s)", err, backoff)
+		}
 		select {
 		case <-ctx.Done():
 			return

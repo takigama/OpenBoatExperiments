@@ -54,6 +54,10 @@ type App struct {
 	// OnServerChange is called, with the new "host:port", after the user saves
 	// a different server, so the connection can be moved to it.
 	OnServerChange func(hostPort string)
+	// Verbose logs every screen refresh. Off, only slow ones are logged: one
+	// line every couple of seconds is a megabyte a day on a device with little
+	// room to spare.
+	Verbose bool
 	// SettingsPath is where settings changes are saved; empty means don't persist.
 	SettingsPath string
 
@@ -410,6 +414,10 @@ func (a *App) timing() string {
 	return s
 }
 
+// slowRefresh is how long a partial refresh may take before it is logged
+// even when not verbose.
+const slowRefresh = 1200 * time.Millisecond
+
 // Run redraws every Interval until ctx is cancelled.
 func (a *App) Run(ctx context.Context) {
 	t := time.NewTicker(a.Interval)
@@ -436,7 +444,7 @@ func (a *App) Run(ctx context.Context) {
 			case full:
 				lastFull = now
 				log.Printf("display: full refresh (%s) took %s (%s)", a.currentPage().ID, took.Round(time.Millisecond), a.timing())
-			case drew:
+			case drew && (a.Verbose || took > slowRefresh):
 				log.Printf("display: partial refresh took %s (%s)", took.Round(time.Millisecond), a.timing())
 			}
 		}
