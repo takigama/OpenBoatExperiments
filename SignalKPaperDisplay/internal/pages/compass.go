@@ -107,6 +107,13 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		drawWindPointer(c, cx, cy, r, own.AWA.V)
 	}
 
+	// Course over ground, against the heading line: where the boat is really
+	// going, which differs from where it's pointing when there's leeway or
+	// current. Only meaningful while we're actually moving.
+	if ok && own.COG.Fresh(now, StaleAfter) && own.SOG.Fresh(now, StaleAfter) && own.SOG.V >= cogMinSpeed {
+		drawCOG(c, cx, cy, r, own.COG.V-own.Heading.V, shade)
+	}
+
 	// The bow line: straight up from just above the heading digits to the
 	// very top of the compass area, just under the header. The card is
 	// heading-up, so this is the boat's direction of travel, and the wind
@@ -128,6 +135,49 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		metric{label: "SPEED", unit: sogUnit, ok: own.SOG.Fresh(now, StaleAfter), value: sogVal})
 	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
 		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal})
+}
+
+// cogMinSpeed is the slowest we'll trust a course over ground at: GPS
+// course is noise when barely moving. 0.3 m/s is about 0.6 knots.
+const cogMinSpeed = 0.3
+
+// drawCOG draws the course-over-ground line, rel radians clockwise from the
+// bow: a thin stem from just outside the heading digits to a little past the
+// compass ring, finished with a short crossbar like a stretched T. It's
+// shorter and thinner than the heading line, which runs to the top of the
+// compass area.
+func drawCOG(c *render.Canvas, cx, cy, r, rel float64, shade uint8) {
+	const (
+		stem      = 5
+		capHalf   = 18 // half the crossbar's length
+		pastRing  = 34 // how far beyond the ring the stem ends
+		digitHalf = 0.52
+		digitUp   = 0.21 // above the centre, matching where the heading line starts
+		digitDown = 0.25
+	)
+	ux, uy := math.Sin(rel), -math.Cos(rel)
+
+	// Start where the ray leaves the box around the heading digits, so the
+	// line never strikes through them whichever way it points.
+	t := math.Inf(1)
+	if math.Abs(ux) > 1e-9 {
+		t = math.Min(t, digitHalf*r/math.Abs(ux))
+	}
+	limit := digitDown
+	if uy < 0 {
+		limit = digitUp
+	}
+	if math.Abs(uy) > 1e-9 {
+		t = math.Min(t, limit*r/math.Abs(uy))
+	}
+	end := r + pastRing
+	if t >= end {
+		return
+	}
+	c.Line(cx+ux*t, cy+uy*t, cx+ux*end, cy+uy*end, stem, shade)
+
+	vx, vy := -uy, ux // across the line
+	c.Line(cx+ux*end+vx*capHalf, cy+uy*end+vy*capHalf, cx+ux*end-vx*capHalf, cy+uy*end-vy*capHalf, stem, shade)
 }
 
 // diamond is a four-point shape centred on (px, py), a long along the
