@@ -26,8 +26,14 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   stock UI if it can't stay up (see "Running it on the Kindle")
 - Touch: tap the left/right third (or swipe) to change page; tap the cog
   at the top left to open settings
-- Settings: the imperial/metric preset and a unit for every metric, saved to
-  `settings.json` beside the app (tap the back arrow to leave)
+- The compass page is also the dashboard: AIS contacts as diamonds on the rim
+  (solid = closing, hollow = opening, bigger = nearer), the nearest contact's
+  name and distance top left, water temperature top right, apparent wind speed
+  bottom left, fuel gauges bottom right. Each of these is drawn only once the
+  server has sent that data, and shows "--" if it later goes stale
+- Settings: the imperial/metric/nautical preset, a unit for every metric, and
+  an "Invert colours" switch (white on black), saved to `settings.json` beside
+  the app (tap the back arrow to leave)
 - A clock in the header, drawn by the app, with a heartbeat dot beside it that
   blinks every second (redrawn as its own tiny region, so it costs almost
   nothing) - if it stops, the app or the panel has hung

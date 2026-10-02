@@ -3,10 +3,13 @@ package app
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"signalkpaperdisplay/internal/display"
 	"signalkpaperdisplay/internal/input"
 	"signalkpaperdisplay/internal/pages"
+	"signalkpaperdisplay/internal/settings"
+	"signalkpaperdisplay/internal/signalk"
 	"signalkpaperdisplay/internal/units"
 )
 
@@ -14,7 +17,7 @@ func tap(x, y int) input.Event { return input.Event{Kind: input.Tap, X: x, Y: y}
 
 func TestSettingsFlow(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
-	a := &App{Display: &display.PNG{W: 1072, H: 1448}, UnitsPath: path}
+	a := &App{Display: &display.PNG{W: 1072, H: 1448}, SettingsPath: path}
 	a.SetPage("nav")
 	a.takePageChanged()
 
@@ -46,7 +49,7 @@ func TestSettingsFlow(t *testing.T) {
 	}
 
 	// The choice must have been saved, and be what a restart would load.
-	saved, err := units.Load(path)
+	saved, err := settings.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +83,97 @@ func TestSettingsFlow(t *testing.T) {
 	a.HandleEvent(tap(1000, 700)) // right third again pages normally
 	if a.currentPage().ID != "compass" {
 		t.Errorf("after closing settings, a right-edge tap should page to compass, got %s", a.currentPage().ID)
+	}
+}
+
+func TestInvertTogglePersistsAndStaysOnTheList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	a := &App{Display: &display.PNG{W: 1072, H: 1448}, SettingsPath: path}
+	a.HandleEvent(tap(30, 40)) // open settings
+	a.takePageChanged()
+
+	invertRow := pages.SettingsRowY(len(units.Metrics) + 1)
+	a.HandleEvent(tap(500, invertRow))
+	if !a.Invert {
+		t.Fatal("tapping the invert row should turn inversion on")
+	}
+	if a.settingsView.Screen != pages.SettingsRoot || !a.settingsOpen {
+		t.Errorf("toggling should stay on the list so the change is visible, got open=%v view=%+v", a.settingsOpen, a.settingsView)
+	}
+	if !a.takePageChanged() {
+		t.Error("inverting the whole screen needs a full refresh")
+	}
+	saved, err := settings.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.Invert {
+		t.Error("the choice must be saved")
+	}
+
+	a.HandleEvent(tap(500, invertRow))
+	if a.Invert {
+		t.Error("tapping again should turn it back off")
+	}
+	if saved, _ := settings.Load(path); saved.Invert {
+		t.Error("turning it off must be saved too")
+	}
+}
+
+func TestInvertFlipsEveryPixelOfTheFrame(t *testing.T) {
+	normal := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}}
+	inverted := &App{State: signalk.NewState(), Display: &display.PNG{W: 1072, H: 1448}, Invert: true}
+	now := time.Unix(2000, 0)
+
+	a, err := normal.Frame(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := inverted.Frame(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range a.Pix {
+		if a.Pix[i] != 255-b.Pix[i] {
+			t.Fatalf("pixel %d: normal %d, inverted %d - not complements", i, a.Pix[i], b.Pix[i])
+		}
+	}
+	// Including the settings screens, so the toggle's own effect is visible.
+	// The one place they legitimately differ is the invert row itself, which
+	// reads "On" in one and "Off" in the other; everything else must still
+	// be an exact complement.
+	normal.OpenSettings(pages.SettingsView{})
+	inverted.OpenSettings(pages.SettingsView{})
+	a, _ = normal.Frame(now)
+	b, _ = inverted.Frame(now)
+	rowMid := pages.SettingsRowY(len(units.Metrics) + 1)
+	for y := 0; y < 1448; y++ {
+		if y >= rowMid-60 && y < rowMid+60 {
+			continue
+		}
+		for x := 0; x < 1072; x++ {
+			if a.Pix[y*a.Stride+x] != 255-b.Pix[y*b.Stride+x] {
+				t.Fatalf("settings screen pixel (%d,%d) is not inverted", x, y)
+			}
+		}
+	}
+}
+
+func TestInvertAlsoFlipsTheHeartbeatDot(t *testing.T) {
+	rec := &regionRecorder{PNG: display.PNG{W: 1072, H: 1448}}
+	plain := &App{State: signalk.NewState(), Display: rec}
+	plain.heartbeat(time.Unix(2000, 0))
+	rec2 := &regionRecorder{PNG: display.PNG{W: 1072, H: 1448}}
+	flipped := &App{State: signalk.NewState(), Display: rec2, Invert: true}
+	flipped.heartbeat(time.Unix(2000, 0))
+
+	a, b := rec.regions[0].img, rec2.regions[0].img
+	for y := a.Bounds().Min.Y; y < a.Bounds().Max.Y; y++ {
+		for x := a.Bounds().Min.X; x < a.Bounds().Max.X; x++ {
+			if a.GrayAt(x, y).Y != 255-b.GrayAt(x, y).Y {
+				t.Fatalf("heartbeat pixel (%d,%d) is not inverted: %d vs %d", x, y, a.GrayAt(x, y).Y, b.GrayAt(x, y).Y)
+			}
+		}
 	}
 }
 

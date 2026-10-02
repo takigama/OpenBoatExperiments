@@ -7,6 +7,7 @@ package ais
 import (
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"signalkpaperdisplay/internal/signalk"
@@ -29,6 +30,19 @@ type Contact struct {
 	Range     float64 // metres
 	RangeRate float64 // m/s; negative means the gap is shrinking
 	Closing   bool    // RangeRate < 0
+}
+
+// DisplayName is what to call the contact on screen: its name if it sent
+// one, else its MMSI number, else "UNKNOWN". Many small boats broadcast a
+// position but never a name.
+func (c Contact) DisplayName() string {
+	if n := strings.TrimSpace(c.Name); n != "" {
+		return n
+	}
+	if _, mmsi, ok := strings.Cut(c.ID, "mmsi:"); ok && mmsi != "" {
+		return mmsi
+	}
+	return "UNKNOWN"
 }
 
 // velocity is a speed and course as east/north components in m/s.

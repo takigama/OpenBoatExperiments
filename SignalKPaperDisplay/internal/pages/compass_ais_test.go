@@ -99,37 +99,7 @@ func TestClosingShipsAreSolidAndOpeningOnesHollow(t *testing.T) {
 	}
 }
 
-func TestPlaceLabelAvoidsLabelsAlreadyPlaced(t *testing.T) {
-	cands := []image.Point{{500, 900}, {500, 850}, {500, 800}}
-	var placed []image.Rectangle
-
-	first, box1 := placeLabel(cands, 120, placed)
-	placed = append(placed, box1)
-	if first != cands[0] {
-		t.Fatalf("with nothing in the way the first choice should win, got %v", first)
-	}
-
-	// The next label wants the same spot: it must move to a later candidate
-	// whose box is clear of the first.
-	second, box2 := placeLabel(cands, 120, placed)
-	if second == cands[0] || box2.Overlaps(box1) {
-		t.Errorf("second label %v (%v) overlaps the first (%v)", second, box2, box1)
-	}
-	placed = append(placed, box2)
-
-	third, box3 := placeLabel(cands, 120, placed)
-	if box3.Overlaps(box1) || box3.Overlaps(box2) {
-		t.Errorf("third label %v (%v) overlaps an earlier one", third, box3)
-	}
-
-	// If nothing is free it still returns something, rather than failing.
-	placed = append(placed, box3)
-	if p, _ := placeLabel(cands, 120, placed); p != cands[len(cands)-1] {
-		t.Errorf("with every spot taken it should settle for the last, got %v", p)
-	}
-}
-
-func TestRangeLabelsOnlyForTheNearestThree(t *testing.T) {
+func TestFiveContactsDrawMoreThanOne(t *testing.T) {
 	s := withShipAhead(1000, 0, 0)
 	for i, d := range []float64{2000, 3000, 4000, 5000} {
 		s.Targets = append(s.Targets, signalk.Target{
@@ -137,11 +107,71 @@ func TestRangeLabelsOnlyForTheNearestThree(t *testing.T) {
 			Pos: signalk.Position{Lat: testLat + d/mPerDeg, Lon: testLon + float64(i+1)*0.01, At: compassNow},
 		})
 	}
-	// Just make sure five contacts draw without trouble and ink more than one.
 	one := inked(renderCompass(t, withShipAhead(1000, 0, 0)), image.Rect(0, 94, 1072, 1150))
 	five := inked(renderCompass(t, s), image.Rect(0, 94, 1072, 1150))
 	if five <= one {
 		t.Errorf("five contacts (%d) should ink more than one (%d)", five, one)
+	}
+}
+
+var (
+	topLeft    = image.Rect(24, 104, 260, 215)
+	bottomLeft = image.Rect(24, 1000, 230, 1140)
+)
+
+func TestClosestAISShowsTopLeftOnlyWithAContact(t *testing.T) {
+	if n := inked(renderCompass(t, base()), topLeft); n != 0 {
+		t.Errorf("no contacts, but %d inked pixels in the top-left", n)
+	}
+	if n := inked(renderCompass(t, withShipAhead(3000, 0, 0)), topLeft); n == 0 {
+		t.Error("a contact should put its name and distance top-left")
+	}
+	// A contact with no usable own position can't be measured: nothing shown.
+	s := withShipAhead(3000, 0, 0)
+	s.Own.Pos.At = compassNow.Add(-time.Minute)
+	if n := inked(renderCompass(t, s), topLeft); n != 0 {
+		t.Errorf("with no own position the top-left should be empty, got %d", n)
+	}
+}
+
+func TestClosestAISIsTheNearestAndFallsBackToTheMMSI(t *testing.T) {
+	near := withShipAhead(1000, 0, 0)
+	far := withShipAhead(1000, 0, 0)
+	far.Targets = append(far.Targets, signalk.Target{
+		ID: "urn:mrn:imo:mmsi:235000009", Name: "A VERY LONG SHIP NAME INDEED",
+		Pos: signalk.Position{Lat: testLat + 9000/mPerDeg, Lon: testLon, At: compassNow},
+	})
+	// A farther ship must not change which one is shown.
+	if inkNear, inkFar := inked(renderCompass(t, near), topLeft), inked(renderCompass(t, far), topLeft); inkNear != inkFar {
+		t.Errorf("a farther ship changed the top-left: %d vs %d", inkNear, inkFar)
+	}
+
+	// A long name is shortened to the corner rather than running into the card.
+	long := withShipAhead(1000, 0, 0)
+	long.Targets[0].Name = "A VERY LONG SHIP NAME INDEED AND THEN SOME"
+	c := renderCompass(t, long)
+	if n := inked(c, image.Rect(310, 104, 420, 150)); n != 0 {
+		t.Errorf("long name spilled %d pixels past the corner", n)
+	}
+}
+
+func TestWindSpeedShowsBottomLeftOnceSeen(t *testing.T) {
+	if n := inked(renderCompass(t, base()), bottomLeft); n != 0 {
+		t.Errorf("no wind data, but %d inked pixels bottom-left", n)
+	}
+	s := base()
+	s.Own.AWS = signalk.Reading{V: 6, At: compassNow}
+	live := renderCompass(t, s)
+	if inked(live, bottomLeft) == 0 {
+		t.Fatal("wind speed should appear bottom-left")
+	}
+	s.Own.AWS.At = compassNow.Add(-time.Minute)
+	stale := renderCompass(t, s)
+	if inked(stale, bottomLeft) == 0 {
+		t.Error("stale wind speed should show \"--\", not vanish")
+	}
+	if !differs(live, stale) {
+		t.Error("stale wind speed should look different to live")
 	}
 }
 

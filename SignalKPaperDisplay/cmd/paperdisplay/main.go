@@ -18,8 +18,8 @@ import (
 	"signalkpaperdisplay/internal/display"
 	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/profile"
+	"signalkpaperdisplay/internal/settings"
 	"signalkpaperdisplay/internal/signalk"
-	"signalkpaperdisplay/internal/units"
 )
 
 func fileExists(path string) bool {
@@ -145,11 +145,12 @@ func main() {
 
 	state := signalk.NewState()
 	client := &signalk.Client{URL: signalk.StreamURL(*server), Token: *token, State: state}
-	unitSettings, err := units.Load(*settingsPath)
+	saved, err := settings.Load(*settingsPath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Units: unitSettings, UnitsPath: *settingsPath}
+	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh,
+		Units: saved.Settings, Invert: saved.Invert, SettingsPath: *settingsPath}
 
 	if !a.SetPage(*pageID) {
 		log.Fatalf("unknown -page %q", *pageID)

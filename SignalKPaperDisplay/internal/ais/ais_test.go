@@ -137,6 +137,25 @@ func TestSortedNearestFirst(t *testing.T) {
 	}
 }
 
+func TestDisplayName(t *testing.T) {
+	cases := []struct {
+		name string
+		c    Contact
+		want string
+	}{
+		{"its own name", Contact{ID: "urn:mrn:imo:mmsi:235000001", Name: "SEA BREEZE"}, "SEA BREEZE"},
+		{"name with stray spaces", Contact{ID: "urn:mrn:imo:mmsi:235000001", Name: "  KOOKABURRA "}, "KOOKABURRA"},
+		{"no name: the MMSI", Contact{ID: "urn:mrn:imo:mmsi:235000009"}, "235000009"},
+		{"blank name: the MMSI", Contact{ID: "urn:mrn:imo:mmsi:235000009", Name: "   "}, "235000009"},
+		{"neither", Contact{ID: "urn:mrn:signalk:uuid:abc"}, "UNKNOWN"},
+	}
+	for _, c := range cases {
+		if got := c.c.DisplayName(); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestUnknownMotionIsTreatedAsStationary(t *testing.T) {
 	// A target that reports a position but no course/speed (many Class B
 	// units): it still appears, as a stationary contact.

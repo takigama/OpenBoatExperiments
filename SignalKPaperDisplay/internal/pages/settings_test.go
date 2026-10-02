@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"image"
 	"testing"
 
 	"signalkpaperdisplay/internal/render"
@@ -28,6 +29,36 @@ func TestSettingsTapRoot(t *testing.T) {
 	}
 	if got := SettingsTap(root, 500, headerH+5); got.Kind != ActNone {
 		t.Errorf("a tap in the header gap = %+v, want nothing", got)
+	}
+}
+
+func TestInvertRowIsLastInTheList(t *testing.T) {
+	root := SettingsView{Screen: SettingsRoot}
+	got := SettingsTap(root, 500, rowY(len(units.Metrics)+1))
+	if got.Kind != ActToggleInvert {
+		t.Errorf("the row after the last metric = %+v, want the invert toggle", got)
+	}
+	// It's a toggle, not a picker: it must not exist on the other screens.
+	if got := SettingsTap(SettingsView{Screen: SettingsPickPreset}, 500, rowY(len(units.Metrics)+1)); got.Kind == ActToggleInvert {
+		t.Error("the preset picker must not have the invert toggle")
+	}
+}
+
+func TestInvertRowShowsItsState(t *testing.T) {
+	// The On/Off text is at the right end of the invert row.
+	on, off := func() *render.Canvas {
+		c, _ := render.NewCanvas(1072, 1448)
+		Settings(c, SettingsView{}, units.Settings{}, true)
+		return c
+	}(), func() *render.Canvas {
+		c, _ := render.NewCanvas(1072, 1448)
+		Settings(c, SettingsView{}, units.Settings{}, false)
+		return c
+	}()
+	y := rowY(len(units.Metrics) + 1)
+	cell := image.Rect(900, y-30, 1030, y+30)
+	if !differs(on, off) || inked(on, cell) == inked(off, cell) {
+		t.Error("the invert row should read differently when on and off")
 	}
 }
 
@@ -73,7 +104,7 @@ func TestSettingsScreensDraw(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		Settings(c, v, u)
+		Settings(c, v, u, false)
 		dark := 0
 		for _, p := range c.Img.Pix {
 			if p < 128 {

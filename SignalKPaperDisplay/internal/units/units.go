@@ -6,10 +6,7 @@
 package units
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 )
 
@@ -227,44 +224,4 @@ func (s *Settings) SetUnit(metricID, symbol string) error {
 	}
 	s.Overrides[metricID] = symbol
 	return nil
-}
-
-// Load reads settings from path. A missing file is not an error - it just
-// means defaults - so a fresh device works with no setup.
-func Load(path string) (Settings, error) {
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return Settings{Preset: PresetMetric}, nil
-	}
-	if err != nil {
-		return Settings{}, err
-	}
-	var s Settings
-	if err := json.Unmarshal(b, &s); err != nil {
-		return Settings{}, fmt.Errorf("%s: %w", path, err)
-	}
-	return s, nil
-}
-
-// Save writes settings atomically, so a power cut mid-write can't leave a
-// half-written file that fails to parse on the next start.
-func Save(path string, s Settings) error {
-	b, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(append(b, '\n')); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }

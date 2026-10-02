@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	"log"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"signalkpaperdisplay/internal/input"
 	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/render"
+	"signalkpaperdisplay/internal/settings"
 	"signalkpaperdisplay/internal/signalk"
 	"signalkpaperdisplay/internal/units"
 )
@@ -34,8 +36,11 @@ type App struct {
 	// while the renderer reads them, so inside the app go through unitsNow()
 	// and the settings handler, never touch the field directly once running.
 	Units units.Settings
-	// UnitsPath is where unit changes are saved; empty means don't persist.
-	UnitsPath string
+	// Invert shows white on black instead of black on white. Applied as the
+	// last step of every frame, so it covers every page with no per-page work.
+	Invert bool
+	// SettingsPath is where settings changes are saved; empty means don't persist.
+	SettingsPath string
 
 	mu           sync.Mutex // guards the fields below, which touch input changes
 	page         int
@@ -205,18 +210,20 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	case pages.ActSetUnit:
 		err = a.Units.SetUnit(act.Metric, act.Value)
 		a.settingsView = pages.SettingsView{}
+	case pages.ActToggleInvert:
+		a.Invert = !a.Invert // stays on the list: you see the result at once
 	}
-	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit
-	saved := a.Units.Clone()
+	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit || act.Kind == pages.ActToggleInvert
+	saved := settings.File{Settings: a.Units.Clone(), Invert: a.Invert}
 	a.pageChanged = true // every screen is a different picture: full refresh
 	a.mu.Unlock()
 
 	if err != nil {
 		log.Printf("settings: %v", err)
 	}
-	if changed && a.UnitsPath != "" {
-		if err := units.Save(a.UnitsPath, saved); err != nil {
-			log.Printf("settings: could not save %s: %v", a.UnitsPath, err)
+	if changed && a.SettingsPath != "" {
+		if err := settings.Save(a.SettingsPath, saved); err != nil {
+			log.Printf("settings: could not save %s: %v", a.SettingsPath, err)
 		}
 	}
 	log.Printf("touch: settings tap at (%d,%d)", ev.X, ev.Y)
@@ -244,6 +251,9 @@ func (a *App) heartbeat(now time.Time) {
 	if img == nil {
 		return
 	}
+	if a.invertNow() {
+		img = invertedCopy(img)
+	}
 	err := rd.ShowRegion(img, rect.Min.X, rect.Min.Y)
 	// Once a second would flood the log if it fails, so say it once per distinct error.
 	if err != nil && !errors.Is(err, display.ErrNoRegion) && err.Error() != a.lastHeartbeatErr {
@@ -263,12 +273,43 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	open, view := a.settingsOpen, a.settingsView
 	a.mu.Unlock()
 	u := a.unitsNow()
+	invert := a.invertNow()
 	if open {
-		pages.Settings(c, view, u)
+		pages.Settings(c, view, u, invert)
 	} else {
 		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u})
 	}
+	if invert {
+		invertInPlace(c.Img)
+	}
 	return c.Img, nil
+}
+
+func (a *App) invertNow() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.Invert
+}
+
+// invertInPlace flips every pixel: black becomes white and the reverse, with
+// greys mirrored. Done once at the end of a frame rather than by every page.
+func invertInPlace(img *image.Gray) {
+	for i, v := range img.Pix {
+		img.Pix[i] = 255 - v
+	}
+}
+
+// invertedCopy is invertInPlace on a copy, for images that share pixels with
+// another (the heartbeat's region is a window into a larger canvas).
+func invertedCopy(src *image.Gray) *image.Gray {
+	b := src.Bounds()
+	dst := image.NewGray(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dst.SetGray(x, y, color.Gray{Y: 255 - src.GrayAt(x, y).Y})
+		}
+	}
+	return dst
 }
 
 func (a *App) Show(now time.Time, full bool) (drew bool, err error) {

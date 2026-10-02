@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"strings"
 	"time"
 
 	"signalkpaperdisplay/internal/ais"
@@ -92,11 +93,13 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	}
 	c.Text(int(cx), int(cy+r*0.20), text, r*0.5, render.Bold, render.Center, shade)
 
+	var contacts []ais.Contact // nearest first; stays empty without a fix and heading
 	// AIS contacts, at their bearing relative to our bow. Bearings are
 	// meaningless without a live heading and position, so with either
 	// missing no blips are drawn at all.
 	if ok && own.Pos.Fresh(now, StaleAfter) {
-		drawAIS(c, cx, cy, r, own.Heading.V, ais.Contacts(own, s.Targets, now, StaleAfter), e)
+		contacts = ais.Contacts(own, s.Targets, now, StaleAfter)
+		drawAIS(c, cx, cy, r, own.Heading.V, contacts)
 	}
 
 	// Apparent wind: shown only while it's live. The card is heading-up, so
@@ -122,8 +125,13 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	// else can leave a gap in it.
 	c.Line(cx, cy-r*0.21, cx, float64(top+2), 8, shade)
 
+	// The four corners of the compass area, each only when there's something
+	// to show: closest ship top-left, water temperature top-right, wind speed
+	// bottom-left, fuel bottom-right.
 	boxBottom := top + compassH
+	drawClosestAIS(c, contacts, e, 28, top+10)
 	drawWaterTemp(c, own, now, e, b.Dx()-28, top+10)
+	drawWindSpeed(c, own, now, e, 28, boxBottom-16)
 	drawFuelGauges(c, own.Fuel, now, b.Dx()-28, boxBottom-8)
 
 	// Split row underneath: speed | depth.
@@ -260,23 +268,21 @@ func aisMarkerSize(rangeM float64) float64 {
 }
 
 // drawAIS puts a diamond on the rim for each contact: solid if it's closing
-// on us, hollow if the gap is growing. The nearest few also get their range,
-// in the user's distance unit.
-func drawAIS(c *render.Canvas, cx, cy, r, heading float64, contacts []ais.Contact, e Env) {
-	const maxMarkers, maxLabels = 12, 3
+// on us, hollow if the gap is growing, bigger the nearer it is. The nearest
+// contact's name and distance are written out in the top-left corner (see
+// drawClosestAIS), not beside the diamonds, which would crowd the rim.
+func drawAIS(c *render.Canvas, cx, cy, r, heading float64, contacts []ais.Contact) {
+	const maxMarkers = 12
 	if len(contacts) > maxMarkers {
 		contacts = contacts[:maxMarkers]
-	}
-	pos := func(k ais.Contact, radius float64) (x, y, ux, uy float64) {
-		a := k.Bearing - heading
-		ux, uy = math.Sin(a), -math.Cos(a)
-		return cx + ux*radius, cy + uy*radius, ux, uy
 	}
 
 	// Furthest first, so the nearest ends up on top where they overlap.
 	for i := len(contacts) - 1; i >= 0; i-- {
 		k := contacts[i]
-		px, py, ux, uy := pos(k, r)
+		a := k.Bearing - heading
+		ux, uy := math.Sin(a), -math.Cos(a)
+		px, py := cx+ux*r, cy+uy*r
 		h := aisMarkerSize(k.Range)
 		c.FillPolygon(diamond(px, py, ux, uy, h*1.4+9, h+9), render.White) // halo over the ticks
 		c.FillPolygon(diamond(px, py, ux, uy, h*1.4, h), render.Black)
@@ -284,63 +290,59 @@ func drawAIS(c *render.Canvas, cx, cy, r, heading float64, contacts []ais.Contac
 			c.FillPolygon(diamond(px, py, ux, uy, h*0.7, h*0.5), render.White) // hollow
 		}
 	}
-
-	// Labels, nearest first. Each tries successively deeper positions along
-	// its own bearing and takes the first that doesn't land on a label that's
-	// already been placed - ships that are close together would otherwise
-	// print their ranges on top of one another.
-	var placed []image.Rectangle
-	for i := 0; i < len(contacts) && i < maxLabels; i++ {
-		k := contacts[i]
-		value, unit := e.Units.Format("range", k.Range)
-		label := value + " " + unit
-		w := c.TextWidth(label, 32, render.Bold)
-
-		var cands []image.Point
-		for _, depth := range []float64{96, 142, 188} {
-			lx, ly, _, _ := pos(k, r-depth)
-			// A contact nearly dead ahead would put its label on the bow
-			// line; slide the label to whichever side it's on, clear of it.
-			if gap := w/2 + 14; math.Abs(lx-cx) < float64(gap) {
-				if lx < cx {
-					lx = cx - float64(gap)
-				} else {
-					lx = cx + float64(gap)
-				}
-			}
-			cands = append(cands, image.Pt(int(lx), int(ly)))
-		}
-		at, box := placeLabel(cands, w, placed)
-		placed = append(placed, box)
-		c.TextHalo(at.X, at.Y+11, label, 32, render.Bold, render.Center, render.Black, render.White, 4)
-	}
 }
 
-const labelH = 44
-
-// labelBox is the area a label of width w occupies when centred on p.
-func labelBox(p image.Point, w int) image.Rectangle {
-	return image.Rect(p.X-w/2-8, p.Y-labelH/2, p.X+w/2+8, p.Y+labelH/2)
-}
-
-// placeLabel returns the first candidate position whose box doesn't overlap
-// any already placed; if every one does, it settles for the last.
-func placeLabel(cands []image.Point, w int, placed []image.Rectangle) (image.Point, image.Rectangle) {
-	for _, p := range cands {
-		box := labelBox(p, w)
-		clear := true
-		for _, q := range placed {
-			if box.Overlaps(q) {
-				clear = false
-				break
-			}
-		}
-		if clear {
-			return p, box
+// fitText shortens s with "..." until it's no wider than maxW.
+func fitText(c *render.Canvas, s string, size float64, w render.Weight, maxW int) string {
+	if c.TextWidth(s, size, w) <= maxW {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 1 {
+		r = r[:len(r)-1]
+		if t := string(r) + "..."; c.TextWidth(t, size, w) <= maxW {
+			return t
 		}
 	}
-	last := cands[len(cands)-1]
-	return last, labelBox(last, w)
+	return "..."
+}
+
+// leftValue draws "value unit" with the pair's left edge at xLeft.
+func leftValue(c *render.Canvas, xLeft, baseline int, value, unit string, size float64) {
+	c.Text(xLeft, baseline, value, size, render.Bold, render.Left, render.Black)
+	wv := c.TextWidth(value, size, render.Bold)
+	c.Text(xLeft+wv+int(size*0.08), baseline, unit, size*0.45, render.Bold, render.Left, render.Black)
+}
+
+// drawClosestAIS shows the nearest AIS contact's name and distance in the
+// top-left corner of the compass area, laid out like the water temperature
+// opposite it. It is drawn only when there is a contact, and long names are
+// shortened to fit the corner.
+func drawClosestAIS(c *render.Canvas, contacts []ais.Contact, e Env, xLeft, yTop int) {
+	if len(contacts) == 0 {
+		return
+	}
+	k := contacts[0] // nearest first
+	value, unit := e.Units.Format("range", k.Range)
+	name := fitText(c, strings.ToUpper(k.DisplayName()), 34, render.Bold, 270)
+	c.Text(xLeft, yTop+34, name, 34, render.Bold, render.Left, render.Black)
+	leftValue(c, xLeft, yTop+34+66, value, unit, 68)
+}
+
+// drawWindSpeed shows the apparent wind speed in the bottom-left corner of
+// the compass area, opposite the fuel gauges - but only once the server has
+// sent one. Once seen, it shows "--" if it goes stale rather than vanishing.
+func drawWindSpeed(c *render.Canvas, own signalk.Own, now time.Time, e Env, xLeft, yBottom int) {
+	if !own.AWS.Valid() {
+		return
+	}
+	value := "--"
+	_, unit := e.Units.Format("aws", 0)
+	if own.AWS.Fresh(now, StaleAfter) {
+		value, _ = e.Units.Format("aws", own.AWS.V)
+	}
+	c.Text(xLeft, yBottom-66, "WIND", 34, render.Bold, render.Left, render.Black)
+	leftValue(c, xLeft, yBottom, value, unit, 68)
 }
 
 // drawWindPointer draws a bold arrowhead on the compass rim, pointing in

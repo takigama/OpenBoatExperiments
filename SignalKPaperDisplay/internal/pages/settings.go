@@ -33,6 +33,7 @@ const (
 	ActOpenUnitPicker              // root -> unit picker for Action.Metric
 	ActSetPreset                   // apply Action.Value as the preset
 	ActSetUnit                     // apply Action.Value as Action.Metric's unit
+	ActToggleInvert                // flip white-on-black / black-on-white
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -68,6 +69,11 @@ func titleCase(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
+// invertRow is the list row of the invert-colours toggle: after the units
+// preset (row 0) and one row per metric, so adding a metric moves it down
+// by itself.
+func invertRow() int { return len(units.Metrics) + 1 }
+
 // SettingsRowY is the vertical middle of list row i, for callers (and
 // tests) that need to tap a particular row.
 func SettingsRowY(i int) int { return settingsTop + i*settingsRowH + settingsRowH/2 }
@@ -93,6 +99,9 @@ func SettingsTap(v SettingsView, x, y int) Action {
 		}
 		if row >= 1 && row <= len(units.Metrics) {
 			return Action{Kind: ActOpenUnitPicker, Metric: units.Metrics[row-1].ID}
+		}
+		if row == invertRow() {
+			return Action{Kind: ActToggleInvert}
 		}
 	case SettingsPickPreset:
 		if p := units.Presets(); row >= 0 && row < len(p) {
@@ -131,8 +140,9 @@ func row(c *render.Canvas, i int, label string, right func(cy int)) {
 	c.HLine(40, b.Dx()-40, y0+settingsRowH-2, 2, render.Mid)
 }
 
-// Settings draws the settings screens.
-func Settings(c *render.Canvas, v SettingsView, u units.Settings) {
+// Settings draws the settings screens. invert is the current state of the
+// invert-colours option, shown on its row.
+func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool) {
 	b := c.Bounds()
 
 	title := "SETTINGS"
@@ -166,7 +176,14 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings) {
 				chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
 			})
 		}
-		c.Text(40, settingsTop+(len(units.Metrics)+1)*settingsRowH+60,
+		row(c, invertRow(), "Invert colours", func(cy int) {
+			state := "Off"
+			if invert {
+				state = "On"
+			}
+			c.Text(b.Dx()-50, cy+16, state, 50, render.Bold, render.Right, render.Black)
+		})
+		c.Text(40, settingsTop+(invertRow()+1)*settingsRowH+60,
 			"* set individually, not from the preset", 36, render.Regular, render.Left, render.Dark)
 
 	case SettingsPickPreset:

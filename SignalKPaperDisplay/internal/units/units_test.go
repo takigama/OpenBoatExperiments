@@ -1,7 +1,6 @@
 package units
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -137,26 +136,14 @@ func TestRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestSaveLoadRoundTripAndMissingFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "settings.json")
-
-	def, err := Load(path)
-	if err != nil || def.Preset != PresetMetric {
-		t.Fatalf("missing file should give metric defaults, got %+v, %v", def, err)
-	}
-
-	s := Settings{Preset: PresetImperial}
-	if err := s.SetUnit("depth", "fm"); err != nil {
-		t.Fatal(err)
-	}
-	if err := Save(path, s); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Preset != PresetImperial || got.UnitFor("depth").Symbol != "fm" || got.UnitFor("sog").Symbol != "mph" {
-		t.Errorf("round trip lost settings: %+v", got)
+// Reading and writing the settings file now lives in internal/settings
+// (see its tests); Clone is what's left here that the file layer relies on.
+func TestCloneIsIndependent(t *testing.T) {
+	a := Settings{Preset: PresetMetric}
+	a.SetUnit("sog", "kn")
+	b := a.Clone()
+	b.SetUnit("sog", "mph")
+	if a.UnitFor("sog").Symbol != "kn" || b.UnitFor("sog").Symbol != "mph" {
+		t.Errorf("a clone shares its overrides with the original: %+v / %+v", a, b)
 	}
 }
