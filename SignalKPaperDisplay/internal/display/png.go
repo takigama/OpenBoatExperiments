@@ -12,6 +12,10 @@ import (
 type PNG struct {
 	W, H int
 	Path string
+	// Fast skips compression. Frames staged for a drawing tool are written
+	// and read back within a second, so compressing them only costs CPU -
+	// maximum compression of a 1.5MB frame took seconds on a Kindle.
+	Fast bool
 }
 
 func (p *PNG) Size() (int, int) { return p.W, p.H }
@@ -26,6 +30,9 @@ func (p *PNG) Show(img *image.Gray, _ bool) (bool, error) {
 		return false, err
 	}
 	enc := png.Encoder{CompressionLevel: png.BestCompression}
+	if p.Fast {
+		enc.CompressionLevel = png.NoCompression
+	}
 	if err := enc.Encode(tmp, img); err != nil {
 		tmp.Close()
 		os.Remove(tmp.Name())

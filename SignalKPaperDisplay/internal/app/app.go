@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"log"
 	"sync"
@@ -34,6 +35,8 @@ type App struct {
 	page        int
 	pageChanged bool
 	wake        chan struct{} // nudges Run to redraw now, not at the next tick
+
+	renderTook time.Duration // last frame's page rendering, only touched by Show
 }
 
 func (a *App) nudge() {
@@ -142,11 +145,23 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 }
 
 func (a *App) Show(now time.Time, full bool) (drew bool, err error) {
+	t0 := time.Now()
 	img, err := a.Frame(now)
 	if err != nil {
 		return false, err
 	}
+	a.renderTook = time.Since(t0)
 	return a.Display.Show(img, full)
+}
+
+// timing describes where the last frame's time went: our own page
+// rendering, plus the display's breakdown if it offers one.
+func (a *App) timing() string {
+	s := fmt.Sprintf("render %s", a.renderTook.Round(time.Millisecond))
+	if t, ok := a.Display.(interface{ LastTiming() string }); ok {
+		s += ", " + t.LastTiming()
+	}
+	return s
 }
 
 // Run redraws every Interval until ctx is cancelled.
@@ -174,9 +189,9 @@ func (a *App) Run(ctx context.Context) {
 				log.Printf("display: %v", err)
 			case full:
 				lastFull = now
-				log.Printf("display: full refresh (%s) took %s", a.currentPage().ID, took.Round(time.Millisecond))
+				log.Printf("display: full refresh (%s) took %s (%s)", a.currentPage().ID, took.Round(time.Millisecond), a.timing())
 			case drew:
-				log.Printf("display: partial refresh took %s", took.Round(time.Millisecond))
+				log.Printf("display: partial refresh took %s (%s)", took.Round(time.Millisecond), a.timing())
 			}
 		}
 		select {

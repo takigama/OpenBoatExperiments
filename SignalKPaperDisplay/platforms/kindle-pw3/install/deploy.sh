@@ -34,12 +34,20 @@ trap 'rm -rf "$STAGE"' EXIT
 
 cp "$BIN" "$STAGE/paperdisplay"
 cp "$PLATFORM/profile.json" "$STAGE/profile.json"
+# A full FBInk (with image support) if it's been built: bash tools/fbink/build.sh
+# KOReader's bundled fbink can't draw images, so we ship our own beside the app.
+FBINK="$ROOT/dist/fbink/fbink-kindlepw2"
+[ -f "$FBINK" ] && cp "$FBINK" "$STAGE/fbink"
 # Launcher/helper scripts that live next to this one (other than deploy.sh).
 for f in "$HERE"/*.sh; do
   [ "$(basename "$f")" = "deploy.sh" ] && continue
   [ -f "$f" ] && cp "$f" "$STAGE/"
 done
 chmod +x "$STAGE/paperdisplay" "$STAGE"/*.sh 2>/dev/null || true
+[ -f "$STAGE/fbink" ] && chmod +x "$STAGE/fbink"
+# What we checksum on both ends: only files this run actually shipped.
+SUMMED="paperdisplay profile.json"
+[ -f "$STAGE/fbink" ] && SUMMED="$SUMMED fbink"
 
 echo "Deploying to $USER@$HOST:$PORT  ->  $DIR"
 (cd "$STAGE" && ls -l)
@@ -47,7 +55,7 @@ echo
 
 # One connection: unpack, then print checksums of what landed so we can
 # confirm the copy is byte-identical.
-REMOTE="mkdir -p '$DIR' && tar -xf - -C '$DIR' && cd '$DIR' && chmod +x paperdisplay *.sh 2>/dev/null; md5sum paperdisplay profile.json *.sh 2>/dev/null"
+REMOTE="mkdir -p '$DIR' && tar -xf - -C '$DIR' && cd '$DIR' && chmod +x $SUMMED *.sh 2>/dev/null; md5sum $SUMMED *.sh 2>/dev/null"
 
 # "|| true": a missing optional file makes md5sum exit non-zero, which must
 # not abort the script before the comparison below decides pass/fail.
@@ -55,7 +63,7 @@ REMOTE_SUMS="$(tar -cf - -C "$STAGE" . | ssh -p "$PORT" \
   -o StrictHostKeyChecking=accept-new \
   "$USER@$HOST" "$REMOTE" || true)"
 
-LOCAL_SUMS="$(cd "$STAGE" && md5sum paperdisplay profile.json *.sh 2>/dev/null || true)"
+LOCAL_SUMS="$(cd "$STAGE" && md5sum $SUMMED *.sh 2>/dev/null || true)"
 
 if [ "$(echo "$REMOTE_SUMS" | sort)" = "$(echo "$LOCAL_SUMS" | sort)" ]; then
   echo "OK - checksums match:"

@@ -25,6 +25,15 @@ type Exec struct {
 	last     uint64
 	haveLast bool
 	run      func(ctx context.Context, bin string, args ...string) ([]byte, error)
+
+	encodeTook, toolTook time.Duration // for the last draw, see LastTiming
+}
+
+// LastTiming describes where the last draw's time went, so slow refreshes
+// can be traced to our own encoding or to the drawing tool itself.
+func (e *Exec) LastTiming() string {
+	return fmt.Sprintf("encode %s, %s %s", e.encodeTook.Round(time.Millisecond),
+		filepath.Base(e.Bin), e.toolTook.Round(time.Millisecond))
 }
 
 // NewEips uses the Kindle's built-in eips: no extra binaries, but measured
@@ -75,12 +84,16 @@ func (e *Exec) Show(img *image.Gray, fullRefresh bool) (bool, error) {
 		return false, nil
 	}
 
-	e.png = PNG{W: e.W, H: e.H, Path: e.Tmp}
+	t0 := time.Now()
+	e.png = PNG{W: e.W, H: e.H, Path: e.Tmp, Fast: true}
 	if _, err := e.png.Show(img, false); err != nil {
 		return false, err
 	}
+	e.encodeTook = time.Since(t0)
 
 	args := e.Args(e.Tmp, fullRefresh)
+	t1 := time.Now()
+	defer func() { e.toolTook = time.Since(t1) }()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	run := e.run
