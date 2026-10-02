@@ -142,7 +142,7 @@ func TestCOGCrossbarShowsEvenWhenTheStemIsHiddenUnderTheHeadingLine(t *testing.T
 	// COG exactly equal to heading: the COG stem lies along the (much thinner)
 	// heading line, so the stem and its crossbar are drawn over/around it. The
 	// crossbar ends must stick out either side of the heading line, which is
-	// now just 1px wide.
+	// now just 2px wide.
 	const cx, cy, r = 536, 622, 466
 	same := renderCompass(t, moving(0))
 	none := renderCompass(t, withoutCOG(moving(0)))

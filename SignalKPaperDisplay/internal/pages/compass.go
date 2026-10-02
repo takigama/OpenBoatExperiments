@@ -123,7 +123,7 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	// heading-up, so this is the boat's direction of travel, and the wind
 	// pointer and AIS blips are read against it. It goes last so nothing
 	// else can leave a gap in it.
-	c.Line(cx, cy-r*0.21, cx, float64(top+2), 1, shade)
+	c.Line(cx, cy-r*0.21, cx, float64(top+2), 2, shade)
 
 	// The four corners of the compass area, each only when there's something
 	// to show: closest ship top-left, water temperature top-right, wind speed
