@@ -423,11 +423,11 @@ func drawTrueWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
 // the rim, with a narrow gap between them. About the size of the true wind
 // arrowhead.
 const (
-	apparentLen    = 122.0 // tip to the foot of the legs
-	apparentHalf   = 40.0  // half the width at the feet
-	apparentHead   = 0.52  // the solid head's share of the length
-	apparentGap    = 3.0   // half the gap between the legs at the top
-	apparentBorder = 3.0   // line weight of the hollow legs
+	apparentLen    = 110.0 // tip to the foot of the legs: the same as the true wind arrowhead
+	apparentHalf   = 30.0  // half the width at the feet: likewise
+	apparentHead   = 0.55  // the solid head's share of the length
+	apparentGap    = 2.5   // half the gap between the legs at the top
+	apparentBorder = 2.0   // line weight of the hollow legs
 )
 
 // drawApparentWindPointer draws the apparent wind marker at angle (radians
@@ -455,22 +455,61 @@ func drawApparentWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
 			{headLen, side * hw}, {headLen, side * apparentGap},
 			{apparentLen, side * (apparentHalf - legW)}, {apparentLen, side * apparentHalf},
 		}
-		pts := make([]image.Point, len(quad))
-		var cs, ca float64
-		for i, q := range quad {
-			pts[i] = at(q[0], q[1])
-			cs, ca = cs+q[0]/4, ca+q[1]/4
-		}
-		c.FillPolygon(pts, render.Black)
-		// The inside: the same shape pulled in towards its middle by the line weight.
-		inner := make([]image.Point, len(quad))
-		ks := 1 - 2*apparentBorder/(apparentLen-headLen)
-		ka := 1 - 2*apparentBorder/legW
-		for i, q := range quad {
-			inner[i] = at(cs+(q[0]-cs)*ks, ca+(q[1]-ca)*ka)
-		}
-		c.FillPolygon(inner, render.White)
+		c.FillPolygon(toPoints(quad, at), render.Black)
+		// The inside: every edge moved in by the line weight, so the outline is
+		// the same weight all the way round - a straight bar, not a wedge.
+		c.FillPolygon(toPoints(insetConvex(quad, apparentBorder), at), render.White)
 	}
+}
+
+// toPoints maps (s, across) coordinates to canvas points.
+func toPoints(p [][2]float64, at func(s, across float64) image.Point) []image.Point {
+	out := make([]image.Point, len(p))
+	for i, q := range p {
+		out[i] = at(q[0], q[1])
+	}
+	return out
+}
+
+// insetConvex moves every edge of a convex polygon inward by d, perpendicular
+// to itself, and returns the smaller polygon: unlike scaling about the middle,
+// this leaves an outline of exactly d all round, however the polygon is
+// shaped. Points are (x, y) in any plane; the winding either way is fine.
+func insetConvex(p [][2]float64, d float64) [][2]float64 {
+	n := len(p)
+	area := 0.0
+	for i := range p {
+		j := (i + 1) % n
+		area += p[i][0]*p[j][1] - p[j][0]*p[i][1]
+	}
+	sign := 1.0
+	if area < 0 {
+		sign = -1
+	}
+	// Edge i runs from p[i] to p[i+1]; shifted inward it is the line through
+	// (px, py) with direction (dx, dy).
+	type line struct{ px, py, dx, dy float64 }
+	lines := make([]line, n)
+	for i := range p {
+		j := (i + 1) % n
+		dx, dy := p[j][0]-p[i][0], p[j][1]-p[i][1]
+		l := math.Hypot(dx, dy)
+		nx, ny := sign*(-dy)/l, sign*dx/l // inward normal, unit length
+		lines[i] = line{p[i][0] + nx*d, p[i][1] + ny*d, dx, dy}
+	}
+	out := make([][2]float64, n)
+	for i := range p {
+		a, b := lines[(i+n-1)%n], lines[i] // the two edges meeting at p[i]
+		// a.p + t*a.d = b.p + u*b.d, solved for t.
+		den := a.dx*b.dy - a.dy*b.dx
+		if math.Abs(den) < 1e-9 { // parallel edges: nothing sensible to intersect
+			out[i] = p[i]
+			continue
+		}
+		t := ((b.px-a.px)*b.dy - (b.py-a.py)*b.dx) / den
+		out[i] = [2]float64{a.px + t*a.dx, a.py + t*a.dy}
+	}
+	return out
 }
 
 // drawWaypointPointer draws the waypoint marker at angle (radians clockwise

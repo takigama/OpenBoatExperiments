@@ -400,3 +400,117 @@ func TestAngleDiff(t *testing.T) {
 		}
 	}
 }
+
+func TestInsetConvexKeepsTheOutlineTheSameWeightAllRound(t *testing.T) {
+	// A leg of the apparent wind marker: a slanted parallelogram. Every inner
+	// edge must lie exactly d from its outer edge, all four.
+	quad := [][2]float64{{63, 37}, {63, 3}, {122, 22}, {122, 40}}
+	const d = 3.0
+	in := insetConvex(quad, d)
+	for i := range quad {
+		j := (i + 1) % len(quad)
+		ax, ay := quad[i][0], quad[i][1]
+		dx, dy := quad[j][0]-ax, quad[j][1]-ay
+		l := math.Hypot(dx, dy)
+		// Distance of both inner vertices on this edge from the outer edge's line.
+		for _, k := range []int{i, j} {
+			dist := math.Abs((in[k][0]-ax)*dy-(in[k][1]-ay)*dx) / l
+			if math.Abs(dist-d) > 1e-6 {
+				t.Errorf("inner vertex %d is %.3f from outer edge %d, want %v", k, dist, i, d)
+			}
+		}
+	}
+	// A rectangle comes out as a smaller rectangle, d in on every side.
+	r := insetConvex([][2]float64{{0, 0}, {0, 10}, {20, 10}, {20, 0}}, 2)
+	want := [][2]float64{{2, 2}, {2, 8}, {18, 8}, {18, 2}}
+	for i := range r {
+		if math.Abs(r[i][0]-want[i][0]) > 1e-9 || math.Abs(r[i][1]-want[i][1]) > 1e-9 {
+			t.Errorf("rectangle vertex %d = %v, want %v", i, r[i], want[i])
+		}
+	}
+	// Winding either way gives the same answer.
+	rev := insetConvex([][2]float64{{20, 0}, {20, 10}, {0, 10}, {0, 0}}, 2)
+	if math.Abs(rev[3][0]-2) > 1e-9 && math.Abs(rev[0][0]-18) > 1e-9 {
+		t.Errorf("reversed winding: %v", rev)
+	}
+}
+
+func TestApparentLegsAreStraightBarsOfEvenWidth(t *testing.T) {
+	// Wind on the starboard beam: the marker lies along y=622 with its tip at
+	// x=926. Walking down a leg, the white inside must keep the same width.
+	c := renderCompass(t, windBoat(math.Pi/2, math.NaN()))
+	tip := 926.0
+	headLen := apparentLen * apparentHead
+	var widths []int
+	for s := headLen + 12; s < apparentLen-12; s += 4 {
+		x := int(tip + s)
+		// The leg above the centre line (across < 0 is y < 622): its white
+		// interior is the run of light pixels between two dark outline edges.
+		runStart, runEnd := -1, -1
+		for y := 622 - 34; y < 622; y++ { // above the centre line, clear of the compass ring that passes beside the marker
+			light := c.Img.GrayAt(x, y).Y > 200
+			if light && runStart < 0 && c.Img.GrayAt(x, y-1).Y < 100 {
+				runStart = y
+			}
+			if !light && runStart >= 0 && runEnd < 0 {
+				runEnd = y
+			}
+		}
+		if runStart >= 0 && runEnd > runStart {
+			widths = append(widths, runEnd-runStart)
+		}
+	}
+	if len(widths) < 5 {
+		t.Fatalf("found the leg's inside at only %d of the sample points", len(widths))
+	}
+	lo, hi := widths[0], widths[0]
+	for _, w := range widths {
+		lo, hi = min(lo, w), max(hi, w)
+	}
+	if hi-lo > 2 {
+		t.Errorf("the leg's inside varies from %d to %d px wide along its length (%v); it should be a straight bar", lo, hi, widths)
+	}
+	if lo < 7 {
+		t.Errorf("the leg's inside is only %d px wide: too thin to read as hollow", lo)
+	}
+}
+
+// newInk is the box around the pixels that are dark with a marker drawn and
+// were not without it - the marker's own ink, not its white halo.
+func newInk(with, without *render.Canvas) image.Rectangle {
+	r := image.Rectangle{Min: image.Pt(1<<30, 1<<30), Max: image.Pt(-1, -1)}
+	b := with.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if with.Img.GrayAt(x, y).Y < 128 && without.Img.GrayAt(x, y).Y >= 128 {
+				r.Min.X, r.Min.Y = min(r.Min.X, x), min(r.Min.Y, y)
+				r.Max.X, r.Max.Y = max(r.Max.X, x+1), max(r.Max.Y, y+1)
+			}
+		}
+	}
+	return r
+}
+
+func TestApparentAndTrueWindMarkersAreTheSameSize(t *testing.T) {
+	// Wind on the starboard beam each time, so the markers lie along the
+	// x axis: length is the box's width and breadth its height.
+	none := renderCompass(t, windBoat(math.NaN(), math.NaN()))
+	apparent := newInk(renderCompass(t, windBoat(math.Pi/2, math.NaN())), none)
+	trueWind := newInk(renderCompass(t, windBoat(math.NaN(), math.Pi/2)), none)
+	if apparent.Empty() || trueWind.Empty() {
+		t.Fatalf("a marker is missing: apparent %v, true %v", apparent, trueWind)
+	}
+	if d := apparent.Dx() - trueWind.Dx(); d < -2 || d > 2 {
+		t.Errorf("lengths differ: apparent %d px, true %d px", apparent.Dx(), trueWind.Dx())
+	}
+	if d := apparent.Dy() - trueWind.Dy(); d < -2 || d > 2 {
+		t.Errorf("breadths differ: apparent %d px, true %d px", apparent.Dy(), trueWind.Dy())
+	}
+	// And they start and end in the same place along the axis.
+	if d := apparent.Min.X - trueWind.Min.X; d < -2 || d > 2 {
+		t.Errorf("the tips are %d px apart", d)
+	}
+	if d := apparent.Max.X - trueWind.Max.X; d < -2 || d > 2 {
+		t.Errorf("the feet are %d px apart", d)
+	}
+}
