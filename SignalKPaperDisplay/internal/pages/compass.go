@@ -324,7 +324,7 @@ func drawClosestAIS(c *render.Canvas, contacts []ais.Contact, e Env, xLeft, yTop
 	}
 	k := contacts[0] // nearest first
 	value, unit := e.Units.Format("range", k.Range)
-	name := fitText(c, strings.ToUpper(k.DisplayName()), 34, render.Bold, 270)
+	name := fitText(c, strings.ToUpper(k.DisplayName()), 34, render.Bold, 400)
 	c.Text(xLeft, yTop+34, name, 34, render.Bold, render.Left, render.Black)
 	leftValue(c, xLeft, yTop+34+66, value, unit, 68)
 }

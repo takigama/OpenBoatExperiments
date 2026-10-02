@@ -150,7 +150,9 @@ func TestClosestAISIsTheNearestAndFallsBackToTheMMSI(t *testing.T) {
 	long := withShipAhead(1000, 0, 0)
 	long.Targets[0].Name = "A VERY LONG SHIP NAME INDEED AND THEN SOME"
 	c := renderCompass(t, long)
-	if n := inked(c, image.Rect(310, 104, 420, 150)); n != 0 {
+	// The name's line is at y 108..132; beyond x=440 there must be nothing
+	// of it (the ship dead ahead has its diamond at x=500..570).
+	if n := inked(c, image.Rect(440, 108, 495, 134)); n != 0 {
 		t.Errorf("long name spilled %d pixels past the corner", n)
 	}
 }
