@@ -137,6 +137,11 @@ func main() {
 	default:
 		log.Fatalf("unknown -display %q", *displayKind)
 	}
+	// The heartbeat dot is updated on its own, so a frame that differs only
+	// there is not a changed frame.
+	if ex, ok := disp.(*display.Exec); ok {
+		ex.IgnoreRect = pages.HeartbeatRect(prof.Width)
+	}
 
 	state := signalk.NewState()
 	client := &signalk.Client{URL: signalk.StreamURL(*server), Token: *token, State: state}

@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"log"
@@ -43,7 +44,8 @@ type App struct {
 	settingsView pages.SettingsView
 	wake         chan struct{} // nudges Run to redraw now, not at the next tick
 
-	renderTook time.Duration // last frame's page rendering, only touched by Show
+	renderTook       time.Duration // last frame's page rendering, only touched by Show
+	lastHeartbeatErr string        // only touched by the main loop
 }
 
 func (a *App) nudge() {
@@ -221,6 +223,35 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	a.nudge()
 }
 
+// heartbeat blinks the dot beside the clock, once per loop, by redrawing just
+// its small rectangle. It runs from the main loop on purpose: if the app
+// hangs, the dot stops, which is the point of having it. It does nothing on
+// displays that can't update a region, and on the settings screens, which
+// have no header clock to sit beside.
+func (a *App) heartbeat(now time.Time) {
+	rd, ok := a.Display.(display.RegionDisplay)
+	if !ok {
+		return
+	}
+	a.mu.Lock()
+	open := a.settingsOpen
+	a.mu.Unlock()
+	if open {
+		return
+	}
+	w, _ := a.Display.Size()
+	img, rect := pages.HeartbeatImage(w, pages.HeartbeatOn(now), pages.Lost(a.State.Snapshot(), now))
+	if img == nil {
+		return
+	}
+	err := rd.ShowRegion(img, rect.Min.X, rect.Min.Y)
+	// Once a second would flood the log if it fails, so say it once per distinct error.
+	if err != nil && !errors.Is(err, display.ErrNoRegion) && err.Error() != a.lastHeartbeatErr {
+		a.lastHeartbeatErr = err.Error()
+		log.Printf("heartbeat: %v", err)
+	}
+}
+
 // Frame renders the current page (or the settings screens) for the given moment.
 func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	w, h := a.Display.Size()
@@ -290,6 +321,7 @@ func (a *App) Run(ctx context.Context) {
 				log.Printf("display: partial refresh took %s (%s)", took.Round(time.Millisecond), a.timing())
 			}
 		}
+		a.heartbeat(time.Now())
 		select {
 		case <-ctx.Done():
 			return

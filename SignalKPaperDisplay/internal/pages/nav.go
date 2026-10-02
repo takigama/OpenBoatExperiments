@@ -45,12 +45,17 @@ type metric struct {
 	ok          bool
 }
 
+// A note on shades, since it caused a real bug: anything that is redrawn in
+// place - values, their units, gauges - is drawn in solid black, never grey.
+// Partial refreshes use the fast DU waveform, which can only show black or
+// white, and the panel only redraws pixels that changed. A grey unit that
+// moved because its number got wider simply vanished. Static labels can stay
+// grey: they never change, so they keep the grey from the last full refresh.
 func drawMetric(c *render.Canvas, r image.Rectangle, m metric) {
 	shade := render.Black
 	value := m.value
 	if !m.ok {
-		shade = render.Mid
-		value = "--"
+		value = "--" // the dashes say "stale"; greying them out would just make them vanish
 	}
 	c.Text(r.Min.X+40, r.Min.Y+80, m.label, 52, render.Bold, render.Left, render.Dark)
 
@@ -79,14 +84,20 @@ func drawMetric(c *render.Canvas, r image.Rectangle, m metric) {
 	wvi := int(wv)
 	x := r.Min.X + (r.Dx()-(wvi+gap+int(wu)))/2
 	c.Text(x, baseline, value, size, render.Bold, render.Left, shade)
-	c.Text(x+wvi+gap, unitBase, m.unit, unitSize, render.Bold, render.Left, render.Dark)
+	c.Text(x+wvi+gap, unitBase, m.unit, unitSize, render.Bold, render.Left, render.Black)
 }
 
 // Header draws the top bar: the page title, and a loud inverted banner
 // whenever the server link is down or data has stopped arriving.
+// Lost reports whether the black NO DATA banner is showing: the server link
+// is down or nothing has arrived recently.
+func Lost(s signalk.Snapshot, now time.Time) bool {
+	return !s.Connected || !s.LastMessage.After(now.Add(-StaleAfter))
+}
+
 func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
 	b := c.Bounds()
-	lost := !s.Connected || !s.LastMessage.After(now.Add(-StaleAfter))
+	lost := Lost(s, now)
 	// The clock is drawn by us, in the title's font, since the stock Kindle
 	// status bar is gone once we own the screen. It's in local time, so the
 	// device's timezone has to be set correctly.
@@ -96,10 +107,12 @@ func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time) {
 		c.Cog(cogX, cogY, cogR, render.White, render.Black) // settings stay reachable with no data
 		c.Text(b.Dx()/2, 64, "NO DATA", 60, render.Bold, render.Center, render.White)
 		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.White)
+		drawHeartbeat(c, b.Dx(), HeartbeatOn(now), render.Black)
 	} else {
 		c.Cog(cogX, cogY, cogR, render.Black, render.White)
 		c.Text(titleX, 64, title, 56, render.Bold, render.Left, render.Black)
 		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.Black)
+		drawHeartbeat(c, b.Dx(), HeartbeatOn(now), render.White)
 	}
 	c.HLine(0, b.Dx(), headerH, 4, render.Black)
 }

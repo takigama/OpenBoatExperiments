@@ -53,11 +53,10 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	r := math.Min(float64(b.Dx())/2-30, float64(compassH)/2-62)
 
 	ok := own.Heading.Fresh(now, StaleAfter)
-	shade := render.Black
+	shade := render.Black // solid black always: see the note on shades in drawMetric
 	heading := degrees(own.Heading.V)
 	if !ok {
-		shade = render.Mid
-		heading = 0 // a frozen card would look live, so park it at north
+		heading = 0 // a frozen card would look live, so park it at north (and show "--")
 	}
 
 	c.Ring(cx, cy, r, 6, shade)
@@ -109,16 +108,11 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 
 	// Course over ground: where the boat is really going, which differs from
 	// where it's pointing when there's leeway or current. Only meaningful
-	// while we're actually moving, so neither the number nor the line is
-	// drawn otherwise. The number goes just under the heading, at 75% of its
-	// size; the line is read against the heading line and needs a live heading.
-	if cogLive(own, now) {
-		size := r * 0.5 * 0.75
-		c.Text(int(cx), int(cy+r*0.20+r*0.06+size*0.72), fmt.Sprintf("%03.0f°", degrees(own.COG.V)),
-			size, render.Bold, render.Center, render.Black)
-		if ok {
-			drawCOG(c, cx, cy, r, own.COG.V-own.Heading.V, shade)
-		}
+	// while we're actually moving, so neither the readout nor the line is
+	// drawn otherwise. Both are relative to the heading, so both need it live.
+	if cogLive(own, now) && ok {
+		drawCOGOffset(c, cx, cy, r, own.COG.V, own.Heading.V)
+		drawCOG(c, cx, cy, r, own.COG.V-own.Heading.V, shade)
 	}
 
 	// The bow line: straight up from just above the heading digits to the
@@ -152,6 +146,72 @@ const cogMinSpeed = 0.3
 // and while we're actually making way.
 func cogLive(own signalk.Own, now time.Time) bool {
 	return own.COG.Fresh(now, StaleAfter) && own.SOG.Fresh(now, StaleAfter) && own.SOG.V >= cogMinSpeed
+}
+
+// cogOffset is how far the course over ground is from the heading, as whole
+// degrees (0..180, the short way round) and which way: -1 means the course
+// is to port of the heading, +1 to starboard, 0 means it's on the heading.
+func cogOffset(cog, heading float64) (deg, dir int) {
+	d := math.Mod(cog-heading, 2*math.Pi)
+	if d > math.Pi {
+		d -= 2 * math.Pi
+	} else if d < -math.Pi {
+		d += 2 * math.Pi
+	}
+	deg = int(math.Round(math.Abs(d) * 180 / math.Pi))
+	switch {
+	case deg == 0:
+		return 0, 0
+	case d < 0:
+		return deg, -1
+	}
+	return deg, 1
+}
+
+// chevron draws one ">" (reach > 0) or "<" (reach < 0) whose back edge is at
+// x and whose point is at x+reach, centred vertically on mid.
+func chevron(c *render.Canvas, x, mid, reach, h float64) {
+	c.Line(x, mid-h, x+reach, mid, 9, render.Black)
+	c.Line(x+reach, mid, x, mid+h, 9, render.Black)
+}
+
+// drawCOGOffset shows the course-over-ground offset under the heading: two
+// digits at 65% of the heading's size, with a chevron on whichever side the
+// course lies. COG 29 on heading 39 reads "<10"; COG 29 on heading 19 reads
+// "10>". The digits stay centred so they don't jump when the sign flips.
+// Past 99 degrees there's no room for the digits, so three chevrons in the
+// course's direction take their place: ">>>" or "<<<".
+func drawCOGOffset(c *render.Canvas, cx, cy, r, cog, heading float64) {
+	deg, dir := cogOffset(cog, heading)
+	size := r * 0.5 * 0.65
+	baseline := cy + r*0.20 + r*0.06 + size*0.72
+	mid := baseline - size*0.36 // the vertical middle of where the digits sit
+	arm, h := size*0.24, size*0.30
+	reach := arm // the point of each chevron, in its direction of travel
+	if dir < 0 {
+		reach = -arm
+	}
+
+	if deg > 99 {
+		pitch, h := size*0.42, size*0.36
+		for i := -1; i <= 1; i++ {
+			chevron(c, cx+float64(i)*pitch-reach/2, mid, reach, h)
+		}
+		return
+	}
+
+	text := fmt.Sprintf("%02d", deg)
+	c.Text(int(cx), int(baseline), text, size, render.Bold, render.Center, render.Black)
+	if dir == 0 {
+		return
+	}
+	half := float64(c.TextWidth(text, size, render.Bold)) / 2
+	gap := size * 0.18
+	x := cx + half + gap
+	if dir < 0 {
+		x = cx - half - gap
+	}
+	chevron(c, x, mid, reach, h)
 }
 
 // drawCOG draws the course-over-ground line, rel radians clockwise from the
@@ -303,7 +363,7 @@ func drawWindPointer(c *render.Canvas, cx, cy, r, angle float64) {
 func rightValue(c *render.Canvas, xRight, baseline int, value, unit string, size float64, shade uint8) {
 	unitSize := size * 0.45
 	wu := c.TextWidth(unit, unitSize, render.Bold)
-	c.Text(xRight, baseline, unit, unitSize, render.Bold, render.Right, render.Dark)
+	c.Text(xRight, baseline, unit, unitSize, render.Bold, render.Right, render.Black)
 	c.Text(xRight-wu-int(size*0.08), baseline, value, size, render.Bold, render.Right, shade)
 }
 
@@ -313,15 +373,15 @@ func drawWaterTemp(c *render.Canvas, own signalk.Own, now time.Time, e Env, xRig
 	if !own.WaterTemp.Valid() {
 		return
 	}
-	value, unit := "--", ""
-	shade := render.Mid
-	_, unit = e.Units.Format("watertemp", 0)
+	// All solid black: this widget appears and updates mid-run, under the
+	// fast black-and-white waveform, where grey would simply vanish.
+	value := "--"
+	_, unit := e.Units.Format("watertemp", 0)
 	if own.WaterTemp.Fresh(now, SlowStaleAfter) {
 		value, _ = e.Units.Format("watertemp", own.WaterTemp.V)
-		shade = render.Black
 	}
-	c.Text(xRight, yTop+34, "WATER", 34, render.Bold, render.Right, render.Dark)
-	rightValue(c, xRight, yTop+34+66, value, unit, 68, shade)
+	c.Text(xRight, yTop+34, "WATER", 34, render.Bold, render.Right, render.Black)
+	rightValue(c, xRight, yTop+34+66, value, unit, 68, render.Black)
 }
 
 // drawFuelGauges draws one small bar per fuel tank the server reports,
@@ -340,17 +400,16 @@ func drawFuelGauges(c *render.Canvas, tanks []signalk.Tank, now time.Time, xRigh
 		tanks = tanks[:maxTanks]
 	}
 	barBottom := yBottom - 38 // room under the bars for the percentage
-	c.Text(xRight, barBottom-barH-14, "FUEL", 34, render.Bold, render.Right, render.Dark)
+	c.Text(xRight, barBottom-barH-14, "FUEL", 34, render.Bold, render.Right, render.Black)
 
 	for i, t := range tanks {
 		x1 := xRight - (len(tanks)-1-i)*pitch
 		x0 := x1 - barW
 		fresh := t.Level.Fresh(now, SlowStaleAfter)
 
+		// Solid black either way; a stale tank is told apart by being empty
+		// and labelled "--", since a grey frame would vanish under DU.
 		frame := render.Black
-		if !fresh {
-			frame = render.Mid
-		}
 		c.FillRect(image.Rect(x0, barBottom-barH, x1, barBottom), frame)
 		c.FillRect(image.Rect(x0+4, barBottom-barH+4, x1-4, barBottom-4), render.White)
 

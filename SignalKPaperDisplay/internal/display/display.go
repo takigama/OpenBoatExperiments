@@ -6,6 +6,14 @@ package display
 
 import "image"
 
+// RegionDisplay is implemented by displays that can redraw a small
+// rectangle on its own, much faster than a whole frame - used for things
+// like the once-a-second heartbeat dot.
+type RegionDisplay interface {
+	// ShowRegion draws img with its top-left corner at (x, y) on screen.
+	ShowRegion(img *image.Gray, x, y int) error
+}
+
 type Display interface {
 	// Size is the frame size Show expects, in pixels.
 	Size() (w, h int)

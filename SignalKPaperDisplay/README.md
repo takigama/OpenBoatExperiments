@@ -28,7 +28,9 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
   at the top left to open settings
 - Settings: the imperial/metric preset and a unit for every metric, saved to
   `settings.json` beside the app (tap the back arrow to leave)
-- A clock in the header, drawn by the app
+- A clock in the header, drawn by the app, with a heartbeat dot beside it that
+  blinks every second (redrawn as its own tiny region, so it costs almost
+  nothing) - if it stops, the app or the panel has hung
 - Self-update from GitHub releases (see below)
 - `platforms/kindle-pw3/install/deploy.sh` to copy a build onto the device
 

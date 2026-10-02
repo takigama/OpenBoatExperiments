@@ -106,12 +106,12 @@ func TestCOGNumberSitsUnderTheHeadingWhileMoving(t *testing.T) {
 		t.Error("a stale COG number must not be drawn")
 	}
 
-	// Unlike the line, the number doesn't depend on heading: with no live
-	// heading the COG is still worth knowing.
+	// The readout is an offset from the heading, so with no live heading
+	// there is nothing to measure it against and it must not be drawn.
 	noHeading := moving(0.3)
 	noHeading.Own.Heading.At = compassNow.Add(-time.Minute)
-	if inked(renderCompass(t, noHeading), under) <= inked(renderCompass(t, withoutCOG(noHeading)), under) {
-		t.Error("the COG number should still show when the heading is stale")
+	if inked(renderCompass(t, noHeading), under) != inked(renderCompass(t, withoutCOG(noHeading)), under) {
+		t.Error("without a live heading the COG offset has no reference and must not be drawn")
 	}
 }
 
