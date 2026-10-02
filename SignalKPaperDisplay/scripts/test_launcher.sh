@@ -65,7 +65,7 @@ starts() { [ -f "$T/started" ] && wc -l < "$T/started" || echo 0; }
 called() { grep -qx "$1" "$T/calls" 2>/dev/null; }
 logged() { grep -q "$1" "$DIR/paperdisplay.log" 2>/dev/null; }
 reset() { rm -rf "$T/started" "$T/calls" "$T/running" "$STATE" "$DIR/paperdisplay.log" "$DIR/disable" "$DIR/pause" \
-          "$DIR/paperdisplay.prev" "$DIR/paperdisplay.bad"; rm -f "$T/jobs"/*; touch "$T/jobs/framework"; make_app; }
+          "$DIR/paperdisplay.prev" "$DIR/paperdisplay.bad"; rm -f "$T/jobs"/*; touch "$T/jobs/framework" "$T/jobs/lab126_gui"; make_app; }
 
 echo "no config: refuses to start"
 reset
@@ -79,6 +79,7 @@ launch; wait_exit
 check "app started once" test "$(starts)" = 1
 check "passes the server and touch/fbink flags" grep -q -- '-signalk 10.0.0.76:3001 -display fbink -touch' "$T/started"
 check "stops the stock framework" called "stop framework"
+check "stops lab126_gui, which paints the stock clock" called "stop lab126_gui"
 check "hides the stock status bar" called "lipc com.lab126.pillow disableEnablePillow disable"
 check "keeps the screen awake" called "lipc com.lab126.powerd preventScreenSaver 1"
 
@@ -110,10 +111,12 @@ check "previous version is now the app" grep -q "previous build" "$DIR/paperdisp
 for _ in 1 2 3 4 5 6 7; do launch; wait_exit; done
 check "gives up eventually" logged "restoring the stock Kindle UI"
 check "brings the stock framework back" called "start framework"
+check "brings lab126_gui back" called "start lab126_gui"
+check "lab126_gui first, since the framework sits on it" test "$(grep -n -x 'start lab126_gui' "$T/calls" | head -1 | cut -d: -f1)" -lt "$(grep -n -x 'start framework' "$T/calls" | head -1 | cut -d: -f1)"
 unset STUB_EXIT
 
 echo "pause file: the launcher does nothing at all"
-reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$DIR/pause"; rm -f "$T/jobs/framework"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$DIR/pause"; rm -f "$T/jobs"/*
 launch
 check "app not started" test "$(starts)" = 0
 check "stock UI not restored either" test ! "$(grep -c 'start framework' "$T/calls" 2>/dev/null || true)" -gt 0
@@ -123,13 +126,22 @@ launch; wait_exit
 check "starts again once the pause file is removed" test "$(starts)" = 1
 
 echo "disable file: stops the app and restores the stock UI"
-reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running" "$DIR/disable"; rm -f "$T/jobs/framework"
+reset; echo 'SIGNALK_HOST=h:1' > "$DIR/launcher.conf"; touch "$T/running" "$DIR/disable"; rm -f "$T/jobs"/*
 launch
 check "app not started" test "$(starts)" = 0
 check "says it is stopping the app" logged "disable file present"
 check "stock framework started again" called "start framework"
+check "lab126_gui started again" called "start lab126_gui"
 check "stock status bar re-enabled" called "lipc com.lab126.pillow disableEnablePillow enable"
 
 echo
+echo "custom STOP_JOBS: only those are stopped"
+reset; printf 'SIGNALK_HOST=h:1\nSTOP_JOBS="framework"\n' > "$DIR/launcher.conf"
+launch; wait_exit
+check "stops the framework" called "stop framework"
+check "leaves lab126_gui alone" test ! "$(grep -c 'stop lab126_gui' "$T/calls" 2>/dev/null || true)" -gt 0
+
 echo "$pass passed, $fail failed"
 [ "$fail" = 0 ]
+
+# A config that sets STOP_JOBS itself is respected (and restored the same way).

@@ -3,17 +3,16 @@
 # Where your SignalK server is (host:port). Required.
 SIGNALK_HOST=10.0.0.76:3001
 
-# Upstart jobs to stop while the app owns the screen. "framework" is proven
-# on the Paperwhite 3. The stock status bar may live in another job
-# (lab126_gui) - add it here only after trying `stop lab126_gui` by hand;
-# `start lab126_gui` undoes it.
+# Upstart jobs to stop while the app owns the screen, and start again (in the
+# reverse order) when the stock UI is handed back. The default is
+# "framework lab126_gui": the framework is what draws the stock UI, and
+# lab126_gui is what kept painting the stock clock over our header once the
+# framework was gone. Stopping `pillow` as well made no difference on a
+# Paperwhite 3. To go back to leaving the clock job running:
 # STOP_JOBS="framework"
-# After `stop framework` the jobs `pillow` (the stock status bar and overlay
-# UI) and `lab126_gui` are still running on the Paperwhite 3, and the stock
-# clock is drawn by one of them at the start of each minute. paperdisplay
-# repaints its header every 10 s and just after each minute starts
-# (-header-guard) so that clock does not stay on screen; stopping the job that
-# draws it would remove it for good, but which job that is is untested.
+#
+# paperdisplay also repaints its header every 10 s and just after each minute
+# (-header-guard) as a backstop, in case something else draws there.
 
 # Extra paperdisplay flags, e.g. a slower but smoother waveform:
 # EXTRA_ARGS="-waveform GL16"

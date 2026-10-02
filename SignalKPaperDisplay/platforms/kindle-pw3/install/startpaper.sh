@@ -41,9 +41,15 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') launcher: $*" >> "$LOG"; }
 
 running() { initctl status "$1" 2>/dev/null | grep -q 'start/running'; }
 
+# Hands the screen back: starts every job take_screen stopped, in the reverse
+# order (lab126_gui has to be up before the framework that sits on it).
 restore_ui() {
   lipc-set-prop com.lab126.pillow disableEnablePillow enable >/dev/null 2>&1
-  running framework || start framework >/dev/null 2>&1
+  reversed=""
+  for job in $STOP_JOBS; do reversed="$job $reversed"; done
+  for job in $reversed; do
+    running "$job" || start "$job" >/dev/null 2>&1
+  done
 }
 
 take_screen() {
@@ -57,7 +63,11 @@ take_screen() {
 lipc-set-prop com.lab126.powerd preventScreenSaver 1 >/dev/null 2>&1
 
 [ -f "$CONF" ] && . "$CONF"
-STOP_JOBS="${STOP_JOBS:-framework}"
+# lab126_gui as well as the framework: with only the framework stopped, the
+# Paperwhite 3's stock UI still painted its clock over our header every minute,
+# and stopping lab126_gui is what made that stop (pillow, the status bar
+# daemon, turned out not to be it).
+STOP_JOBS="${STOP_JOBS:-framework lab126_gui}"
 
 # --- pause switch -------------------------------------------------------------
 # While this file exists the launcher does nothing: it doesn't start the app
