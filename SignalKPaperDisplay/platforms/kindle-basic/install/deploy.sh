@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# Copies the app to the Kindle Basic over SSH: this device's own profile and
-# binary, with the launcher and the rest of the tooling shared with the
-# Paperwhite 3. Run it yourself: ssh asks for the password once.
+# Installs the app on the Kindle (8th generation) over SSH, start to finish:
+# this device's own profile and binary, with the launcher and the rest of the
+# tooling shared with the Paperwhite 3. Run it yourself.
 #
-#   bash platforms/kindle-basic/install/deploy.sh <host> [port]
+#   bash platforms/kindle-basic/install/deploy.sh <host> [port] [options]
 #
-# See platforms/kindle-pw3/install/deploy.sh for how it works and what it
-# honours (KINDLE_HOST, KINDLE_PORT, KINDLE_USER, KINDLE_DIR).
+# See platforms/kindle-pw3/install/deploy.sh (or --help) for the options and for
+# what it does. It has no default address: the shared script's default is the
+# Paperwhite 3's, and this must never quietly deploy this device's profile there.
 set -eu
-# No default address: the shared script's default is the Paperwhite 3's, and this
-# must never quietly deploy this device's profile to that one.
-if [ $# -lt 1 ] && [ -z "${KINDLE_HOST:-}" ]; then
-  echo "usage: bash platforms/kindle-basic/install/deploy.sh <host> [port]" >&2
-  exit 2
-fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export DEPLOY_PLATFORM_DIR="$(dirname "$HERE")"
+export DEPLOY_REQUIRE_HOST=1
 exec bash "$HERE/../../kindle-pw3/install/deploy.sh" "$@"

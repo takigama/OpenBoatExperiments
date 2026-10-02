@@ -47,12 +47,13 @@ matched against tap areas.
 ## Install
 
 ```
-bash platforms/kindle-basic/install/deploy.sh <ip-address> [port]
+bash platforms/kindle-basic/install/deploy.sh <ip-address> [port] --signalk <host:port>
 ```
 
 copies this device's binary, its `profile.json` (so it must be run for this
 Kindle, not the Paperwhite - a Paperwhite profile makes it open `event1` and draw
-at the wrong size) and the shared launcher scripts. Then, on the device,
-`/mnt/us/signalk/launcher.conf` is where the settings live: copy
-`launcher.conf.example` (shipped beside it) to `launcher.conf` and set
-`SIGNALK_HOST`.
+at the wrong size), FBInk and the launcher; writes `/mnt/us/signalk/launcher.conf`
+from the example here (with your SignalK server); adds the launcher to the
+crontab; starts it; and shows the log. Run it again to update the files.
+`bash platforms/kindle-basic/install/uninstall.sh <ip-address> [port]` takes it
+off again and gives the Kindle back to the stock software.
