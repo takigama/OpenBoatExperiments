@@ -43,10 +43,17 @@ func TestCOGLineAppearsOnlyWhenMeaningful(t *testing.T) {
 		t.Error("a stale COG must not be drawn")
 	}
 
+	// The line is drawn relative to the heading, so without a live heading it
+	// must not appear. (The COG *number* still does - see
+	// TestCOGNumberSitsUnderTheHeadingWhileMoving - so compare only where the
+	// line's crossbar would be: past the ring, on the starboard side.)
 	noHeading := moving(math.Pi / 2)
 	noHeading.Own.Heading.At = compassNow.Add(-time.Minute)
-	if differs(renderCompass(t, noHeading), renderCompass(t, withoutCOG(noHeading))) {
-		t.Error("COG is drawn relative to heading, so without a live heading it must not be drawn")
+	const cx, cy = 536, 622
+	r := 466.0
+	bar := image.Rect(cx+int(r)+12, cy-24, cx+int(r)+50, cy+24)
+	if inked(renderCompass(t, noHeading), bar) != inked(renderCompass(t, withoutCOG(noHeading)), bar) {
+		t.Error("COG line is drawn relative to heading, so without a live heading it must not be drawn")
 	}
 }
 
@@ -71,6 +78,40 @@ func TestCOGLineFollowsTheCourseAndPassesOutsideTheRing(t *testing.T) {
 	left := image.Rect(cx-r-50, cy-24, cx-r-12, cy+24)
 	if inked(port, left) <= inked(none, left) {
 		t.Error("a course to port should reach past the ring on the left")
+	}
+}
+
+func TestCOGNumberSitsUnderTheHeadingWhileMoving(t *testing.T) {
+	const cx, cy = 536, 622
+	r := 466.0
+	// Under the heading digits: below their baseline (cy+0.2r) down to where
+	// a number at 75% size ends (about cy+0.53r).
+	under := image.Rect(cx-150, cy+int(0.30*r), cx+150, cy+int(0.50*r))
+
+	live := renderCompass(t, moving(0.3))
+	none := renderCompass(t, withoutCOG(moving(0)))
+	if inked(live, under) <= inked(none, under) {
+		t.Error("a live COG should show a number just under the heading")
+	}
+
+	// Same rules as the line: not when barely moving, not when stale.
+	slow := moving(0.3)
+	slow.Own.SOG.V = 0.1
+	if inked(renderCompass(t, slow), under) != inked(renderCompass(t, withoutCOG(slow)), under) {
+		t.Error("below the minimum speed the COG number must not be drawn")
+	}
+	stale := moving(0.3)
+	stale.Own.COG.At = compassNow.Add(-time.Minute)
+	if inked(renderCompass(t, stale), under) != inked(renderCompass(t, withoutCOG(stale)), under) {
+		t.Error("a stale COG number must not be drawn")
+	}
+
+	// Unlike the line, the number doesn't depend on heading: with no live
+	// heading the COG is still worth knowing.
+	noHeading := moving(0.3)
+	noHeading.Own.Heading.At = compassNow.Add(-time.Minute)
+	if inked(renderCompass(t, noHeading), under) <= inked(renderCompass(t, withoutCOG(noHeading)), under) {
+		t.Error("the COG number should still show when the heading is stale")
 	}
 }
 

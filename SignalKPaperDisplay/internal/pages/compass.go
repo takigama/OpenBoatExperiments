@@ -107,11 +107,18 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 		drawWindPointer(c, cx, cy, r, own.AWA.V)
 	}
 
-	// Course over ground, against the heading line: where the boat is really
-	// going, which differs from where it's pointing when there's leeway or
-	// current. Only meaningful while we're actually moving.
-	if ok && own.COG.Fresh(now, StaleAfter) && own.SOG.Fresh(now, StaleAfter) && own.SOG.V >= cogMinSpeed {
-		drawCOG(c, cx, cy, r, own.COG.V-own.Heading.V, shade)
+	// Course over ground: where the boat is really going, which differs from
+	// where it's pointing when there's leeway or current. Only meaningful
+	// while we're actually moving, so neither the number nor the line is
+	// drawn otherwise. The number goes just under the heading, at 75% of its
+	// size; the line is read against the heading line and needs a live heading.
+	if cogLive(own, now) {
+		size := r * 0.5 * 0.75
+		c.Text(int(cx), int(cy+r*0.20+r*0.06+size*0.72), fmt.Sprintf("%03.0f°", degrees(own.COG.V)),
+			size, render.Bold, render.Center, render.Black)
+		if ok {
+			drawCOG(c, cx, cy, r, own.COG.V-own.Heading.V, shade)
+		}
 	}
 
 	// The bow line: straight up from just above the heading digits to the
@@ -140,6 +147,12 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 // cogMinSpeed is the slowest we'll trust a course over ground at: GPS
 // course is noise when barely moving. 0.3 m/s is about 0.6 knots.
 const cogMinSpeed = 0.3
+
+// cogLive reports whether there's a course over ground worth showing: fresh,
+// and while we're actually making way.
+func cogLive(own signalk.Own, now time.Time) bool {
+	return own.COG.Fresh(now, StaleAfter) && own.SOG.Fresh(now, StaleAfter) && own.SOG.V >= cogMinSpeed
+}
 
 // drawCOG draws the course-over-ground line, rel radians clockwise from the
 // bow: a thin stem spanning just the outer part of the card and a little
