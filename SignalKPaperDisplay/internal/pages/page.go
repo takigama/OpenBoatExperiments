@@ -26,6 +26,9 @@ type Env struct {
 	// saved: both start the same way on every boot (apparent wind, SOG).
 	WindTrue bool        // the wind speed widget shows the true wind, not the apparent
 	Speed    SpeedSource // which speed the speed box shows
+	// Demo is whether the data is made up: the header says so, on every page, so
+	// that it can never be taken for a real boat's.
+	Demo bool
 }
 
 // SpeedSource says which speed the compass page's speed box shows.

@@ -102,6 +102,11 @@ func fitMetric(c *render.Canvas, r image.Rectangle, value, unit string, maxSize 
 	}
 }
 
+// DemoTag is where the header's "DEMO" tag sits: between the battery and the
+// heartbeat dot, solid black so it can't be missed (and so it never needs a
+// grey the fast waveform can't show).
+var DemoTag = image.Rect(668, 22, 806, 70)
+
 // Header draws the top bar: the page title, and a loud inverted banner
 // whenever the server link is down or data has stopped arriving.
 // Lost reports whether the black NO DATA banner is showing: the server link
@@ -131,6 +136,10 @@ func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time, e
 		drawBattery(c, b.Dx()/2, int(cogY), e.Battery, render.Black, render.White)
 		c.Text(b.Dx()-40, 64, clock, 56, render.Bold, render.Right, render.Black)
 		drawHeartbeat(c, b.Dx(), HeartbeatOn(now), render.White)
+		if e.Demo {
+			c.FillRect(DemoTag, render.Black)
+			c.Text((DemoTag.Min.X+DemoTag.Max.X)/2, DemoTag.Max.Y-13, "DEMO", 40, render.Bold, render.Center, render.White)
+		}
 	}
 	c.HLine(0, b.Dx(), headerH, 4, render.Black)
 }

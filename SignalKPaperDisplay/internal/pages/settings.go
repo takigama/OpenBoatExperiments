@@ -40,6 +40,9 @@ type SettingsView struct {
 	// not navigation state): its current level and maximum. A zero MaxLevel
 	// means the device has no controllable light, and the setting is hidden.
 	Level, MaxLevel int
+
+	// Demo is whether demo mode is on, filled in by the app like the light.
+	Demo bool
 }
 
 type ActionKind int
@@ -60,6 +63,7 @@ const (
 	ActServerKey                   // a keypad key, Action.Value: a character, "back", "clear" or "save"
 	ActOpenLight                   // root -> the front light screen
 	ActSetLight                    // set the front light to Action.Level
+	ActToggleDemo                  // switch demo mode on or off
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -72,7 +76,7 @@ type Action struct {
 }
 
 const (
-	settingsRowH = 100
+	settingsRowH = 90 // the list's rows must all fit on the tallest screen, with the notes under them
 	settingsTop  = headerH + 30
 )
 
@@ -112,6 +116,15 @@ func serverRow() int { return boxesRow() + 1 }
 // lightRow is the list row that opens the front light screen, after the
 // server row; it only exists on devices with a controllable light.
 func lightRow() int { return serverRow() + 1 }
+
+// demoRow is the last row of the list, the demo mode switch: after the server
+// row, and after the front light's too on devices that have one.
+func demoRow(hasLight bool) int {
+	if hasLight {
+		return lightRow() + 1
+	}
+	return serverRow() + 1
+}
 
 // The front light screen: a bar you tap to pick a level, minus and plus
 // buttons, and off and maximum buttons.
@@ -245,6 +258,9 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 		if v.MaxLevel > 0 && row == lightRow() {
 			return Action{Kind: ActOpenLight}
 		}
+		if row == demoRow(v.MaxLevel > 0) {
+			return Action{Kind: ActToggleDemo}
+		}
 	case SettingsLight:
 		return lightTap(v, image.Pt(x, y))
 	case SettingsServer:
@@ -368,14 +384,20 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 			c.Text(b.Dx()-110, cy+16, server, 44, render.Bold, render.Right, render.Black)
 			chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
 		})
-		footRow := serverRow() + 1
 		if v.MaxLevel > 0 {
 			row(c, lightRow(), "Backlight", func(cy int) {
 				c.Text(b.Dx()-110, cy+16, lightLabel(v.Level, v.MaxLevel), 44, render.Bold, render.Right, render.Black)
 				chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
 			})
-			footRow++
 		}
+		row(c, demoRow(v.MaxLevel > 0), "Demo mode", func(cy int) {
+			state := "Off"
+			if v.Demo {
+				state = "On"
+			}
+			c.Text(b.Dx()-50, cy+16, state, 50, render.Bold, render.Right, render.Black)
+		})
+		footRow := demoRow(v.MaxLevel > 0) + 1
 		c.Text(40, settingsTop+footRow*settingsRowH+60,
 			"* set individually, not from the preset", 36, render.Regular, render.Left, render.Dark)
 		// Which build this is, so it's plain from the screen that an update

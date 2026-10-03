@@ -3,8 +3,10 @@ package pages
 import (
 	"image"
 	"testing"
+	"time"
 
 	"signalkpaperdisplay/internal/render"
+	"signalkpaperdisplay/internal/signalk"
 	"signalkpaperdisplay/internal/units"
 )
 
@@ -24,7 +26,11 @@ func TestSettingsTapRoot(t *testing.T) {
 			t.Errorf("row %d = %+v, want unit picker for %s", i+1, got, m.ID)
 		}
 	}
-	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+4), 1072); got.Kind != ActNone {
+	// With no front light the demo switch is the last row; below it is nothing.
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+4), 1072); got.Kind != ActToggleDemo {
+		t.Errorf("the last row = %+v, want the demo switch", got)
+	}
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+5), 1072); got.Kind != ActNone {
 		t.Errorf("a tap below the list = %+v, want nothing", got)
 	}
 	if got := SettingsTap(root, 500, headerH+5, 1072); got.Kind != ActNone {
@@ -343,8 +349,8 @@ func TestBacklightRowOnlyOnDevicesWithALight(t *testing.T) {
 	if got := SettingsTap(with, 500, row, w); got.Kind != ActOpenLight {
 		t.Errorf("with a light, the row after the server should open it, got %+v", got)
 	}
-	if got := SettingsTap(SettingsView{}, 500, row, w); got.Kind != ActNone {
-		t.Errorf("with no light that row does not exist, got %+v", got)
+	if got := SettingsTap(SettingsView{}, 500, row, w); got.Kind == ActOpenLight {
+		t.Errorf("with no light that row must not open the light, got %+v", got)
 	}
 
 	draw := func(v SettingsView) *render.Canvas {
@@ -355,7 +361,7 @@ func TestBacklightRowOnlyOnDevicesWithALight(t *testing.T) {
 		Settings(c, v, units.Settings{}, false, nil, "")
 		return c
 	}
-	r := image.Rect(720, row-40, 1000, row+40) // right-hand side: the footnote on the left is not the level
+	r := image.Rect(700, row-40, 900, row+40) // right-hand side, left of the demo row's On/Off
 	if inked(draw(with), r) == 0 {
 		t.Error("the row should show the current level")
 	}
@@ -368,6 +374,70 @@ func TestBacklightRowOnlyOnDevicesWithALight(t *testing.T) {
 	// The list, footnote and version still fit with the extra row.
 	if bottom := SettingsRowY(lightRow()) + settingsRowH/2; bottom > 1330 {
 		t.Errorf("the backlight row is too low (%d) for the footnote under it", bottom)
+	}
+}
+
+func TestDemoSwitchIsTheLastRow(t *testing.T) {
+	const w = 1072
+	withLight := SettingsView{MaxLevel: 24}
+	if got := SettingsTap(withLight, 500, SettingsRowY(demoRow(true)), w); got.Kind != ActToggleDemo {
+		t.Errorf("with a light the demo switch is after it, got %+v", got)
+	}
+	if got := SettingsTap(withLight, 500, SettingsRowY(demoRow(true)+1), w); got.Kind != ActNone {
+		t.Errorf("nothing is below the demo switch, got %+v", got)
+	}
+	if demoRow(false) != lightRow() || demoRow(true) != lightRow()+1 {
+		t.Errorf("demo row = %d / %d, light row = %d", demoRow(false), demoRow(true), lightRow())
+	}
+	// Everything, with the footnote and the version label, fits on the tallest
+	// screen (1448 design units) even with a front light.
+	if bottom := SettingsRowY(demoRow(true)) + settingsRowH/2; bottom > 1330 {
+		t.Errorf("the demo row is too low (%d) for the footnote under it", bottom)
+	}
+
+	draw := func(v SettingsView) *render.Canvas {
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Settings(c, v, units.Settings{}, false, nil, "")
+		return c
+	}
+	for _, v := range []SettingsView{{}, withLight} {
+		y := SettingsRowY(demoRow(v.MaxLevel > 0))
+		label := image.Rect(40, y-40, 500, y+40)
+		state := image.Rect(900, y-40, 1060, y+40)
+		off, on := v, v
+		on.Demo = true
+		if inked(draw(off), label) == 0 || inked(draw(off), state) == 0 {
+			t.Errorf("the demo row should show its name and Off (light %v)", v.MaxLevel > 0)
+		}
+		if !differs(draw(off), draw(on)) {
+			t.Errorf("the demo row should look different when on (light %v)", v.MaxLevel > 0)
+		}
+	}
+}
+
+func TestHeaderSaysDemoWhenTheDataIsMadeUp(t *testing.T) {
+	now := time.Now()
+	snap := signalk.Snapshot{Connected: true, LastMessage: now}
+	draw := func(demo bool) *render.Canvas {
+		c, err := render.NewCanvas(1072, 1448)
+		if err != nil {
+			t.Fatal(err)
+		}
+		Nav(c, snap, now, Env{Demo: demo})
+		return c
+	}
+	if inked(draw(false), DemoTag) != 0 {
+		t.Error("the tag must not be there for real data")
+	}
+	if got := inked(draw(true), DemoTag); got < DemoTag.Dx()*DemoTag.Dy()/2 {
+		t.Errorf("the tag should be a solid block, only %d dark pixels", got)
+	}
+	// It must not sit on the settings cog, the battery's place or the clock.
+	if DemoTag.Overlaps(CogRect) || DemoTag.Overlaps(HeartbeatRect(1072)) || DemoTag.Max.X > 1072-40-150 {
+		t.Errorf("the tag %v overlaps something in the header", DemoTag)
 	}
 }
 

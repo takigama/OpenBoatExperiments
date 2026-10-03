@@ -57,6 +57,13 @@ type App struct {
 	// OnServerChange is called, with the new "host:port", after the user saves
 	// a different server, so the connection can be moved to it.
 	OnServerChange func(hostPort string)
+	// Demo is whether demo mode is on: made-up data standing in for the server's.
+	// It is not saved, so a restart always goes back to the real server. Set it
+	// before running to start in demo mode; after that the settings screen
+	// changes it, and OnDemoChange is told each time it does (not for the
+	// starting value, which is the caller's to act on). Guarded by mu.
+	Demo         bool
+	OnDemoChange func(on bool)
 	// Light is the device's front light, nil if it has none or it can't be
 	// reached; the setting is hidden then. Brightness is the level saved in
 	// settings (nil: never chosen). Call InitLight once after setting both.
@@ -195,11 +202,14 @@ func (a *App) InitLight() {
 // withLight fills in the front light's state on a settings view, which is how
 // the (pure) settings screens get to know it.
 func (a *App) withLight(v pages.SettingsView) pages.SettingsView {
+	a.mu.Lock()
+	v.Demo = a.Demo
+	v.Level = a.lightLevel
+	a.mu.Unlock()
 	if a.Light != nil {
-		a.mu.Lock()
-		v.Level = a.lightLevel
-		a.mu.Unlock()
 		v.MaxLevel = a.Light.Max()
+	} else {
+		v.Level = 0
 	}
 	return v
 }
@@ -382,6 +392,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	var err error
 	var newServer string // set when a different server was saved
 	setLight := -1       // set when the front light is to change
+	demoChanged := false // set when demo mode was switched
 	switch act.Kind {
 	case pages.ActBack:
 		if view.Screen == pages.SettingsRoot {
@@ -416,6 +427,9 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.lightLevel = act.Level
 		chosen := act.Level
 		a.Brightness = &chosen
+	case pages.ActToggleDemo:
+		a.Demo = !a.Demo // stays on the list; not saved, so it never outlives the app
+		demoChanged = true
 	case pages.ActOpenServer:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsServer, Text: a.serverLocked()}
 	case pages.ActServerKey:
@@ -457,6 +471,15 @@ func (a *App) handleSettingsTap(ev input.Event) {
 
 	if err != nil {
 		log.Printf("settings: %v", err)
+	}
+	if demoChanged {
+		a.mu.Lock()
+		on := a.Demo
+		a.mu.Unlock()
+		log.Printf("settings: demo mode is now %v", map[bool]string{true: "on", false: "off"}[on])
+		if a.OnDemoChange != nil {
+			a.OnDemoChange(on)
+		}
 	}
 	if changed && a.SettingsPath != "" {
 		if err := settings.Save(a.SettingsPath, saved); err != nil {
@@ -526,12 +549,12 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	boxes := a.boxesNow()
 	server := a.serverNow()
 	a.mu.Lock()
-	windTrue, speed := a.windTrue, a.speed
+	windTrue, speed, demo := a.windTrue, a.speed, a.Demo
 	a.mu.Unlock()
 	if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
-		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed})
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Demo: demo})
 	}
 	if invert {
 		invertInPlace(c.Img)

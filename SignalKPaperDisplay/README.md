@@ -168,6 +168,27 @@ set the screen size, touch device and (if it has one) front light in
 in `platforms/devices.txt` that says which Kindle it is. See
 `platforms/kindle-basic/README.md` for how to find them.
 
+### Demo mode
+
+Settings has a **Demo mode** switch (the last row). While it is on, made-up
+data replaces the SignalK server's: a boat sailing about with wind, depth,
+engine, batteries, tanks and four AIS ships (two closing, two opening), the same
+feed the dashboard was developed against (`internal/demo`). It goes through the
+same code as a real server's messages. Every page shows a black **DEMO** tag in
+the header while it is on, and it is never saved, so the app always starts on the
+real server. Switching it off drops the demo data and reconnects to the server.
+`paperdisplay -demo` starts in demo mode, which is handy for previews with no
+server (`-demo -once -page nav -out nav.png`).
+
+### Plugging it into a PC
+
+Use a wall charger, not a PC's USB port, while the app is running. A USB data
+connection puts the Kindle in "drive mode", which hands `/mnt/us` (where the app,
+FBInk and KOReader's ssh server live) to the PC: the display freezes on its last
+frame and ssh stops until you eject it, when everything carries on by itself. (If
+the app was in the middle of reading its own program file it can exit instead,
+and the launcher restarts it within a minute.)
+
 ## Updating from GitHub
 
 Devices update themselves from GitHub releases. A manifest in the repo

@@ -181,6 +181,10 @@ type State struct {
 	targets   map[string]*Target
 	connected bool
 	lastMsg   time.Time
+	// demo is set while the demo feed stands in for the server: what the server
+	// sends is then ignored (see Client.handle), and the state counts as
+	// connected whether or not there is a server.
+	demo bool
 }
 
 func NewState() *State {
@@ -193,6 +197,10 @@ func NewState() *State {
 func (s *State) Reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.resetLocked()
+}
+
+func (s *State) resetLocked() {
 	s.own = Own{}
 	s.fuel = map[string]Reading{}
 	s.targets = map[string]*Target{}
@@ -200,10 +208,61 @@ func (s *State) Reset() {
 	s.lastMsg = time.Time{}
 }
 
+// SetDemo switches demo mode on or off. Either way everything held is forgotten,
+// so demo data is never shown as if a server had sent it, nor the server's as
+// if the demo had. While it is on, only FeedDemo changes the state.
+func (s *State) SetDemo(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resetLocked()
+	s.demo = on
+}
+
+// Demo reports whether demo mode is on.
+func (s *State) Demo() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.demo
+}
+
+// FeedDemo applies one SignalK delta message from the demo feed, by exactly the
+// rules a message from a server goes through. It does nothing when demo mode is
+// off, so a tick that was already under way when the mode was switched off
+// can't leak in.
+func (s *State) FeedDemo(raw []byte, now time.Time) {
+	if !s.Demo() {
+		return
+	}
+	var m message
+	if json.Unmarshal(raw, &m) != nil {
+		return
+	}
+	s.apply(m, "", now)
+}
+
+// apply puts one delta message into the state. self is the server's id for our
+// own vessel ("" when there is none: "vessels.self" is always ours).
+func (s *State) apply(m message, self string, now time.Time) {
+	if len(m.Updates) == 0 {
+		return
+	}
+	s.touch(now)
+	isSelf := m.Context == "" || m.Context == "vessels.self" || m.Context == self
+	for _, u := range m.Updates {
+		for _, v := range u.Values {
+			if isSelf {
+				s.applyOwn(v.Path, v.Value, now)
+			} else {
+				s.applyTarget(m.Context, v.Path, v.Value, now)
+			}
+		}
+	}
+}
+
 func (s *State) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	snap := Snapshot{Own: s.own, Connected: s.connected, LastMessage: s.lastMsg}
+	snap := Snapshot{Own: s.own, Connected: s.connected || s.demo, LastMessage: s.lastMsg}
 	if len(s.own.Extra) > 0 { // the map is written under the lock: hand out a copy
 		snap.Own.Extra = make(map[string]Reading, len(s.own.Extra))
 		for k, v := range s.own.Extra {

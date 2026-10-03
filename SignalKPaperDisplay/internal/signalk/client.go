@@ -44,6 +44,22 @@ func (c *Client) SetServer(hostPort string) {
 	}
 }
 
+// Reconnect drops the connection and makes a new one to the same server, which
+// sends its whole state again. Everything held is forgotten first. It's for
+// when the demo ends: while it ran the server's messages were ignored, so
+// values that only change rarely (a tank level) would otherwise stay missing
+// until they next changed.
+func (c *Client) Reconnect() {
+	c.mu.Lock()
+	c.changed = true
+	cancel := c.cancel
+	c.mu.Unlock()
+	c.State.Reset()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // takeChanged reports, and clears, whether the server was changed.
 func (c *Client) takeChanged() bool {
 	c.mu.Lock()
@@ -89,7 +105,7 @@ func (c *Client) Run(ctx context.Context) {
 			return
 		}
 		if c.takeChanged() {
-			log.Printf("signalk: server changed, reconnecting")
+			log.Printf("signalk: reconnecting")
 			backoff = time.Second
 			continue // no waiting: the new address hasn't failed yet
 		}
@@ -167,7 +183,8 @@ type message struct {
 	} `json:"updates"`
 }
 
-// handle applies one WebSocket message (hello or delta) to the state.
+// handle applies one WebSocket message (hello or delta) to the state, unless
+// the demo is standing in for the server.
 func (c *Client) handle(raw []byte, now time.Time) {
 	var m message
 	if json.Unmarshal(raw, &m) != nil {
@@ -176,18 +193,8 @@ func (c *Client) handle(raw []byte, now time.Time) {
 	if m.Self != "" {
 		c.self = m.Self
 	}
-	if len(m.Updates) == 0 {
+	if c.State.Demo() {
 		return
 	}
-	c.State.touch(now)
-	isSelf := m.Context == "" || m.Context == "vessels.self" || m.Context == c.self
-	for _, u := range m.Updates {
-		for _, v := range u.Values {
-			if isSelf {
-				c.State.applyOwn(v.Path, v.Value, now)
-			} else {
-				c.State.applyTarget(m.Context, v.Path, v.Value, now)
-			}
-		}
-	}
+	c.State.apply(m, c.self, now)
 }

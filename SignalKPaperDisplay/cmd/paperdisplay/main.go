@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"signalkpaperdisplay/internal/app"
+	"signalkpaperdisplay/internal/demo"
 	"signalkpaperdisplay/internal/display"
 	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/profile"
@@ -65,6 +66,7 @@ func main() {
 		headerGuard  = flag.Duration("header-guard", 10*time.Second, "repaint the header strip this often (and just after each minute starts) to clear anything the stock UI, such as its clock, has drawn over it; 0 = never")
 		logMax       = flag.Int64("log-max", 256<<10, "empty the log (stderr, when it is a file) when it reaches this many bytes, so it can never fill the device; 0 = no limit")
 		verbose      = flag.Bool("verbose", false, "log every screen refresh, not just slow or failed ones")
+		demoMode     = flag.Bool("demo", false, "start in demo mode: made-up data instead of the SignalK server (the settings screen switches it too)")
 		fakeBattery  = flag.String("fake-battery", "", "for PNG previews: pretend the battery is at this percentage, with a + on the end if plugged in, e.g. 87 or 62+")
 		minRefresh   = flag.Duration("min-refresh", 2*time.Second, "shortest gap between partial refreshes (0 = redraw on every change); page changes ignore it")
 		manifestURL  = flag.String("manifest", defaultManifest, "update manifest URL")
@@ -168,6 +170,17 @@ func main() {
 	a := &app.App{State: state, Display: disp, Interval: *interval, FullRefreshEvery: *fullEvery, MinRefresh: *minRefresh, Verbose: *verbose, HeaderGuardEvery: *headerGuard,
 		Units: saved.Settings, Invert: saved.Invert, Boxes: saved.Boxes, SettingsPath: *settingsPath,
 		Server: saved.Server, DefaultServer: *server, OnServerChange: client.SetServer, Brightness: saved.Brightness}
+	dem := &demo.Controller{State: state}
+	a.Demo = *demoMode
+	a.OnDemoChange = func(on bool) {
+		dem.Set(on)
+		if !on {
+			client.Reconnect() // the server was ignored meanwhile: have it send everything again
+		}
+	}
+	if *demoMode {
+		dem.Set(true)
+	}
 	a.Battery = detectBattery(*displayKind, *fakeBattery)
 	a.Light = detectLight(prof, *displayKind, *settingsView)
 	a.InitLight()
