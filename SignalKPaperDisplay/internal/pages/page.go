@@ -26,6 +26,10 @@ type Env struct {
 	// saved: both start the same way on every boot (apparent wind, SOG).
 	WindTrue bool        // the wind speed widget shows the true wind, not the apparent
 	Speed    SpeedSource // which speed the speed box shows
+	// Depth is what the compass page's bottom right widget shows: the ID of any
+	// single-number kind or a raw SignalK path. Empty is the default, depth. Not
+	// saved: it is depth on every boot. See DepthFromID.
+	Depth string
 	// Demo is whether the data is made up: the header says so, on every page, so
 	// that it can never be taken for a real boat's.
 	Demo bool
@@ -92,6 +96,27 @@ func (s SpeedSource) Label() string {
 		return k.Label
 	}
 	return "SPEED"
+}
+
+// DepthFromID is the compass depth widget's setting for a kind ID, or false if the
+// widget cannot show it: the same kinds as the speed widget. Depth, the default,
+// is the empty string.
+func DepthFromID(id string) (string, bool) {
+	if id == "" || id == "depth" {
+		return "", true
+	}
+	if _, ok := SpeedFromID(id); !ok {
+		return "", false
+	}
+	return id, true
+}
+
+// DepthWidgetID is the kind ID the widget shows, "depth" for the default.
+func DepthWidgetID(setting string) string {
+	if setting == "" {
+		return "depth"
+	}
+	return setting
 }
 
 // Page is one selectable screen. Draw must be a pure function of its

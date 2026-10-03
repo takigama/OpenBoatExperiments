@@ -77,6 +77,8 @@
     </div>
     <div class="row" style="margin-top:1rem"><label for="speed">Speed widget</label></div>
     <select id="speed"></select>
+    <div class="row" style="margin-top:1rem"><label for="depth">Depth widget</label></div>
+    <select id="depth"></select>
   </section>
 
   <section>
@@ -172,6 +174,7 @@ function render() {
   document.querySelectorAll("#wind button").forEach(b => b.className = (b.dataset.v === String(st.wind.true)) ? "on" : "");
 
   fill($("speed"), st.speed.options, st.speed.kind);
+  fill($("depth"), st.depth.options, st.depth.kind);
 
   const g = $("boxes");
   if (!g.children.length) {
@@ -222,6 +225,7 @@ $("light").oninput = e => { $("lightval").textContent = e.target.value + " / " +
 $("light").onchange = e => send({ brightness: +e.target.value });
 document.querySelectorAll("#wind button").forEach(b => b.onclick = () => send({ windTrue: b.dataset.v === "true" }));
 $("speed").onchange = e => chosen(e.target, v => send({ speed: v }));
+$("depth").onchange = e => chosen(e.target, v => send({ depth: v }));
 
 refresh();
 setInterval(() => { if (!document.hidden && !$("picker").open) refresh(); }, 3000);

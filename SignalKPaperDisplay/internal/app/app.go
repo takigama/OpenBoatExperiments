@@ -95,6 +95,7 @@ type App struct {
 	// wind and SOG on every boot. Guarded by mu.
 	windTrue bool
 	speed    pages.SpeedSource
+	depthW   string // the compass depth widget's setting (see pages.DepthFromID); "" is depth
 	// force asks for a redraw at once, past the partial-refresh rationing, for a
 	// tap that changes a value on the same screen (not a new page).
 	force bool
@@ -620,14 +621,14 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	boxes := a.boxesNow()
 	server := a.serverNow()
 	a.mu.Lock()
-	windTrue, speed, demo, farewell := a.windTrue, a.speed, a.Demo, a.farewell
+	windTrue, speed, depthW, demo, farewell := a.windTrue, a.speed, a.depthW, a.Demo, a.farewell
 	a.mu.Unlock()
 	if farewell != "" {
 		pages.Farewell(c, farewell)
 	} else if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
-		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Demo: demo})
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Depth: depthW, Demo: demo})
 	}
 	if invert {
 		invertInPlace(c.Img)

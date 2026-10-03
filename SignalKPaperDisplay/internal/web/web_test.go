@@ -51,6 +51,7 @@ func (f *fake) SetBox(i int, k string) error {
 func (f *fake) SetBrightness(l int) error { return f.rec(fmt.Sprintf("brightness %d", l), nil) }
 func (f *fake) SetWindTrue(on bool)       { f.rec(fmt.Sprintf("wind %v", on), nil) }
 func (f *fake) SetSpeed(k string) error   { return f.rec("speed "+k, nil) }
+func (f *fake) SetDepth(k string) error   { return f.rec("depth "+k, nil) }
 
 func serve(t *testing.T, f *fake, token string) *httptest.Server {
 	t.Helper()
@@ -439,5 +440,48 @@ func TestEndToEndAgainstTheRealApp(t *testing.T) {
 	json.NewDecoder(r2.Body).Decode(&st)
 	if st.Page != "nav" || !st.Invert || st.Light.Level != 10 || !st.Wind.True || len(st.PathKinds) != 2 {
 		t.Errorf("the state does not say so: %+v", st)
+	}
+}
+
+func TestDepthWidgetThroughTheAPI(t *testing.T) {
+	f := newFake()
+	f.c.Depth = "depth"
+	s := serve(t, f, "")
+
+	resp, err := http.Get(s.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var st stateJSON
+	json.NewDecoder(resp.Body).Decode(&st)
+	if st.Depth.Kind != "depth" || len(st.Depth.Options) != len(pages.BoxKinds)-1 {
+		t.Errorf("depth widget in the state: %+v", st.Depth)
+	}
+	for _, k := range st.Depth.Options {
+		if k.ID == pages.BoxAIS {
+			t.Error("the depth widget cannot show the closest-ship box")
+		}
+	}
+
+	if resp, out := post(t, s, `{"depth":"path:environment.outside.pressure"}`, nil); resp.StatusCode != 200 || out["depth"] == nil {
+		t.Fatalf("%d %v", resp.StatusCode, out)
+	}
+	if len(f.calls) != 1 || f.calls[0] != "depth path:environment.outside.pressure" {
+		t.Errorf("calls = %v", f.calls)
+	}
+	// Bad, with something good alongside: nothing is applied.
+	f.calls = nil
+	for _, bad := range []string{"nope", "ais1", "path:a b"} {
+		resp, out := post(t, s, `{"invert":true,"depth":"`+bad+`"}`, nil)
+		if resp.StatusCode != 400 {
+			t.Errorf("%s: status %d", bad, resp.StatusCode)
+		}
+		if e, _ := out["errors"].(map[string]any); e["depth"] == nil {
+			t.Errorf("%s: no error named for depth: %v", bad, out)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("something was applied despite the bad request: %v", f.calls)
 	}
 }

@@ -42,6 +42,7 @@ type Controller interface {
 	SetBrightness(level int) error
 	SetWindTrue(on bool)
 	SetSpeed(kind string) error
+	SetDepth(kind string) error
 }
 
 // Server serves the control page and API.
@@ -174,6 +175,7 @@ type stateJSON struct {
 	Light     *lightJSON `json:"light"` // nil: no front light
 	Wind      windJSON   `json:"wind"`
 	Speed     speedJSON  `json:"speed"`
+	Depth     speedJSON  `json:"depth"`
 	Demo      bool       `json:"demo"`
 	Server    string     `json:"server"`
 	Connected bool       `json:"connected"`
@@ -203,7 +205,7 @@ func (s *Server) stateNow() stateJSON {
 	c := s.App.Control()
 	st := stateJSON{
 		Version: s.Version, Platform: s.Platform, Page: c.Page, Invert: c.Invert, Boxes: c.Boxes,
-		Wind: windJSON{True: c.WindTrue}, Speed: speedJSON{Kind: c.Speed},
+		Wind: windJSON{True: c.WindTrue}, Speed: speedJSON{Kind: c.Speed}, Depth: speedJSON{Kind: c.Depth},
 		Demo: c.Demo, Server: c.Server, Connected: c.Connected,
 		Limits: limitsJSON{Boxes: pages.NavBoxes},
 	}
@@ -215,6 +217,7 @@ func (s *Server) stateNow() stateJSON {
 		st.Kinds = append(st.Kinds, kj)
 		if k.ID != pages.BoxAIS {
 			st.Speed.Options = append(st.Speed.Options, kj)
+			st.Depth.Options = append(st.Depth.Options, kj)
 		}
 	}
 	if c.LightMax > 0 {
@@ -222,7 +225,7 @@ func (s *Server) stateNow() stateJSON {
 	}
 	// Paths in use that are not in the built-in list, so the page can name them.
 	seen := map[string]bool{}
-	for _, id := range append(append([]string(nil), c.Boxes...), c.Speed) {
+	for _, id := range append(append([]string(nil), c.Boxes...), c.Speed, c.Depth) {
 		if pages.IsPathKind(id) && !seen[id] {
 			seen[id] = true
 			k, _ := pages.BoxKindByID(id)
@@ -287,6 +290,7 @@ type controlReq struct {
 	Brightness *int            `json:"brightness"`
 	WindTrue   *bool           `json:"windTrue"`
 	Speed      *string         `json:"speed"`
+	Depth      *string         `json:"depth"`
 }
 
 func (s *Server) control(w http.ResponseWriter, r *http.Request) {
@@ -366,6 +370,12 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Depth != nil {
+		if _, ok := pages.DepthFromID(*req.Depth); !ok {
+			errs["depth"] = fmt.Sprintf("the depth widget cannot show %q", *req.Depth)
+		}
+	}
+
 	if len(errs) > 0 { // nothing is applied unless all of it is good
 		writeJSON(w, http.StatusBadRequest, map[string]any{"errors": errs})
 		return
@@ -397,6 +407,11 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	if req.Speed != nil {
 		if err := s.App.SetSpeed(*req.Speed); err != nil {
 			errs["speed"] = err.Error()
+		}
+	}
+	if req.Depth != nil {
+		if err := s.App.SetDepth(*req.Depth); err != nil {
+			errs["depth"] = err.Error()
 		}
 	}
 	if len(errs) > 0 { // something that passed the checks failed to apply, e.g. the light

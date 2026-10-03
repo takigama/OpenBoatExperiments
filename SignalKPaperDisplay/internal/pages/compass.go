@@ -153,11 +153,18 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	c.HLine(0, b.Dx(), boxBottom, 3, render.Mid)
 	c.VLine(b.Dx()/2-1, boxBottom, b.Dy(), 3, render.Mid)
 
-	depthVal, depthUnit := e.Units.Format("depth", own.Depth.V)
 	speed := speedMetricWith(own, now, e, contacts)
 	drawMetric(c, SpeedBoxRect(b), speed, 0)
-	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
-		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal}, 0)
+	// Depth, unless it was set to something else: then the same as a Nav box
+	// showing it. Changing it is a full refresh, so the grey label is fine.
+	drawMetric(c, DepthBoxRect(b), boxMetric(DepthWidgetID(e.Depth), own, now, e, contacts), 0)
+}
+
+// DepthBoxRect is the depth box at the bottom right of the compass page.
+func DepthBoxRect(b image.Rectangle) image.Rectangle {
+	_, h := compassLayout(b)
+	top, _ := compassLayout(b)
+	return image.Rect(b.Dx()/2+2, top+h+3, b.Dx(), b.Dy())
 }
 
 // compassLayout is where the compass area sits: its top, and its height. The

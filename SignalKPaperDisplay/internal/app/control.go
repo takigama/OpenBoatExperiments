@@ -27,6 +27,7 @@ type Control struct {
 	Light     int
 	WindTrue  bool   // the compass wind widget shows the true wind
 	Speed     string // the compass speed widget's kind ID
+	Depth     string // the compass depth widget's kind ID
 	Demo      bool
 	Server    string
 	Connected bool
@@ -44,6 +45,7 @@ func (a *App) Control() Control {
 		Boxes:    pages.NormalizeBoxes(a.Boxes),
 		WindTrue: a.windTrue,
 		Speed:    a.speed.ID(),
+		Depth:    pages.DepthWidgetID(a.depthW),
 		Demo:     a.Demo,
 		Server:   a.serverLocked(),
 		Light:    a.lightLevel,
@@ -196,6 +198,24 @@ func (a *App) SetSpeed(kind string) error {
 	return nil
 }
 
+// SetDepth makes the compass depth widget show a kind, as the speed widget can.
+// Not saved: it shows depth on every boot. A full refresh, since the widget's
+// label is a static one.
+func (a *App) SetDepth(kind string) error {
+	setting, ok := pages.DepthFromID(kind)
+	if !ok {
+		return fmt.Errorf("the depth widget cannot show %q", kind)
+	}
+	a.mu.Lock()
+	a.depthW = setting
+	a.pageChanged = true
+	a.mu.Unlock()
+	log.Printf("remote: depth widget shows %s", pages.DepthWidgetID(setting))
+	a.syncWatch()
+	a.nudge()
+	return nil
+}
+
 // SyncWatch tells the state which SignalK paths the boxes and the speed widget
 // need, and fetches their units from the server. Call it once after setting the
 // boxes up; the setters above call it themselves.
@@ -206,7 +226,7 @@ func (a *App) syncWatch() {
 		return
 	}
 	a.mu.Lock()
-	ids := append(pages.NormalizeBoxes(a.Boxes), a.speed.ID())
+	ids := append(pages.NormalizeBoxes(a.Boxes), a.speed.ID(), pages.DepthWidgetID(a.depthW))
 	a.mu.Unlock()
 	a.State.Watch(pages.WatchedPaths(ids...))
 	a.refreshMeta()
@@ -223,7 +243,7 @@ func (a *App) refreshMeta() {
 		return
 	}
 	a.mu.Lock()
-	ids := append(pages.NormalizeBoxes(a.Boxes), a.speed.ID())
+	ids := append(pages.NormalizeBoxes(a.Boxes), a.speed.ID(), pages.DepthWidgetID(a.depthW))
 	if a.metaTried == nil {
 		a.metaTried = map[string]time.Time{}
 	}
