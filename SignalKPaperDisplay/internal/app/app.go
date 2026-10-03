@@ -64,6 +64,12 @@ type App struct {
 	// starting value, which is the caller's to act on). Guarded by mu.
 	Demo         bool
 	OnDemoChange func(on bool)
+	// OnPower carries out a choice from the power screen (one of the pages.Power*
+	// IDs: back to the Kindle's own software, restart, power off) once it has
+	// been confirmed, after the screen has been left saying what is happening.
+	// Nil means this display has no power to manage (a PC preview), and the
+	// choices do nothing. If it fails, the dashboard carries on.
+	OnPower func(kind string) error
 	// Light is the device's front light, nil if it has none or it can't be
 	// reached; the setting is hidden then. Brightness is the level saved in
 	// settings (nil: never chosen). Call InitLight once after setting both.
@@ -94,6 +100,9 @@ type App struct {
 	Verbose bool
 	// SettingsPath is where settings changes are saved; empty means don't persist.
 	SettingsPath string
+
+	showMu   sync.Mutex // one picture sent to the display at a time
+	farewell string     // the power choice being carried out; its last picture replaces every page. Guarded by mu.
 
 	mu           sync.Mutex // guards the fields below, which touch input changes
 	page         int
@@ -392,6 +401,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	var err error
 	var newServer string // set when a different server was saved
 	setLight := -1       // set when the front light is to change
+	powerKind := ""      // set when a power choice was confirmed
 	demoChanged := false // set when demo mode was switched
 	switch act.Kind {
 	case pages.ActBack:
@@ -427,6 +437,12 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.lightLevel = act.Level
 		chosen := act.Level
 		a.Brightness = &chosen
+	case pages.ActOpenPower:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsPower}
+	case pages.ActPowerPick:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsPowerConfirm, Power: act.Value}
+	case pages.ActPowerDo:
+		powerKind = act.Value
 	case pages.ActToggleDemo:
 		a.Demo = !a.Demo // stays on the list; not saved, so it never outlives the app
 		demoChanged = true
@@ -472,6 +488,9 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	if err != nil {
 		log.Printf("settings: %v", err)
 	}
+	if powerKind != "" {
+		a.doPower(powerKind)
+	}
 	if demoChanged {
 		a.mu.Lock()
 		on := a.Demo
@@ -499,6 +518,53 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	}
 	log.Printf("touch: settings tap at (%d,%d)", ev.X, ev.Y)
 	a.nudge()
+}
+
+// PowerButton is a press of the Kindle's power button. The dashboard owns the
+// screen and the stock software that would normally answer the button is
+// stopped, so it opens the power screen from wherever the app is; pressed again
+// there, it closes it.
+func (a *App) PowerButton() {
+	a.mu.Lock()
+	if a.farewell != "" { // already going down: nothing more to ask
+		a.mu.Unlock()
+		return
+	}
+	if a.settingsOpen && (a.settingsView.Screen == pages.SettingsPower || a.settingsView.Screen == pages.SettingsPowerConfirm) {
+		a.settingsOpen = false
+	} else {
+		a.settingsOpen, a.settingsView = true, pages.SettingsView{Screen: pages.SettingsPower}
+	}
+	a.pageChanged = true
+	a.mu.Unlock()
+	log.Print("power button: pressed")
+	a.nudge()
+}
+
+// doPower carries out a confirmed power choice. The last picture is drawn first,
+// in full: the e-ink screen keeps it after the Kindle has gone off, and it is
+// what says what happened. If the action fails the dashboard comes back.
+func (a *App) doPower(kind string) {
+	if a.OnPower == nil {
+		log.Printf("power: %s (nothing to do on this display)", kind)
+		return
+	}
+	a.mu.Lock()
+	a.farewell = kind
+	a.settingsOpen = false
+	a.mu.Unlock()
+	log.Printf("power: %s", kind)
+	if _, err := a.Show(time.Now(), true); err != nil {
+		log.Printf("power: drawing the last picture: %v", err)
+	}
+	if err := a.OnPower(kind); err != nil {
+		log.Printf("power: %s failed: %v", kind, err)
+		a.mu.Lock()
+		a.farewell = ""
+		a.settingsOpen, a.settingsView, a.pageChanged = true, pages.SettingsView{Screen: pages.SettingsPower}, true
+		a.mu.Unlock()
+		a.nudge()
+	}
 }
 
 // heartbeat blinks the dot beside the clock, once per loop, by redrawing just
@@ -549,9 +615,11 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	boxes := a.boxesNow()
 	server := a.serverNow()
 	a.mu.Lock()
-	windTrue, speed, demo := a.windTrue, a.speed, a.Demo
+	windTrue, speed, demo, farewell := a.windTrue, a.speed, a.Demo, a.farewell
 	a.mu.Unlock()
-	if open {
+	if farewell != "" {
+		pages.Farewell(c, farewell)
+	} else if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
 		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Demo: demo})
@@ -612,6 +680,8 @@ func invertedCopy(src *image.Gray) *image.Gray {
 }
 
 func (a *App) Show(now time.Time, full bool) (drew bool, err error) {
+	a.showMu.Lock()
+	defer a.showMu.Unlock()
 	t0 := time.Now()
 	img, err := a.Frame(now)
 	if err != nil {

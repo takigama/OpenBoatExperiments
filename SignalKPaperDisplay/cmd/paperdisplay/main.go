@@ -19,6 +19,7 @@ import (
 	"signalkpaperdisplay/internal/demo"
 	"signalkpaperdisplay/internal/display"
 	"signalkpaperdisplay/internal/pages"
+	"signalkpaperdisplay/internal/powerkey"
 	"signalkpaperdisplay/internal/profile"
 	"signalkpaperdisplay/internal/settings"
 	"signalkpaperdisplay/internal/signalk"
@@ -56,7 +57,7 @@ func main() {
 		waveform     = flag.String("waveform", "DU", "e-ink waveform for partial updates with -display fbink: DU is fast (~290ms on a Paperwhite 3, coarse grays), GL16 or \"\" (FBInk's choice) is slower (~540ms) but smoother; full refreshes always use full quality")
 		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for eips/fbink (use tmpfs, not flash)")
 		pageID       = flag.String("page", "compass", "page to start on: compass, nav")
-		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset, unit:<metric>, boxes, box:<1-6>, server or light")
+		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset, unit:<metric>, boxes, box:<1-6>, server, light, power or power-confirm:<choice>")
 		settingsPath = flag.String("settings", "settings.json", "unit settings file (missing = metric defaults)")
 		fullEvery    = flag.Duration("full-refresh", 5*time.Minute, "flashing full refresh interval, to clear e-ink ghosting")
 		once         = flag.Bool("once", false, "render a single frame after -wait, then exit (for previews)")
@@ -76,6 +77,8 @@ func main() {
 		doUpdate     = flag.Bool("update", false, "install a newer release if there is one, then exit")
 		updateEvery  = flag.Duration("update-every", 0, "check for and install updates this often while running (0 = never); the launcher restarts the new version")
 		showVersion  = flag.Bool("version", false, "print the version and exit")
+		powerButton  = flag.Bool("power-button", true, "on a Kindle, a press of the power button opens the power screen (the stock software that would answer it is stopped)")
+		keyTest      = flag.Bool("key-test", false, "print every kernel uevent, then exit on Ctrl-C (to see what the power button sends)")
 		touchTest    = flag.Bool("touch-test", false, "print raw and mapped touch events, then exit on Ctrl-C (to measure a device's orientation)")
 	)
 	flag.Parse()
@@ -119,6 +122,14 @@ func main() {
 		if _, err := runUpdate(ctx, fetcher, *manifestURL, prof.Name, *doUpdate); err != nil {
 			log.Fatalf("update: %v", err)
 		}
+		return
+	}
+
+	if *keyTest {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		forceExitAfterCancel(ctx)
+		runKeyTest(ctx)
 		return
 	}
 
@@ -181,6 +192,13 @@ func main() {
 	if *demoMode {
 		dem.Set(true)
 	}
+	if *displayKind == "fbink" || *displayKind == "eips" { // a real device: a PC preview must never power itself off
+		dir := filepath.Dir(*settingsPath)
+		if exe, err := os.Executable(); err == nil {
+			dir = filepath.Dir(exe)
+		}
+		a.OnPower = func(kind string) error { return runPower(kind, dir) }
+	}
 	a.Battery = detectBattery(*displayKind, *fakeBattery)
 	a.Light = detectLight(prof, *displayKind, *settingsView)
 	a.InitLight()
@@ -200,6 +218,10 @@ func main() {
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsLight})
 	case v == "server":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsServer, Text: host})
+	case v == "power":
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPower})
+	case strings.HasPrefix(v, "power-confirm:"):
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPowerConfirm, Power: strings.TrimPrefix(v, "power-confirm:")})
 	case v == "boxes":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsBoxes})
 	case strings.HasPrefix(v, "box:"):
@@ -209,13 +231,29 @@ func main() {
 		}
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickBox, Box: n - 1})
 	default:
-		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6>, server or light)", v)
+		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6>, server, light, power or power-confirm:<stock|restart|poweroff>)", v)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	forceExitAfterCancel(ctx)
 	go client.Run(ctx)
+
+	if *powerButton && a.OnPower != nil {
+		go func() {
+			var last time.Time
+			err := powerkey.Listen(ctx, func(e powerkey.Event) {
+				if !powerkey.IsPowerButton(e) || time.Since(last) < time.Second {
+					return // one press can announce itself more than once
+				}
+				last = time.Now()
+				a.PowerButton()
+			})
+			if err != nil {
+				log.Printf("power button: not listening: %v", err)
+			}
+		}()
+	}
 
 	if *updateEvery > 0 && !*once {
 		go autoUpdate(ctx, fetcher, *manifestURL, prof.Name, *updateEvery, stop)

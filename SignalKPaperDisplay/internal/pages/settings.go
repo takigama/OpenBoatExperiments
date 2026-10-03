@@ -13,13 +13,15 @@ import (
 type SettingsScreen int
 
 const (
-	SettingsRoot       SettingsScreen = iota // the list: units preset, then one row per metric
-	SettingsPickPreset                       // choose metric / imperial
-	SettingsPickUnit                         // choose a unit for View.Metric
-	SettingsBoxes                            // the six Nav boxes and what each shows
-	SettingsPickBox                          // choose what box View.Box shows
-	SettingsServer                           // type in the SignalK server address
-	SettingsLight                            // set the front light brightness
+	SettingsRoot         SettingsScreen = iota // the list: units preset, then one row per metric
+	SettingsPickPreset                         // choose metric / imperial
+	SettingsPickUnit                           // choose a unit for View.Metric
+	SettingsBoxes                              // the six Nav boxes and what each shows
+	SettingsPickBox                            // choose what box View.Box shows
+	SettingsServer                             // type in the SignalK server address
+	SettingsLight                              // set the front light brightness
+	SettingsPower                              // switch off, restart, or back to the Kindle's own software
+	SettingsPowerConfirm                       // are you sure about View.Power
 )
 
 // Version is the running release number, shown at the foot of the settings
@@ -43,6 +45,8 @@ type SettingsView struct {
 
 	// Demo is whether demo mode is on, filled in by the app like the light.
 	Demo bool
+
+	Power string // SettingsPowerConfirm: which of the PowerChoices is being confirmed
 }
 
 type ActionKind int
@@ -64,6 +68,9 @@ const (
 	ActOpenLight                   // root -> the front light screen
 	ActSetLight                    // set the front light to Action.Level
 	ActToggleDemo                  // switch demo mode on or off
+	ActOpenPower                   // root -> the power screen
+	ActPowerPick                   // power screen -> confirm Action.Value
+	ActPowerDo                     // do Action.Value (a power choice), confirmed
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -76,7 +83,7 @@ type Action struct {
 }
 
 const (
-	settingsRowH = 90 // the list's rows must all fit on the tallest screen, with the notes under them
+	settingsRowH = 84 // the list's rows must all fit on the tallest screen, with the notes under them
 	settingsTop  = headerH + 30
 )
 
@@ -125,6 +132,9 @@ func demoRow(hasLight bool) int {
 	}
 	return serverRow() + 1
 }
+
+// powerRow is the very last row, opening the power screen.
+func powerRow(hasLight bool) int { return demoRow(hasLight) + 1 }
 
 // The front light screen: a bar you tap to pick a level, minus and plus
 // buttons, and off and maximum buttons.
@@ -205,6 +215,9 @@ func ParentScreen(s SettingsScreen) SettingsScreen {
 	if s == SettingsPickBox {
 		return SettingsBoxes
 	}
+	if s == SettingsPowerConfirm {
+		return SettingsPower
+	}
 	return SettingsRoot
 }
 
@@ -261,6 +274,11 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 		if row == demoRow(v.MaxLevel > 0) {
 			return Action{Kind: ActToggleDemo}
 		}
+		if row == powerRow(v.MaxLevel > 0) {
+			return Action{Kind: ActOpenPower}
+		}
+	case SettingsPower, SettingsPowerConfirm:
+		return powerTap(v, image.Pt(x, y), width)
 	case SettingsLight:
 		return lightTap(v, image.Pt(x, y))
 	case SettingsServer:
@@ -349,6 +367,8 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 		title = "SIGNALK SERVER"
 	case SettingsLight:
 		title = "BACKLIGHT"
+	case SettingsPower, SettingsPowerConfirm:
+		title = "POWER"
 	}
 	// A back chevron where the cog is on other pages, in the same tap area.
 	chevronLeft(c, 38, int(cogY), 22, render.Black)
@@ -397,7 +417,8 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 			}
 			c.Text(b.Dx()-50, cy+16, state, 50, render.Bold, render.Right, render.Black)
 		})
-		footRow := demoRow(v.MaxLevel > 0) + 1
+		row(c, powerRow(v.MaxLevel > 0), "Power", func(cy int) { chevronRight(c, b.Dx()-50, cy, 18, render.Dark) })
+		footRow := powerRow(v.MaxLevel > 0) + 1
 		c.Text(40, settingsTop+footRow*settingsRowH+60,
 			"* set individually, not from the preset", 36, render.Regular, render.Left, render.Dark)
 		// Which build this is, so it's plain from the screen that an update
@@ -420,6 +441,9 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 
 	case SettingsLight:
 		drawLight(c, v)
+
+	case SettingsPower, SettingsPowerConfirm:
+		drawPower(c, v)
 
 	case SettingsPickBox:
 		current := NormalizeBoxes(boxes)[clampBox(v.Box)]

@@ -180,6 +180,27 @@ real server. Switching it off drops the demo data and reconnects to the server.
 `paperdisplay -demo` starts in demo mode, which is handy for previews with no
 server (`-demo -once -page nav -out nav.png`).
 
+### Power
+
+While the dashboard runs, the Kindle's own software is stopped, and the power
+button is ignored by the Kindle itself (it ignores the button for as long as the
+screensaver is prevented, which is how the dashboard stays awake). So the app
+has its own way to switch off: **Settings, Power**, or a press of the **power
+button**, opens a screen with three choices, each asked about again:
+
+- **Kindle software** - stops the dashboard and starts the Kindle's own screens
+  (the launcher's `disable` file). To bring the dashboard back, delete
+  `/mnt/us/signalk/disable` (over ssh), or run the installer again.
+- **Restart** - reboots; the dashboard starts again by itself.
+- **Power off** - switches the Kindle off; the power button starts it again.
+
+The last picture says what happened, since an e-ink screen keeps it with no power.
+The power button is heard through the kernel's own announcement of the press
+(`paperdisplay -key-test` prints every one), which is recognised by the power
+chip's driver: `bd7181x` on the Kindle 8th generation. On another Kindle, run
+`-key-test`, press the button, and add the driver it shows to `internal/powerkey`;
+until then the settings row does the same job.
+
 ### Plugging it into a PC
 
 Use a wall charger, not a PC's USB port, while the app is running. A USB data

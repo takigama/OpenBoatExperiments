@@ -26,11 +26,15 @@ func TestSettingsTapRoot(t *testing.T) {
 			t.Errorf("row %d = %+v, want unit picker for %s", i+1, got, m.ID)
 		}
 	}
-	// With no front light the demo switch is the last row; below it is nothing.
+	// With no front light the demo switch and then power are the last rows; below
+	// them is nothing.
 	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+4), 1072); got.Kind != ActToggleDemo {
-		t.Errorf("the last row = %+v, want the demo switch", got)
+		t.Errorf("the row after the server = %+v, want the demo switch", got)
 	}
-	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+5), 1072); got.Kind != ActNone {
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+5), 1072); got.Kind != ActOpenPower {
+		t.Errorf("the last row = %+v, want the power screen", got)
+	}
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+6), 1072); got.Kind != ActNone {
 		t.Errorf("a tap below the list = %+v, want nothing", got)
 	}
 	if got := SettingsTap(root, 500, headerH+5, 1072); got.Kind != ActNone {
@@ -377,22 +381,25 @@ func TestBacklightRowOnlyOnDevicesWithALight(t *testing.T) {
 	}
 }
 
-func TestDemoSwitchIsTheLastRow(t *testing.T) {
+func TestDemoAndPowerAreTheLastRows(t *testing.T) {
 	const w = 1072
 	withLight := SettingsView{MaxLevel: 24}
 	if got := SettingsTap(withLight, 500, SettingsRowY(demoRow(true)), w); got.Kind != ActToggleDemo {
 		t.Errorf("with a light the demo switch is after it, got %+v", got)
 	}
-	if got := SettingsTap(withLight, 500, SettingsRowY(demoRow(true)+1), w); got.Kind != ActNone {
-		t.Errorf("nothing is below the demo switch, got %+v", got)
+	if got := SettingsTap(withLight, 500, SettingsRowY(powerRow(true)), w); got.Kind != ActOpenPower {
+		t.Errorf("power is the row after it, got %+v", got)
+	}
+	if got := SettingsTap(withLight, 500, SettingsRowY(powerRow(true)+1), w); got.Kind != ActNone {
+		t.Errorf("nothing is below the power row, got %+v", got)
 	}
 	if demoRow(false) != lightRow() || demoRow(true) != lightRow()+1 {
 		t.Errorf("demo row = %d / %d, light row = %d", demoRow(false), demoRow(true), lightRow())
 	}
 	// Everything, with the footnote and the version label, fits on the tallest
 	// screen (1448 design units) even with a front light.
-	if bottom := SettingsRowY(demoRow(true)) + settingsRowH/2; bottom > 1330 {
-		t.Errorf("the demo row is too low (%d) for the footnote under it", bottom)
+	if bottom := SettingsRowY(powerRow(true)) + settingsRowH/2; bottom > 1330 {
+		t.Errorf("the power row is too low (%d) for the footnote under it", bottom)
 	}
 
 	draw := func(v SettingsView) *render.Canvas {
