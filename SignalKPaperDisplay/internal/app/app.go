@@ -70,6 +70,11 @@ type App struct {
 	// Nil means this display has no power to manage (a PC preview), and the
 	// choices do nothing. If it fails, the dashboard carries on.
 	OnPower func(kind string) error
+	// FetchMeta asks the SignalK server which units a path is in and records the
+	// answer in State (see signalk.Client.FetchMeta); it is called in its own
+	// goroutine. Nil means don't ask: paths are then formatted from their names.
+	FetchMeta func(path string)
+	metaTried map[string]time.Time // when each path's units were last asked for; guarded by mu
 	// Light is the device's front light, nil if it has none or it can't be
 	// reached; the setting is hidden then. Brightness is the level saved in
 	// settings (nil: never chosen). Call InitLight once after setting both.
@@ -308,6 +313,7 @@ func (a *App) compassTap(pt image.Point, b image.Rectangle) bool {
 		a.force = true
 		a.mu.Unlock()
 		log.Printf("touch: tap at (%d,%d) -> speed shows %s", pt.X, pt.Y, label)
+		a.syncWatch()
 	default:
 		return false
 	}
@@ -472,11 +478,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	}
 	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit ||
 		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || newServer != "" || setLight >= 0
-	saved := settings.File{Settings: a.Units.Clone(), Invert: a.Invert, Boxes: append([]string(nil), a.Boxes...), Server: a.Server}
-	if a.Brightness != nil {
-		b := *a.Brightness
-		saved.Brightness = &b
-	}
+	saved := a.settingsFileLocked()
 	// Every screen is a different picture, so a change of screen is a full
 	// refresh - but moving the light is the same screen redrawn, and a flash
 	// on every tap would make it miserable to use.
@@ -487,6 +489,9 @@ func (a *App) handleSettingsTap(ev input.Event) {
 
 	if err != nil {
 		log.Printf("settings: %v", err)
+	}
+	if act.Kind == pages.ActSetBox {
+		a.syncWatch()
 	}
 	if powerKind != "" {
 		a.doPower(powerKind)
@@ -738,6 +743,7 @@ func (a *App) Run(ctx context.Context) {
 		}
 		a.heartbeat(time.Now())
 		a.guardHeader(time.Now())
+		a.refreshMeta() // cheap: only asks about a path it has not had an answer for in the last minute
 		select {
 		case <-ctx.Done():
 			return

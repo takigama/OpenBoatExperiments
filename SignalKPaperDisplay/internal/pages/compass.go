@@ -154,7 +154,7 @@ func Compass(c *render.Canvas, s signalk.Snapshot, now time.Time, e Env) {
 	c.VLine(b.Dx()/2-1, boxBottom, b.Dy(), 3, render.Mid)
 
 	depthVal, depthUnit := e.Units.Format("depth", own.Depth.V)
-	speed := speedMetric(own, now, e)
+	speed := speedMetricWith(own, now, e, contacts)
 	drawMetric(c, SpeedBoxRect(b), speed, 0)
 	drawMetric(c, image.Rect(b.Dx()/2+2, boxBottom+3, b.Dx(), b.Dy()),
 		metric{label: "DEPTH", unit: depthUnit, ok: own.Depth.Fresh(now, StaleAfter), value: depthVal}, 0)
@@ -191,8 +191,17 @@ func WindWidgetShown(own signalk.Own) bool { return own.AWS.Valid() || own.TWS.V
 // speedMetric is the speed box: SOG, speed through the water or VMG to the
 // wind, as the user last tapped it, labelled with which.
 func speedMetric(own signalk.Own, now time.Time, e Env) metric {
+	return speedMetricWith(own, now, e, nil)
+}
+
+// speedMetricWith is speedMetric given the AIS contacts, which some of the
+// kinds the box can be set to show (closest approach) are worked out from.
+func speedMetricWith(own signalk.Own, now time.Time, e Env, contacts []ais.Contact) metric {
 	m := metric{label: e.Speed.Label(), liveLabel: true}
 	switch e.Speed {
+	case SpeedSOG:
+		m.value, m.unit = e.Units.Format("sog", own.SOG.V)
+		m.ok = own.SOG.Fresh(now, StaleAfter)
 	case SpeedSTW:
 		m.value, m.unit = e.Units.Format("stw", own.STW.V)
 		m.ok = own.STW.Fresh(now, StaleAfter)
@@ -201,8 +210,10 @@ func speedMetric(own signalk.Own, now time.Time, e Env) metric {
 		m.value, m.unit = e.Units.Format("sog", v)
 		m.ok = ok
 	default:
-		m.value, m.unit = e.Units.Format("sog", own.SOG.V)
-		m.ok = own.SOG.Fresh(now, StaleAfter)
+		// Whatever else it was set to: the same as a Nav box showing it, but with
+		// the label in solid black, since it is redrawn in place.
+		m = boxMetric(string(e.Speed), own, now, e, contacts)
+		m.liveLabel = true
 	}
 	return m
 }

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard control</title>
+<style>
+  :root { --bg:#f4f5f7; --card:#fff; --ink:#15181d; --dim:#5d6672; --line:#d9dde3; --accent:#0b5fff; --on:#fff; --bad:#c62828; --good:#2e7d32; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#101215; --card:#1a1d22; --ink:#eceff3; --dim:#98a1ad; --line:#2d333b; --accent:#5b9bff; --on:#06101f; --bad:#ef7676; --good:#6fcf7a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display:flex; align-items:center; gap:.6rem; padding:.9rem 1rem; max-width:680px; margin:0 auto; }
+  header h1 { font-size:1.15rem; margin:0; flex:1; }
+  .dot { width:.7rem; height:.7rem; border-radius:50%; background:var(--bad); }
+  .dot.ok { background:var(--good); }
+  .small { color:var(--dim); font-size:.85rem; }
+  main { max-width:680px; margin:0 auto; padding:0 1rem 3rem; display:grid; gap:1rem; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:1rem; }
+  section h2 { margin:0 0 .7rem; font-size:.8rem; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); }
+  .seg { display:flex; gap:.4rem; flex-wrap:wrap; }
+  .seg button { flex:1 1 7rem; }
+  button, select, input[type=search] { font:inherit; min-height:2.75rem; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); padding:.4rem .7rem; }
+  button { cursor:pointer; }
+  button.on { background:var(--accent); color:var(--on); border-color:var(--accent); font-weight:600; }
+  select { width:100%; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin:.3rem 0; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:.8rem .6rem; }
+  @media (max-width: 520px) { .grid { grid-template-columns:1fr; } }
+  .grid label { display:block; font-size:.78rem; color:var(--dim); margin-bottom:.15rem; }
+  input[type=range] { width:100%; min-height:2.75rem; accent-color:var(--accent); }
+  .switch { position:relative; width:3.4rem; height:2rem; flex:none; }
+  .switch input { opacity:0; position:absolute; inset:0; width:100%; height:100%; margin:0; cursor:pointer; }
+  .switch span { position:absolute; inset:0; border-radius:1rem; background:var(--line); transition:.15s; pointer-events:none; }
+  .switch span::after { content:""; position:absolute; top:.2rem; left:.2rem; width:1.6rem; height:1.6rem; border-radius:50%; background:var(--card); transition:.15s; }
+  .switch input:checked + span { background:var(--accent); }
+  .switch input:checked + span::after { transform:translateX(1.4rem); }
+  .switch input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }
+  dialog { width:min(34rem, 94vw); max-height:86vh; border:1px solid var(--line); border-radius:12px; background:var(--card); color:var(--ink); padding:1rem; }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  #plist { list-style:none; margin:.6rem 0 0; padding:0; max-height:52vh; overflow:auto; }
+  #plist li button { display:flex; justify-content:space-between; gap:1rem; width:100%; text-align:left; border:0; border-bottom:1px solid var(--line); border-radius:0; background:none; }
+  #plist .v { color:var(--dim); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  #toast { position:fixed; left:50%; bottom:1rem; transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:.6rem 1rem; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; max-width:92vw; }
+  #toast.show { opacity:1; }
+  #toast.err { background:var(--bad); color:#fff; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="conn" title="connected to the SignalK server"></span>
+  <h1>Dashboard control</h1>
+  <span class="small" id="ver"></span>
+</header>
+<main>
+  <section>
+    <h2>Screen</h2>
+    <div class="seg" id="pages"></div>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <div class="row"><label for="invert">Invert colours (white on black)</label>
+      <label class="switch"><input type="checkbox" id="invert"><span></span></label></div>
+    <div id="lightbox">
+      <div class="row"><label for="light">Backlight</label><span id="lightval" class="small"></span></div>
+      <input type="range" id="light" min="0" max="24" step="1">
+    </div>
+  </section>
+
+  <section>
+    <h2>Compass</h2>
+    <div class="row"><span>Wind speed widget</span></div>
+    <div class="seg" id="wind">
+      <button data-v="false">Apparent</button><button data-v="true">True</button>
+    </div>
+    <div class="row" style="margin-top:1rem"><label for="speed">Speed widget</label></div>
+    <select id="speed"></select>
+  </section>
+
+  <section>
+    <h2>Nav boxes</h2>
+    <div class="grid" id="boxes"></div>
+  </section>
+
+  <p class="small" id="foot"></p>
+</main>
+
+<dialog id="picker">
+  <form method="dialog" style="display:flex;gap:.6rem">
+    <input type="search" id="pq" placeholder="Search SignalK paths…" style="flex:1" autocomplete="off">
+    <button value="cancel">Cancel</button>
+  </form>
+  <ul id="plist"></ul>
+  <p class="small" id="pnote"></p>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const POS = ["Top left","Top right","Second left","Second right","Third left","Third right","Bottom left","Bottom right"];
+const PATH = "path:", ASK = "__path__";
+let st = null, picking = null;
+
+function toast(msg, err) {
+  const t = $("toast"); t.textContent = msg; t.className = "show" + (err ? " err" : "");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.className = "", err ? 4500 : 1500);
+}
+
+async function api(method, url, body) {
+  const r = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
+  let j = null; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(j && j.errors ? Object.entries(j.errors).map(([k, v]) => k + ": " + v).join("; ") : r.status + " " + r.statusText);
+  return j;
+}
+
+async function send(change) {
+  try { st = await api("POST", "/api/control", change); render(); toast("Done"); }
+  catch (e) { toast(e.message, true); refresh(); }
+}
+
+async function refresh() {
+  try { st = await api("GET", "/api/state"); render(); }
+  catch (e) { $("conn").className = "dot"; }
+}
+
+function kindName(id) {
+  if (id.startsWith(PATH)) return id.slice(PATH.length);
+  const k = st.kinds.find(k => k.id === id); return k ? k.name : id;
+}
+
+// Fill a select with kinds, plus the paths in use, plus "a SignalK path...".
+function fill(sel, kinds, current) {
+  if (document.activeElement === sel) return;
+  sel.textContent = "";
+  const add = (v, t) => { const o = document.createElement("option"); o.value = v; o.textContent = t; sel.appendChild(o); };
+  kinds.forEach(k => add(k.id, k.name));
+  const used = (st.pathKinds || []).map(k => k.id);
+  if (current.startsWith(PATH) && !used.includes(current)) used.push(current);
+  if (used.length) {
+    const g = document.createElement("optgroup"); g.label = "SignalK paths in use";
+    used.forEach(id => { const o = document.createElement("option"); o.value = id; o.textContent = kindName(id); g.appendChild(o); });
+    sel.appendChild(g);
+  }
+  add(ASK, "Another SignalK path…");
+  sel.value = current;
+  sel.dataset.current = current;
+}
+
+function render() {
+  $("conn").className = "dot" + (st.connected ? " ok" : "");
+  $("ver").textContent = (st.platform ? st.platform + " · " : "") + "v" + st.version + (st.demo ? " · DEMO" : "");
+
+  const pg = $("pages"); pg.textContent = "";
+  st.pages.forEach(p => {
+    const b = document.createElement("button"); b.textContent = p.name;
+    if (p.id === st.page) b.className = "on";
+    b.onclick = () => send({ page: p.id }); pg.appendChild(b);
+  });
+
+  if (document.activeElement !== $("invert")) $("invert").checked = st.invert;
+  $("lightbox").hidden = !st.light;
+  if (st.light) {
+    const r = $("light"); r.max = st.light.max;
+    if (document.activeElement !== r) r.value = st.light.level;
+    $("lightval").textContent = r.value + " / " + st.light.max;
+  }
+
+  document.querySelectorAll("#wind button").forEach(b => b.className = (b.dataset.v === String(st.wind.true)) ? "on" : "");
+
+  fill($("speed"), st.speed.options, st.speed.kind);
+
+  const g = $("boxes");
+  if (!g.children.length) {
+    POS.forEach((name, i) => {
+      const d = document.createElement("div"), l = document.createElement("label"), s = document.createElement("select");
+      l.textContent = name; s.dataset.i = i;
+      s.onchange = () => chosen(s, v => send({ boxes: { [i]: v } }));
+      d.append(l, s); g.appendChild(d);
+    });
+  }
+  g.querySelectorAll("select").forEach((s, i) => fill(s, st.kinds, st.boxes[i]));
+
+  $("foot").textContent = "Server " + st.server + (st.connected ? "" : " (not connected)") + ". Changes are what the touch screen does: units and layout are saved, the wind and speed widgets start the same way each boot.";
+}
+
+// A select was changed: either send its value on, or - for "another path" -
+// open the picker and send what is picked there.
+function chosen(sel, apply) {
+  if (sel.value !== ASK) { apply(sel.value); return; }
+  const back = sel.dataset.current;
+  sel.value = back;
+  openPicker(id => { if (id) apply(id); });
+}
+
+function openPicker(done) {
+  picking = done;
+  $("pq").value = ""; $("plist").textContent = ""; $("pnote").textContent = "";
+  $("picker").showModal(); $("pq").focus(); search();
+}
+async function search() {
+  try {
+    const j = await api("GET", "/api/paths?q=" + encodeURIComponent($("pq").value));
+    const ul = $("plist"); ul.textContent = "";
+    j.paths.slice(0, 300).forEach(p => {
+      const li = document.createElement("li"), b = document.createElement("button"), a = document.createElement("span"), v = document.createElement("span");
+      a.textContent = p.path; v.className = "v"; v.textContent = (Math.abs(p.value) >= 1000 ? p.value.toFixed(0) : +p.value.toPrecision(5)) + (p.units ? " " + p.units : "");
+      b.append(a, v); b.onclick = () => { $("picker").close(); const f = picking; picking = null; f && f(PATH + p.path); };
+      li.appendChild(b); ul.appendChild(li);
+    });
+    $("pnote").textContent = j.paths.length ? (j.paths.length > 300 ? "Showing the first 300: search to narrow them." : j.paths.length + " paths") : "No numeric paths yet. Is the SignalK server connected?";
+  } catch (e) { $("pnote").textContent = e.message; }
+}
+let ph; $("pq").oninput = () => { clearTimeout(ph); ph = setTimeout(search, 200); };
+$("picker").addEventListener("close", () => { picking = null; });
+
+$("invert").onchange = e => send({ invert: e.target.checked });
+$("light").oninput = e => { $("lightval").textContent = e.target.value + " / " + e.target.max; };
+$("light").onchange = e => send({ brightness: +e.target.value });
+document.querySelectorAll("#wind button").forEach(b => b.onclick = () => send({ windTrue: b.dataset.v === "true" }));
+$("speed").onchange = e => chosen(e.target, v => send({ speed: v }));
+
+refresh();
+setInterval(() => { if (!document.hidden && !$("picker").open) refresh(); }, 3000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>

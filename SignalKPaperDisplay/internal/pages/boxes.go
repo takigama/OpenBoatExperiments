@@ -84,6 +84,9 @@ func DefaultBoxes() []string {
 
 // BoxKindByID finds a kind by its stored ID.
 func BoxKindByID(id string) (BoxKind, bool) {
+	if IsPathKind(id) {
+		return pathKind(id), ValidPathKind(id)
+	}
 	for _, k := range BoxKinds {
 		if k.ID == id {
 			return k, true
@@ -208,6 +211,9 @@ func percent(ratio float64) string { return fmt.Sprintf("%.0f", ratio*100) }
 // ok is false when the data isn't there or has gone stale, which the box
 // shows as dashes. contacts are the AIS contacts, nearest first.
 func boxMetric(id string, own signalk.Own, now time.Time, e Env, contacts []ais.Contact) metric {
+	if IsPathKind(id) {
+		return pathMetric(id, own, now, e)
+	}
 	k, _ := BoxKindByID(id)
 	m := metric{label: k.Label}
 	fresh := func(r signalk.Reading) bool { return r.Fresh(now, StaleAfter) }

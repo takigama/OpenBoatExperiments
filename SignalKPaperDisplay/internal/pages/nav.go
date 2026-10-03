@@ -70,7 +70,13 @@ func drawMetric(c *render.Canvas, r image.Rectangle, m metric, maxSize float64) 
 	if m.liveLabel {
 		labelShade = render.Black
 	}
-	c.Text(r.Min.X+40, r.Min.Y+80, m.label, 52, render.Bold, render.Left, labelShade)
+	// A long label (a raw SignalK path's name) shrinks to fit its box, and is cut
+	// short if even that is not enough, rather than running into the next box.
+	labelSize, avail := 52.0, r.Dx()-60
+	if w := c.TextWidth(m.label, labelSize, render.Bold); w > avail {
+		labelSize = max(30, labelSize*float64(avail)/float64(w))
+	}
+	c.Text(r.Min.X+40, r.Min.Y+80, fitText(c, m.label, labelSize, render.Bold, avail), labelSize, render.Bold, render.Left, labelShade)
 
 	baseline := r.Max.Y - int(float64(r.Dy())*0.2)
 	size, unitSize, gap, wv, wu := fitMetric(c, r, value, m.unit, maxSize)

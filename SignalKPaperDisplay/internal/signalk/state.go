@@ -63,6 +63,9 @@ type Own struct {
 	// The autopilot's mode, the one text value kept.
 	Autopilot TextReading
 	Pos       Position
+	// Watched is the readings of the paths asked for with State.Watch: any
+	// numeric path the server sends, not only the ones above. See Path.
+	Watched map[string]PathReading
 }
 
 // TextReading is a text value and when it arrived.
@@ -185,6 +188,12 @@ type State struct {
 	// sends is then ignored (see Client.handle), and the state counts as
 	// connected whether or not there is a server.
 	demo bool
+
+	// The catalog of every numeric path seen, which of them are watched, and the
+	// units the server gave for them (see paths.go).
+	cat   map[string]catalogEntry
+	watch map[string]bool
+	meta  map[string]string
 }
 
 func NewState() *State {
@@ -206,6 +215,8 @@ func (s *State) resetLocked() {
 	s.targets = map[string]*Target{}
 	s.connected = false
 	s.lastMsg = time.Time{}
+	s.cat = nil // a different server may call things differently; what to watch stays
+	s.meta = nil
 }
 
 // SetDemo switches demo mode on or off. Either way everything held is forgotten,
@@ -263,6 +274,7 @@ func (s *State) Snapshot() Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	snap := Snapshot{Own: s.own, Connected: s.connected || s.demo, LastMessage: s.lastMsg}
+	snap.Own.Watched = s.watchedLocked()
 	if len(s.own.Extra) > 0 { // the map is written under the lock: hand out a copy
 		snap.Own.Extra = make(map[string]Reading, len(s.own.Extra))
 		for k, v := range s.own.Extra {
@@ -327,6 +339,7 @@ func fuelTankID(path string) (string, bool) {
 func (s *State) applyOwn(path string, raw json.RawMessage, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.noteLocked(path, raw, now)
 	if id, ok := fuelTankID(path); ok {
 		r := s.fuel[id]
 		setNum(&r, raw, now)

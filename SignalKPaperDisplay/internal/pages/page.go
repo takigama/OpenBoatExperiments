@@ -31,27 +31,67 @@ type Env struct {
 	Demo bool
 }
 
-// SpeedSource says which speed the compass page's speed box shows.
-type SpeedSource int
+// SpeedSource says what the compass page's speed box shows: one of the three
+// speeds a tap cycles through, or - set from the web page - any single-number
+// kind a Nav box can show, or a raw SignalK path. It is the kind's ID; the zero
+// value is the default, speed over ground.
+type SpeedSource string
 
 const (
-	SpeedSOG SpeedSource = iota // speed over ground - the default
-	SpeedSTW                    // speed through the water
-	SpeedVMG                    // velocity made good to the wind
+	SpeedSOG SpeedSource = ""     // speed over ground - the default
+	SpeedSTW SpeedSource = "stw"  // speed through the water
+	SpeedVMG SpeedSource = "vmgw" // velocity made good to the wind
 )
 
-// Next is the source a tap on the box moves on to, going round in a circle.
-func (s SpeedSource) Next() SpeedSource { return (s + 1) % 3 }
+// ID is the source's kind ID.
+func (s SpeedSource) ID() string {
+	if s == SpeedSOG {
+		return "sog"
+	}
+	return string(s)
+}
+
+// SpeedFromID is the source for a kind ID, or false if the box cannot show it:
+// it must be a kind with a single number (so not the closest-AIS box) or a path.
+func SpeedFromID(id string) (SpeedSource, bool) {
+	if id == "sog" || id == "" {
+		return SpeedSOG, true
+	}
+	if id == BoxAIS {
+		return SpeedSOG, false
+	}
+	if _, ok := BoxKindByID(id); !ok {
+		return SpeedSOG, false
+	}
+	return SpeedSource(id), true
+}
+
+// Next is the source a tap on the box moves on to, going round in a circle of
+// the three speeds. Anything else, chosen on the web page, goes back to SOG.
+func (s SpeedSource) Next() SpeedSource {
+	switch s {
+	case SpeedSOG:
+		return SpeedSTW
+	case SpeedSTW:
+		return SpeedVMG
+	}
+	return SpeedSOG
+}
 
 // Label is the name the box shows for a source.
 func (s SpeedSource) Label() string {
 	switch s {
+	case SpeedSOG:
+		return "SOG"
 	case SpeedSTW:
 		return "STW"
 	case SpeedVMG:
 		return "VMG"
 	}
-	return "SOG"
+	if k, ok := BoxKindByID(string(s)); ok {
+		return k.Label
+	}
+	return "SPEED"
 }
 
 // Page is one selectable screen. Draw must be a pure function of its

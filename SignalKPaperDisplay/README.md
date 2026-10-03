@@ -180,6 +180,56 @@ real server. Switching it off drops the demo data and reconnects to the server.
 `paperdisplay -demo` starts in demo mode, which is handy for previews with no
 server (`-demo -once -page nav -out nav.png`).
 
+### Remote control
+
+The app serves a small web page on port **8080** (`-web :8080`; `-web ""` turns it
+off), so from a phone or laptop on the same network you can open
+`http://<the Kindle's address>:8080/` and change what is on screen without
+touching it:
+
+- **Screen** - which page shows (Compass or Numbers).
+- **Display** - invert colours, and the backlight level (where the Kindle has one).
+- **Compass** - the wind widget (apparent or true) and the **speed widget**, which
+  can show anything: SOG, STW or VMG as before, any of the Nav box values (depth,
+  battery volts, closest approach, ...), or **any numeric SignalK path** the server
+  is sending, chosen from a searchable list of what it has.
+- **Nav boxes** - what each of the eight boxes shows, the same choices (and the same
+  raw SignalK paths).
+
+Each change does what the same change on the touch screen does: the units, the
+layout, invert and the backlight level are saved; the wind and speed widgets start
+the same way (apparent wind, SOG) on every boot. A raw path is written in your
+units: the server's own units for it are asked for (SignalK's `meta`), and without
+them it is worked out from the path's name (`...speedApparent` is a speed,
+`...temperature` a temperature, `...oilPressure` bar, and so on); a path it cannot
+make sense of is shown as a plain number. A value that stops arriving shows dashes
+once it is later than the path's own rhythm allows, like the built-in boxes.
+
+The same thing as a JSON API, for scripts and home automation:
+
+```
+curl http://kindle:8080/api/state                      # everything, as JSON
+curl http://kindle:8080/api/paths?q=wind               # the SignalK paths available
+curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control \
+     -d '{"page":"nav","invert":true,"brightness":12,"windTrue":true,
+          "speed":"path:environment.depth.belowTransducer",
+          "boxes":{"0":"depth","5":"path:propulsion.main.oilPressure"}}'
+```
+
+Every field is optional. `boxes` is an object from box number (0 to 7, left to right
+then top to bottom) to kind, or a list of all eight; kinds are the IDs in
+`/api/state`, or `path:` and a SignalK path. If anything in a request is wrong, none
+of it is applied, and the reply says which field.
+
+It is plain HTTP for a boat's local network, like the SignalK server it reads
+from: **anyone on that network can use it**. It can only change what is on screen -
+not the server address, the units or the power. To require a token, start the app
+with `-web-token SECRET` (put `EXTRA_ARGS="-web-token SECRET"` in `launcher.conf`):
+then every request needs it, as `Authorization: Bearer SECRET`, or open
+`http://kindle:8080/?token=SECRET` once in a browser, which remembers it. The page
+works with no internet. On a Kindle whose launcher is not set to keep ssh and the
+network open (`KEEP_SSH=0`), its firewall may block the port.
+
 ### Power
 
 While the dashboard runs, the Kindle's own software is stopped, and the power
@@ -242,6 +292,9 @@ internal/pages/        screens: pure functions, snapshot -> canvas, no I/O
 internal/display/      Display interface; PNG (preview) and Kindle eips drivers
 internal/profile/      reads a platform's profile.json
 internal/app/          render loop tying state, pages and display together
+internal/web/          the remote control web page and JSON API
+internal/demo/         the simulated boat for demo mode
+internal/powerkey/     the power button, heard as a kernel uevent
 platforms/<name>/      one directory per device (see below)
 Dockerfile, Makefile   reproducible Docker build, one make target per platform
 ```
