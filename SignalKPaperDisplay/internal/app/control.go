@@ -8,6 +8,7 @@ import (
 	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/settings"
 	"signalkpaperdisplay/internal/signalk"
+	"signalkpaperdisplay/internal/units"
 )
 
 // Everything in this file is what can be changed from outside the touch screen -
@@ -19,18 +20,21 @@ import (
 // Control is a snapshot of everything that can be controlled, and a few facts
 // that go with it.
 type Control struct {
-	Page      string   // the ID of the page showing
-	Pages     []Choice // every page
-	Invert    bool
-	Boxes     []string // the Nav page's boxes, as kind IDs
-	LightMax  int      // 0: this device has no front light
-	Light     int
-	WindTrue  bool   // the compass wind widget shows the true wind
-	Speed     string // the compass speed widget's kind ID
-	Depth     string // the compass depth widget's kind ID
-	Demo      bool
-	Server    string
-	Connected bool
+	Page     string   // the ID of the page showing
+	Pages    []Choice // every page
+	Invert   bool
+	Boxes    []string // the Nav page's boxes, as kind IDs
+	LightMax int      // 0: this device has no front light
+	Light    int
+	WindTrue bool   // the compass wind widget shows the true wind
+	Speed    string // the compass speed widget's kind ID
+	Depth    string // the compass depth widget's kind ID
+	Demo     bool
+	Server   string
+	// DefaultServer is the server used when none was chosen: the launcher's.
+	DefaultServer string
+	Units         units.Settings
+	Connected     bool
 }
 
 // Choice is an ID and the name to show for it.
@@ -40,15 +44,17 @@ type Choice struct{ ID, Name string }
 func (a *App) Control() Control {
 	a.mu.Lock()
 	c := Control{
-		Page:     pages.All()[a.page].ID,
-		Invert:   a.Invert,
-		Boxes:    pages.NormalizeBoxes(a.Boxes),
-		WindTrue: a.windTrue,
-		Speed:    a.speed.ID(),
-		Depth:    pages.DepthWidgetID(a.depthW),
-		Demo:     a.Demo,
-		Server:   a.serverLocked(),
-		Light:    a.lightLevel,
+		Page:          pages.All()[a.page].ID,
+		Invert:        a.Invert,
+		Boxes:         pages.NormalizeBoxes(a.Boxes),
+		WindTrue:      a.windTrue,
+		Speed:         a.speed.ID(),
+		Depth:         pages.DepthWidgetID(a.depthW),
+		Demo:          a.Demo,
+		Server:        a.serverLocked(),
+		DefaultServer: a.DefaultServer,
+		Units:         a.Units.Clone(),
+		Light:         a.lightLevel,
 	}
 	a.mu.Unlock()
 	for _, p := range pages.All() {

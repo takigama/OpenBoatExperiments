@@ -52,10 +52,15 @@ func (f *fake) SetBrightness(l int) error { return f.rec(fmt.Sprintf("brightness
 func (f *fake) SetWindTrue(on bool)       { f.rec(fmt.Sprintf("wind %v", on), nil) }
 func (f *fake) SetSpeed(k string) error   { return f.rec("speed "+k, nil) }
 func (f *fake) SetDepth(k string) error   { return f.rec("depth "+k, nil) }
+func (f *fake) SetDemoMode(on bool)       { f.rec(fmt.Sprintf("demo %v", on), nil) }
+func (f *fake) SetServer(h string) error  { return f.rec("server "+h, nil) }
+func (f *fake) SetUnits(p string, o map[string]string) error {
+	return f.rec(fmt.Sprintf("units %s %v", p, o), nil)
+}
 
 func serve(t *testing.T, f *fake, token string) *httptest.Server {
 	t.Helper()
-	s := httptest.NewServer((&Server{App: f, Token: token, Version: "43", Platform: "kindle-test"}).Handler())
+	s := httptest.NewServer((&Server{App: f, Token: token, Version: "43", Platform: "kindle-test", AllowConfig: true}).Handler())
 	t.Cleanup(s.Close)
 	return s
 }
@@ -483,5 +488,109 @@ func TestDepthWidgetThroughTheAPI(t *testing.T) {
 	}
 	if len(f.calls) != 0 {
 		t.Errorf("something was applied despite the bad request: %v", f.calls)
+	}
+}
+
+func TestConfigThroughTheAPI(t *testing.T) {
+	f := newFake()
+	f.c.DefaultServer = "10.0.0.76:3001"
+	s := serve(t, f, "")
+
+	resp, err := http.Get(s.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var st stateJSON
+	json.NewDecoder(resp.Body).Decode(&st)
+	if !st.Config || st.DefaultServer != "10.0.0.76:3001" || st.Server != "10.0.0.76:3001" {
+		t.Errorf("config state: %+v", st)
+	}
+	if st.Units.Preset != "metric" || len(st.Units.Presets) != 3 || len(st.Units.Metrics) == 0 {
+		t.Fatalf("units: %+v", st.Units)
+	}
+	var sog metricJSON
+	for _, m := range st.Units.Metrics {
+		if m.ID == "sog" {
+			sog = m
+		}
+	}
+	if sog.Label == "" || sog.Unit != "km/h" || sog.Overridden || len(sog.Options) < 3 {
+		t.Errorf("a metric: %+v", sog)
+	}
+
+	body := `{"demo":true,"server":"10.0.0.5","units":{"preset":"nautical","overrides":{"depth":"ft"}}}`
+	if resp, out := post(t, s, body, nil); resp.StatusCode != 200 {
+		t.Fatalf("%d %v", resp.StatusCode, out)
+	}
+	want := []string{"units nautical map[depth:ft]", "server 10.0.0.5", "demo true"}
+	if strings.Join(f.calls, "|") != strings.Join(want, "|") {
+		t.Errorf("calls = %v, want %v", f.calls, want)
+	}
+	// An empty server means the default; units can be only a preset.
+	f.calls = nil
+	post(t, s, `{"server":"","units":{"preset":"metric"},"demo":false}`, nil)
+	if len(f.calls) != 3 || f.calls[1] != "server " {
+		t.Errorf("an empty server should be passed on as empty: %v", f.calls)
+	}
+}
+
+func TestConfigIsCheckedAsAWholeToo(t *testing.T) {
+	for name, body := range map[string]string{
+		"bad server":       `{"invert":true,"server":"not a host"}`,
+		"bad port":         `{"invert":true,"server":"10.0.0.5:99999"}`,
+		"bad preset":       `{"invert":true,"units":{"preset":"nope"}}`,
+		"bad metric":       `{"invert":true,"units":{"overrides":{"nope":"kn"}}}`,
+		"bad unit":         `{"invert":true,"units":{"overrides":{"sog":"furlongs"}}}`,
+		"unit wrong kind":  `{"invert":true,"units":{"overrides":{"depth":"kn"}}}`,
+		"unknown in units": `{"invert":true,"units":{"colour":"red"}}`,
+		"demo not bool":    `{"demo":"yes"}`,
+	} {
+		f := newFake()
+		s := serve(t, f, "")
+		resp, out := post(t, s, body, nil)
+		if resp.StatusCode != 400 || out["errors"] == nil {
+			t.Errorf("%s: %d %v", name, resp.StatusCode, out)
+		}
+		if len(f.calls) != 0 {
+			t.Errorf("%s: something was applied: %v", name, f.calls)
+		}
+	}
+	_, out := post(t, serve(t, newFake(), ""), `{"server":"x y","units":{"preset":"nope"}}`, nil)
+	e, _ := out["errors"].(map[string]any)
+	if e["server"] == nil || e["units"] == nil {
+		t.Errorf("each wrong field should be named: %v", e)
+	}
+}
+
+func TestConfigCanBeTurnedOff(t *testing.T) {
+	f := newFake()
+	srv := httptest.NewServer((&Server{App: f, Version: "43", AllowConfig: false}).Handler())
+	defer srv.Close()
+	for _, body := range []string{`{"demo":true}`, `{"server":"10.0.0.5"}`, `{"units":{"preset":"imperial"}}`, `{"invert":true,"demo":true}`} {
+		resp, out := post(t, srv, body, nil)
+		if resp.StatusCode != 403 {
+			t.Errorf("%s: status %d, want 403", body, resp.StatusCode)
+		}
+		if e, _ := out["errors"].(map[string]any); e["config"] == nil {
+			t.Errorf("%s: no config error: %v", body, out)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("a refused request applied something: %v", f.calls)
+	}
+	// What is on screen can still be changed.
+	if resp, _ := post(t, srv, `{"invert":true}`, nil); resp.StatusCode != 200 || len(f.calls) != 1 {
+		t.Errorf("display controls should still work: %d %v", resp.StatusCode, f.calls)
+	}
+	r, err := http.Get(srv.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var st stateJSON
+	json.NewDecoder(r.Body).Decode(&st)
+	if st.Config {
+		t.Error("the state should say config is off, so the page leaves the controls out")
 	}
 }

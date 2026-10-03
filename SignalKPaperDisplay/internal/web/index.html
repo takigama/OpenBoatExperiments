@@ -21,7 +21,7 @@
   section h2 { margin:0 0 .7rem; font-size:.8rem; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); }
   .seg { display:flex; gap:.4rem; flex-wrap:wrap; }
   .seg button { flex:1 1 7rem; }
-  button, select, input[type=search] { font:inherit; min-height:2.75rem; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); padding:.4rem .7rem; }
+  button, select, input[type=search], input[type=text] { font:inherit; min-height:2.75rem; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); padding:.4rem .7rem; }
   button { cursor:pointer; }
   button.on { background:var(--accent); color:var(--on); border-color:var(--accent); font-weight:600; }
   select { width:100%; }
@@ -84,6 +84,21 @@
   <section>
     <h2>Nav boxes</h2>
     <div class="grid" id="boxes"></div>
+  </section>
+
+  <section id="cfg" hidden>
+    <h2>Setup</h2>
+    <div class="row"><label for="demo">Demo mode (made-up data)</label>
+      <label class="switch"><input type="checkbox" id="demo"><span></span></label></div>
+    <div class="row" style="margin-top:1rem"><label for="srv">SignalK server</label><span id="srvstat" class="small"></span></div>
+    <div style="display:flex;gap:.5rem">
+      <input type="text" id="srv" placeholder="host:port" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0">
+      <button id="srvsave">Save</button>
+    </div>
+    <div class="row"><span class="small" id="srvhint"></span><button id="srvdef" style="min-height:2.2rem">Use default</button></div>
+    <div class="row" style="margin-top:1rem"><span>Units</span><span class="small">a preset resets every unit</span></div>
+    <div class="seg" id="preset"></div>
+    <div class="grid" id="metrics" style="margin-top:.8rem"></div>
   </section>
 
   <p class="small" id="foot"></p>
@@ -187,7 +202,41 @@ function render() {
   }
   g.querySelectorAll("select").forEach((s, i) => fill(s, st.kinds, st.boxes[i]));
 
+  renderConfig();
   $("foot").textContent = "Server " + st.server + (st.connected ? "" : " (not connected)") + ". Changes are what the touch screen does: units and layout are saved, the wind and speed widgets start the same way each boot.";
+}
+
+function renderConfig() {
+  $("cfg").hidden = !st.config;
+  if (!st.config) return;
+  if (document.activeElement !== $("demo")) $("demo").checked = st.demo;
+  const srv = $("srv");
+  if (document.activeElement !== srv) srv.value = st.server;
+  $("srvstat").textContent = st.demo ? "ignored in demo mode" : (st.connected ? "connected" : "not connected");
+  $("srvhint").textContent = "Default: " + st.defaultServer;
+  $("srvdef").disabled = st.server === st.defaultServer;
+
+  const pr = $("preset"); pr.textContent = "";
+  st.units.presets.forEach(p => {
+    const b = document.createElement("button"); b.textContent = p[0].toUpperCase() + p.slice(1);
+    if (p === st.units.preset) b.className = "on";
+    b.onclick = () => send({ units: { preset: p } }); pr.appendChild(b);
+  });
+  const g = $("metrics");
+  if (!g.children.length) {
+    st.units.metrics.forEach(m => {
+      const d = document.createElement("div"), l = document.createElement("label"), s = document.createElement("select");
+      d.dataset.id = m.id; l.textContent = m.label; s.dataset.id = m.id;
+      m.options.forEach(o => { const op = document.createElement("option"); op.value = o; op.textContent = o; s.appendChild(op); });
+      s.onchange = () => send({ units: { overrides: { [m.id]: s.value } } });
+      d.append(l, s); g.appendChild(d);
+    });
+  }
+  st.units.metrics.forEach(m => {
+    const s = g.querySelector('select[data-id="' + m.id + '"]');
+    if (document.activeElement !== s) s.value = m.unit;
+    g.querySelector('div[data-id="' + m.id + '"] label').textContent = m.label + (m.overridden ? " *" : "");
+  });
 }
 
 // A select was changed: either send its value on, or - for "another path" -
@@ -220,6 +269,10 @@ async function search() {
 let ph; $("pq").oninput = () => { clearTimeout(ph); ph = setTimeout(search, 200); };
 $("picker").addEventListener("close", () => { picking = null; });
 
+$("demo").onchange = e => send({ demo: e.target.checked });
+$("srvsave").onclick = () => send({ server: $("srv").value.trim() });
+$("srv").onkeydown = e => { if (e.key === "Enter") $("srvsave").click(); };
+$("srvdef").onclick = () => send({ server: "" });
 $("invert").onchange = e => send({ invert: e.target.checked });
 $("light").oninput = e => { $("lightval").textContent = e.target.value + " / " + e.target.max; };
 $("light").onchange = e => send({ brightness: +e.target.value });

@@ -26,7 +26,9 @@ import (
 
 	"signalkpaperdisplay/internal/app"
 	"signalkpaperdisplay/internal/pages"
+	"signalkpaperdisplay/internal/settings"
 	"signalkpaperdisplay/internal/signalk"
+	"signalkpaperdisplay/internal/units"
 )
 
 //go:embed index.html
@@ -43,6 +45,9 @@ type Controller interface {
 	SetWindTrue(on bool)
 	SetSpeed(kind string) error
 	SetDepth(kind string) error
+	SetDemoMode(on bool)
+	SetServer(hostPort string) error
+	SetUnits(preset string, overrides map[string]string) error
 }
 
 // Server serves the control page and API.
@@ -51,6 +56,10 @@ type Server struct {
 	Token    string // if set, required on every request
 	Version  string // the app's build number, shown on the page
 	Platform string // the device profile's name, shown on the page
+	// AllowConfig lets the page and API change the configuration: demo mode, the
+	// SignalK server and the units, beyond what is on screen. Off, a request that
+	// tries is refused and the page leaves those controls out.
+	AllowConfig bool
 }
 
 const (
@@ -165,22 +174,26 @@ type kindJSON struct {
 }
 
 type stateJSON struct {
-	Version   string     `json:"version"`
-	Platform  string     `json:"platform"`
-	Page      string     `json:"page"`
-	Pages     []kindJSON `json:"pages"`
-	Invert    bool       `json:"invert"`
-	Boxes     []string   `json:"boxes"`
-	Kinds     []kindJSON `json:"kinds"` // what a Nav box can show
-	Light     *lightJSON `json:"light"` // nil: no front light
-	Wind      windJSON   `json:"wind"`
-	Speed     speedJSON  `json:"speed"`
-	Depth     speedJSON  `json:"depth"`
-	Demo      bool       `json:"demo"`
-	Server    string     `json:"server"`
-	Connected bool       `json:"connected"`
-	PathKinds []kindJSON `json:"pathKinds,omitempty"` // the paths in use, named
-	Limits    limitsJSON `json:"limits"`
+	Version  string     `json:"version"`
+	Platform string     `json:"platform"`
+	Page     string     `json:"page"`
+	Pages    []kindJSON `json:"pages"`
+	Invert   bool       `json:"invert"`
+	Boxes    []string   `json:"boxes"`
+	Kinds    []kindJSON `json:"kinds"` // what a Nav box can show
+	Light    *lightJSON `json:"light"` // nil: no front light
+	Wind     windJSON   `json:"wind"`
+	Speed    speedJSON  `json:"speed"`
+	Depth    speedJSON  `json:"depth"`
+	Demo     bool       `json:"demo"`
+	Server   string     `json:"server"`
+	// DefaultServer is what the server goes back to when it is cleared.
+	DefaultServer string     `json:"defaultServer"`
+	Units         unitsJSON  `json:"units"`
+	Config        bool       `json:"config"` // the page may change demo mode, the server and the units
+	Connected     bool       `json:"connected"`
+	PathKinds     []kindJSON `json:"pathKinds,omitempty"` // the paths in use, named
+	Limits        limitsJSON `json:"limits"`
 }
 
 type lightJSON struct {
@@ -197,6 +210,21 @@ type speedJSON struct {
 	Options []kindJSON `json:"options"` // what the speed widget can show
 }
 
+type unitsJSON struct {
+	Preset  string       `json:"preset"`
+	Presets []string     `json:"presets"`
+	Metrics []metricJSON `json:"metrics"`
+}
+
+// metricJSON is one value with its own unit setting.
+type metricJSON struct {
+	ID         string   `json:"id"`
+	Label      string   `json:"label"`
+	Unit       string   `json:"unit"` // the one in use
+	Overridden bool     `json:"overridden"`
+	Options    []string `json:"options"`
+}
+
 type limitsJSON struct {
 	Boxes int `json:"boxes"`
 }
@@ -206,7 +234,8 @@ func (s *Server) stateNow() stateJSON {
 	st := stateJSON{
 		Version: s.Version, Platform: s.Platform, Page: c.Page, Invert: c.Invert, Boxes: c.Boxes,
 		Wind: windJSON{True: c.WindTrue}, Speed: speedJSON{Kind: c.Speed}, Depth: speedJSON{Kind: c.Depth},
-		Demo: c.Demo, Server: c.Server, Connected: c.Connected,
+		Demo: c.Demo, Server: c.Server, DefaultServer: c.DefaultServer, Connected: c.Connected, Config: s.AllowConfig,
+		Units:  unitsState(c.Units),
 		Limits: limitsJSON{Boxes: pages.NavBoxes},
 	}
 	for _, p := range c.Pages {
@@ -233,6 +262,21 @@ func (s *Server) stateNow() stateJSON {
 		}
 	}
 	return st
+}
+
+func unitsState(u units.Settings) unitsJSON {
+	out := unitsJSON{Preset: u.Preset, Presets: units.Presets()}
+	if out.Preset == "" {
+		out.Preset = units.PresetMetric
+	}
+	for _, m := range units.Metrics {
+		mj := metricJSON{ID: m.ID, Label: m.Label, Unit: u.UnitFor(m.ID).Symbol, Overridden: u.IsOverridden(m.ID)}
+		for _, o := range units.Units(m.Qty) {
+			mj.Options = append(mj.Options, o.Symbol)
+		}
+		out.Metrics = append(out.Metrics, mj)
+	}
+	return out
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -291,6 +335,17 @@ type controlReq struct {
 	WindTrue   *bool           `json:"windTrue"`
 	Speed      *string         `json:"speed"`
 	Depth      *string         `json:"depth"`
+	// The configuration. server is "host" or "host:port" (port 3000 if left out),
+	// or "" for the default; units is a preset (which resets every unit) and/or
+	// overrides, from a metric ID (see /api/state) to a unit symbol.
+	Demo   *bool     `json:"demo"`
+	Server *string   `json:"server"`
+	Units  *unitsReq `json:"units"`
+}
+
+type unitsReq struct {
+	Preset    string            `json:"preset"`
+	Overrides map[string]string `json:"overrides"`
 }
 
 func (s *Server) control(w http.ResponseWriter, r *http.Request) {
@@ -376,6 +431,33 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.Demo != nil || req.Server != nil || req.Units != nil {
+		if !s.AllowConfig {
+			// Refused whole: not "demo mode but not the server".
+			writeJSON(w, http.StatusForbidden, map[string]any{"errors": map[string]string{"config": "changing demo mode, the server or the units from here is turned off (-web-config=false)"}})
+			return
+		}
+	}
+	if req.Server != nil && strings.TrimSpace(*req.Server) != "" {
+		if _, err := settings.NormalizeServer(*req.Server); err != nil {
+			errs["server"] = fmt.Sprintf("%q: %v", *req.Server, err)
+		}
+	}
+	if req.Units != nil {
+		// Tried on a copy of the current settings: the same checks the app makes.
+		u := c.Units.Clone()
+		if req.Units.Preset != "" {
+			if err := u.SetPreset(req.Units.Preset); err != nil {
+				errs["units"] = err.Error()
+			}
+		}
+		for id, sym := range req.Units.Overrides {
+			if err := u.SetUnit(id, sym); err != nil {
+				errs["units"] = err.Error()
+			}
+		}
+	}
+
 	if len(errs) > 0 { // nothing is applied unless all of it is good
 		writeJSON(w, http.StatusBadRequest, map[string]any{"errors": errs})
 		return
@@ -413,6 +495,19 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		if err := s.App.SetDepth(*req.Depth); err != nil {
 			errs["depth"] = err.Error()
 		}
+	}
+	if req.Units != nil {
+		if err := s.App.SetUnits(req.Units.Preset, req.Units.Overrides); err != nil {
+			errs["units"] = err.Error()
+		}
+	}
+	if req.Server != nil {
+		if err := s.App.SetServer(*req.Server); err != nil {
+			errs["server"] = err.Error()
+		}
+	}
+	if req.Demo != nil {
+		s.App.SetDemoMode(*req.Demo)
 	}
 	if len(errs) > 0 { // something that passed the checks failed to apply, e.g. the light
 		out := s.stateNow()

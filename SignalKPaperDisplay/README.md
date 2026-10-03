@@ -197,6 +197,11 @@ touching it:
   chosen from a searchable list of what it has.
 - **Nav boxes** - what each of the eight boxes shows, the same choices (and the same
   raw SignalK paths).
+- **Setup** - **demo mode** on or off, the **SignalK server** (`host` or `host:port`;
+  "Use default" goes back to the launcher's), and the **units** (a preset, then any
+  unit individually), as the settings screen does. Changing the server moves the
+  connection at once; if the new address is wrong the header says NO DATA, and
+  it can be put right from the same page.
 
 Each change does what the same change on the touch screen does: the units, the
 layout, invert and the backlight level are saved; the wind, speed and depth
@@ -216,6 +221,10 @@ curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control 
      -d '{"page":"nav","invert":true,"brightness":12,"windTrue":true,
           "speed":"path:environment.depth.belowTransducer","depth":"batv",
           "boxes":{"0":"depth","5":"path:propulsion.main.oilPressure"}}'
+
+curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control \
+     -d '{"demo":true,"server":"192.168.1.20:3000",
+          "units":{"preset":"nautical","overrides":{"depth":"ft"}}}'
 ```
 
 Every field is optional. `boxes` is an object from box number (0 to 7, left to right
@@ -224,8 +233,11 @@ then top to bottom) to kind, or a list of all eight; kinds are the IDs in
 of it is applied, and the reply says which field.
 
 It is plain HTTP for a boat's local network, like the SignalK server it reads
-from: **anyone on that network can use it**. It can only change what is on screen -
-not the server address, the units or the power. To require a token, start the app
+from: **anyone on that network can use it**. Besides what is on screen it can
+change the demo switch, the server address and the units - the Setup section above -
+which is what to think about before leaving it open: `-web-config=false` turns
+those off (it then changes only what is on screen). It cannot touch the power. To
+require a token, start the app
 with `-web-token SECRET` (put `EXTRA_ARGS="-web-token SECRET"` in `launcher.conf`):
 then every request needs it, as `Authorization: Bearer SECRET`, or open
 `http://kindle:8080/?token=SECRET` once in a browser, which remembers it. The page

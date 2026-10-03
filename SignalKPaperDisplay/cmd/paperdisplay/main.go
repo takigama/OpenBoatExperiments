@@ -80,6 +80,7 @@ func main() {
 		showVersion  = flag.Bool("version", false, "print the version and exit")
 		powerButton  = flag.Bool("power-button", true, "on a Kindle, a press of the power button opens the power screen (the stock software that would answer it is stopped)")
 		webAddr      = flag.String("web", ":8080", "address for the remote control web page (empty turns it off), e.g. :8080")
+		webConfig    = flag.Bool("web-config", true, "let the web page change demo mode, the SignalK server and the units, not only what is on screen")
 		webToken     = flag.String("web-token", "", "if set, the web page and API need this token (Authorization: Bearer, or open /?token=... once)")
 		keyTest      = flag.Bool("key-test", false, "print every kernel uevent, then exit on Ctrl-C (to see what the power button sends)")
 		touchTest    = flag.Bool("touch-test", false, "print raw and mapped touch events, then exit on Ctrl-C (to measure a device's orientation)")
@@ -251,7 +252,7 @@ func main() {
 	go client.Run(ctx)
 
 	if *webAddr != "" && !*once {
-		ws := &web.Server{App: a, Token: *webToken, Version: version, Platform: prof.Name}
+		ws := &web.Server{App: a, Token: *webToken, Version: version, Platform: prof.Name, AllowConfig: *webConfig}
 		go func() {
 			if err := ws.ListenAndServe(ctx, *webAddr); err != nil {
 				log.Printf("web: not serving: %v", err)
