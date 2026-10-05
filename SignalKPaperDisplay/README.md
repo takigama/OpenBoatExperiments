@@ -18,9 +18,10 @@ layout scaled), drawn from a SignalK server's data:
 
 <table>
 <tr>
-<td align="center"><img src="docs/images/display-compass.png" width="300" alt="The compass page"><br><b>Compass</b></td>
-<td align="center"><img src="docs/images/display-nav.png" width="300" alt="The Nav page with eight boxes"><br><b>Nav</b> (eight boxes, any value)</td>
-<td align="center"><img src="docs/images/display-settings.png" width="300" alt="The settings list"><br><b>Settings</b></td>
+<td align="center"><img src="docs/images/display-compass.png" width="220" alt="The compass page"><br><b>Compass</b></td>
+<td align="center"><img src="docs/images/display-compass-inverted.png" width="220" alt="The compass page with colours inverted"><br><b>Inverted</b><br>(Settings, or the web page)</td>
+<td align="center"><img src="docs/images/display-nav.png" width="220" alt="The Nav page with eight boxes"><br><b>Nav</b><br>(eight boxes, any value)</td>
+<td align="center"><img src="docs/images/display-settings.png" width="220" alt="The settings list"><br><b>Settings</b></td>
 </tr>
 </table>
 
