@@ -79,7 +79,7 @@ func main() {
 		updateEvery  = flag.Duration("update-every", 0, "check for and install updates this often while running (0 = never); the launcher restarts the new version")
 		showVersion  = flag.Bool("version", false, "print the version and exit")
 		powerButton  = flag.Bool("power-button", true, "on a Kindle, a press of the power button opens the power screen (the stock software that would answer it is stopped)")
-		webAddr      = flag.String("web", ":8080", "address for the remote control web page (empty turns it off), e.g. :8080")
+		webAddr      = flag.String("web", defaultWebAddr, "address for the remote control web page (empty turns it off), e.g. :8080; the default, port 80, falls back to 8080 if it cannot be had")
 		webConfig    = flag.Bool("web-config", true, "let the web page change demo mode, the SignalK server and the units, not only what is on screen")
 		webToken     = flag.String("web-token", "", "if set, the web page and API need this token (Authorization: Bearer, or open /?token=... once)")
 		keyTest      = flag.Bool("key-test", false, "print every kernel uevent, then exit on Ctrl-C (to see what the power button sends)")
@@ -269,7 +269,8 @@ func main() {
 	if *webAddr != "" && !*once {
 		ws := &web.Server{App: a, Token: *webToken, Version: version, Platform: prof.Name, AllowConfig: *webConfig}
 		go func() {
-			if err := ws.ListenAndServe(ctx, *webAddr); err != nil {
+			err := serveFirst(webAddresses(*webAddr), func(addr string) error { return ws.ListenAndServe(ctx, addr) }, log.Printf)
+			if err != nil {
 				log.Printf("web: not serving: %v", err)
 			}
 		}()

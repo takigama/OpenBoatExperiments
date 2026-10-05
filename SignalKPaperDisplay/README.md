@@ -228,10 +228,11 @@ server (`-demo -once -page nav -out nav.png`).
 
 ### Remote control
 
-The app serves a small web page on port **8080** (`-web :8080`; `-web ""` turns it
+The app serves a small web page on port **80** (`-web :80`; `-web ""` turns it
 off), so from a phone or laptop on the same network you can open
-`http://<the Kindle's address>:8080/` and change what is on screen without
-touching it:
+`http://<the Kindle's address>/` and change what is on screen without touching
+it. (If port 80 cannot be had - the app is not running as root, or something else
+is using it - it serves on 8080 instead, and says so in its log.)
 
 - **Screen** - which page shows (Compass, Numbers or Map).
 - **Display** - invert colours, the backlight level (where the Kindle has one), and
@@ -265,17 +266,17 @@ once it is later than the path's own rhythm allows, like the built-in boxes.
 The same thing as a JSON API, for scripts and home automation:
 
 ```
-curl http://kindle:8080/api/state                      # everything, as JSON
-curl http://kindle:8080/api/paths?q=wind               # the SignalK paths available
-curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control \
+curl http://kindle/api/state                      # everything, as JSON
+curl http://kindle/api/paths?q=wind               # the SignalK paths available
+curl -X POST -H 'Content-Type: application/json' http://kindle/api/control \
      -d '{"page":"nav","invert":true,"brightness":12,"windTrue":true,
           "speed":"path:environment.depth.belowTransducer","depth":"batv",
           "boxes":{"0":"depth","5":"path:propulsion.main.oilPressure"}}'
 
-curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control \
+curl -X POST -H 'Content-Type: application/json' http://kindle/api/control \
      -d '{"page":"map","mapRange":2,"mapNorthUp":true}'
 
-curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control \
+curl -X POST -H 'Content-Type: application/json' http://kindle/api/control \
      -d '{"demo":true,"server":"192.168.1.20:3000",
           "units":{"preset":"nautical","overrides":{"depth":"ft"}}}'
 ```
@@ -293,7 +294,7 @@ those off (it then changes only what is on screen). It cannot touch the power. T
 require a token, start the app
 with `-web-token SECRET` (put `EXTRA_ARGS="-web-token SECRET"` in `launcher.conf`):
 then every request needs it, as `Authorization: Bearer SECRET`, or open
-`http://kindle:8080/?token=SECRET` once in a browser, which remembers it. The page
+`http://kindle/?token=SECRET` once in a browser, which remembers it. The page
 works with no internet. On a Kindle whose launcher is not set to keep ssh and the
 network open (`KEEP_SSH=0`), its firewall may block the port.
 
