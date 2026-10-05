@@ -82,6 +82,16 @@
   </section>
 
   <section>
+    <h2>Map</h2>
+    <div class="row"><span>Range</span></div>
+    <div class="seg" id="maprange"></div>
+    <div class="row" style="margin-top:1rem"><span>Orientation</span></div>
+    <div class="seg" id="maporient">
+      <button data-v="false">Heading up</button><button data-v="true">North up</button>
+    </div>
+  </section>
+
+  <section>
     <h2>Nav boxes</h2>
     <div class="grid" id="boxes"></div>
   </section>
@@ -191,6 +201,14 @@ function render() {
   fill($("speed"), st.speed.options, st.speed.kind);
   fill($("depth"), st.depth.options, st.depth.kind);
 
+  const mr = $("maprange"); mr.textContent = "";
+  st.map.ranges.forEach(nm => {
+    const b = document.createElement("button"); b.textContent = nm + " nm";
+    if (nm === st.map.range) b.className = "on";
+    b.onclick = () => send({ mapRange: nm }); mr.appendChild(b);
+  });
+  document.querySelectorAll("#maporient button").forEach(b => b.className = (b.dataset.v === String(st.map.northUp)) ? "on" : "");
+
   const g = $("boxes");
   if (!g.children.length) {
     POS.forEach((name, i) => {
@@ -278,6 +296,7 @@ $("light").oninput = e => { $("lightval").textContent = e.target.value + " / " +
 $("light").onchange = e => send({ brightness: +e.target.value });
 document.querySelectorAll("#wind button").forEach(b => b.onclick = () => send({ windTrue: b.dataset.v === "true" }));
 $("speed").onchange = e => chosen(e.target, v => send({ speed: v }));
+document.querySelectorAll("#maporient button").forEach(b => b.onclick = () => send({ mapNorthUp: b.dataset.v === "true" }));
 $("depth").onchange = e => chosen(e.target, v => send({ depth: v }));
 
 refresh();

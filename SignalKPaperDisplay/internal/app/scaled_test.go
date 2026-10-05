@@ -68,19 +68,19 @@ func TestTapsOnASmallScreenHitTheSameThingsAsOnTheBigOne(t *testing.T) {
 	}
 
 	// The thirds of the screen are the thirds of the device.
-	a.SetPage("nav")
+	a.SetPage("compass")
 	a.takePageChanged()
 	a.HandleEvent(tap(560, 400)) // the right third of 600
-	if a.currentPage().ID != "compass" {
-		t.Errorf("a right-third tap went to %s, want the next page (compass)", a.currentPage().ID)
+	if a.currentPage().ID != "nav" {
+		t.Errorf("a right-third tap went to %s, want the next page (nav)", a.currentPage().ID)
 	}
 	a.HandleEvent(tap(300, 400)) // the middle: nothing
-	if a.currentPage().ID != "compass" {
+	if a.currentPage().ID != "nav" {
 		t.Error("the middle third should do nothing")
 	}
 	a.HandleEvent(tap(40, 400)) // the left third
-	if a.currentPage().ID != "nav" {
-		t.Errorf("a left-third tap went to %s, want the previous page (nav)", a.currentPage().ID)
+	if a.currentPage().ID != "compass" {
+		t.Errorf("a left-third tap went to %s, want the previous page (compass)", a.currentPage().ID)
 	}
 }
 

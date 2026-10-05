@@ -37,6 +37,11 @@ type Contact struct {
 	// metres, and TCPA how many seconds from now that will be.
 	Converging bool
 	CPA, TCPA  float64
+
+	// The ship's own course (true, radians) and speed (m/s), when it has sent
+	// both recently. A ship that has not is shown without a heading.
+	HasMotion bool
+	COG, SOG  float64
 }
 
 // DisplayName is what to call the contact on screen: its name if it sent
@@ -114,7 +119,8 @@ func Contacts(own signalk.Own, targets []signalk.Target, now time.Time, ownMaxAg
 		}
 
 		te, tn := 0.0, 0.0
-		if t.SOG.Fresh(now, StaleAfter) && t.COG.Fresh(now, StaleAfter) {
+		moving := t.SOG.Fresh(now, StaleAfter) && t.COG.Fresh(now, StaleAfter)
+		if moving {
 			te, tn = velocity(t.SOG, t.COG)
 		}
 		// Rate of change of the gap: the relative velocity projected onto
@@ -141,6 +147,7 @@ func Contacts(own signalk.Own, targets []signalk.Target, now time.Time, ownMaxAg
 			ID: t.ID, Name: t.Name,
 			Bearing: bearing, Range: dist, RangeRate: rate, Closing: rate < 0,
 			Converging: conv, CPA: cpa, TCPA: tcpa,
+			HasMotion: moving, COG: t.COG.V, SOG: t.SOG.V,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Range < out[j].Range })

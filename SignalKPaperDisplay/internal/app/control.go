@@ -29,8 +29,13 @@ type Control struct {
 	WindTrue bool   // the compass wind widget shows the true wind
 	Speed    string // the compass speed widget's kind ID
 	Depth    string // the compass depth widget's kind ID
-	Demo     bool
-	Server   string
+	// The map page: its range in nautical miles, whether north is up, and the
+	// ranges there are.
+	MapRange   int
+	MapNorthUp bool
+	MapRanges  []int
+	Demo       bool
+	Server     string
 	// DefaultServer is the server used when none was chosen: the launcher's.
 	DefaultServer string
 	Units         units.Settings
@@ -50,6 +55,9 @@ func (a *App) Control() Control {
 		WindTrue:      a.windTrue,
 		Speed:         a.speed.ID(),
 		Depth:         pages.DepthWidgetID(a.depthW),
+		MapRange:      pages.MapRangeOrDefault(a.mapRange),
+		MapNorthUp:    a.mapNorthUp,
+		MapRanges:     append([]int(nil), pages.MapRanges...),
 		Demo:          a.Demo,
 		Server:        a.serverLocked(),
 		DefaultServer: a.DefaultServer,
@@ -220,6 +228,34 @@ func (a *App) SetDepth(kind string) error {
 	a.syncWatch()
 	a.nudge()
 	return nil
+}
+
+// SetMapRange sets the map's range, in nautical miles (one of pages.MapRanges).
+// Not saved: it is 5 on every boot.
+func (a *App) SetMapRange(nm int) error {
+	if !pages.MapRangeOK(nm) {
+		return fmt.Errorf("the map has no %d nm range (%v)", nm, pages.MapRanges)
+	}
+	a.mu.Lock()
+	a.mapRange = nm
+	if nm == pages.DefaultMapRange {
+		a.mapRange = 0
+	}
+	a.force = true
+	a.mu.Unlock()
+	log.Printf("remote: map range is now %d nm", nm)
+	a.nudge()
+	return nil
+}
+
+// SetMapNorthUp puts north up on the map, or our heading. Not saved.
+func (a *App) SetMapNorthUp(on bool) {
+	a.mu.Lock()
+	a.mapNorthUp = on
+	a.force = true
+	a.mu.Unlock()
+	log.Printf("remote: map is %s", map[bool]string{false: "heading up", true: "north up"}[on])
+	a.nudge()
 }
 
 // SyncWatch tells the state which SignalK paths the boxes and the speed widget

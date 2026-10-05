@@ -52,6 +52,8 @@ func (f *fake) SetBrightness(l int) error { return f.rec(fmt.Sprintf("brightness
 func (f *fake) SetWindTrue(on bool)       { f.rec(fmt.Sprintf("wind %v", on), nil) }
 func (f *fake) SetSpeed(k string) error   { return f.rec("speed "+k, nil) }
 func (f *fake) SetDepth(k string) error   { return f.rec("depth "+k, nil) }
+func (f *fake) SetMapRange(nm int) error  { return f.rec(fmt.Sprintf("maprange %d", nm), nil) }
+func (f *fake) SetMapNorthUp(on bool)     { f.rec(fmt.Sprintf("mapnorth %v", on), nil) }
 func (f *fake) SetDemoMode(on bool)       { f.rec(fmt.Sprintf("demo %v", on), nil) }
 func (f *fake) SetServer(h string) error  { return f.rec("server "+h, nil) }
 func (f *fake) SetUnits(p string, o map[string]string) error {
@@ -592,5 +594,49 @@ func TestConfigCanBeTurnedOff(t *testing.T) {
 	json.NewDecoder(r.Body).Decode(&st)
 	if st.Config {
 		t.Error("the state should say config is off, so the page leaves the controls out")
+	}
+}
+
+func TestMapThroughTheAPI(t *testing.T) {
+	f := newFake()
+	f.c.MapRange = 5
+	f.c.MapRanges = []int{1, 2, 5, 10}
+	f.c.Pages = append(f.c.Pages, app.Choice{ID: "map", Name: "Map"})
+	s := serve(t, f, "")
+
+	resp, err := http.Get(s.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var st stateJSON
+	json.NewDecoder(resp.Body).Decode(&st)
+	if st.Map.Range != 5 || st.Map.NorthUp || len(st.Map.Ranges) != 4 {
+		t.Errorf("map in the state: %+v", st.Map)
+	}
+
+	if resp, out := post(t, s, `{"page":"map","mapRange":10,"mapNorthUp":true}`, nil); resp.StatusCode != 200 || out["map"] == nil {
+		t.Fatalf("%d %v", resp.StatusCode, out)
+	}
+	want := []string{"page map", "maprange 10", "mapnorth true"}
+	if strings.Join(f.calls, "|") != strings.Join(want, "|") {
+		t.Errorf("calls = %v, want %v", f.calls, want)
+	}
+	// A range the map does not have is refused, with the rest of the request.
+	f.calls = nil
+	for _, bad := range []string{"3", "0", "-1", "50"} {
+		resp, out := post(t, s, `{"invert":true,"mapRange":`+bad+`}`, nil)
+		if resp.StatusCode != 400 {
+			t.Errorf("range %s: status %d", bad, resp.StatusCode)
+		}
+		if e, _ := out["errors"].(map[string]any); e["mapRange"] == nil {
+			t.Errorf("range %s: no error named: %v", bad, out)
+		}
+	}
+	if resp, _ := post(t, s, `{"mapRange":"ten"}`, nil); resp.StatusCode != 400 {
+		t.Errorf("a text range: %d", resp.StatusCode)
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("something was applied despite the bad request: %v", f.calls)
 	}
 }

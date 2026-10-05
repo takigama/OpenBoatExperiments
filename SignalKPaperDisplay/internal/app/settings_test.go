@@ -84,8 +84,8 @@ func TestSettingsFlow(t *testing.T) {
 		t.Error("back from the list should close settings")
 	}
 	a.HandleEvent(tap(1000, 700)) // right third again pages normally
-	if a.currentPage().ID != "compass" {
-		t.Errorf("after closing settings, a right-edge tap should page to compass, got %s", a.currentPage().ID)
+	if a.currentPage().ID != "map" {
+		t.Errorf("after closing settings, a right-edge tap should page on (nav to map), got %s", a.currentPage().ID)
 	}
 }
 

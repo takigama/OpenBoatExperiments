@@ -8,9 +8,11 @@ import (
 )
 
 func TestHandleEventSwitchesPages(t *testing.T) {
+	// Three pages, in the order compass, nav, map: start on the last, so "next"
+	// has to wrap around.
 	a := &App{Display: &display.PNG{W: 900, H: 1200}}
-	if !a.SetPage("nav") {
-		t.Fatal("nav page missing")
+	if !a.SetPage("map") {
+		t.Fatal("map page missing")
 	}
 	a.takePageChanged()
 
@@ -25,11 +27,11 @@ func TestHandleEventSwitchesPages(t *testing.T) {
 		}
 	}
 
-	check("tap right third", input.Event{Kind: input.Tap, X: 850, Y: 600}, "compass", true)
+	check("tap right third wraps to the first", input.Event{Kind: input.Tap, X: 850, Y: 600}, "compass", true)
 	check("tap middle is inert", input.Event{Kind: input.Tap, X: 450, Y: 600}, "compass", false)
-	check("tap left third", input.Event{Kind: input.Tap, X: 50, Y: 600}, "nav", true)
+	check("tap left third wraps back", input.Event{Kind: input.Tap, X: 50, Y: 600}, "map", true)
 	check("swipe left = next", input.Event{Kind: input.SwipeLeft, X: 800, Y: 600}, "compass", true)
-	check("swipe right = previous", input.Event{Kind: input.SwipeRight, X: 100, Y: 600}, "nav", true)
-	check("previous wraps around", input.Event{Kind: input.Tap, X: 50, Y: 600}, "compass", true)
-	check("long press ignored", input.Event{Kind: input.LongPress, X: 850, Y: 600}, "compass", false)
+	check("swipe right = previous", input.Event{Kind: input.SwipeRight, X: 100, Y: 600}, "map", true)
+	check("previous", input.Event{Kind: input.Tap, X: 50, Y: 600}, "nav", true)
+	check("long press ignored", input.Event{Kind: input.LongPress, X: 850, Y: 600}, "nav", false)
 }

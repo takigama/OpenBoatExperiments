@@ -30,6 +30,10 @@ type Env struct {
 	// single-number kind or a raw SignalK path. Empty is the default, depth. Not
 	// saved: it is depth on every boot. See DepthFromID.
 	Depth string
+	// The map page: its range in nautical miles (zero is the default, 5; see
+	// MapRanges) and whether north is up instead of our heading. Neither is saved.
+	MapRange   int
+	MapNorthUp bool
 	// Demo is whether the data is made up: the header says so, on every page, so
 	// that it can never be taken for a real boat's.
 	Demo bool
@@ -132,6 +136,7 @@ func All() []Page {
 	return []Page{
 		{ID: "compass", Title: "Compass", Draw: Compass}, // the default, so it comes first
 		{ID: "nav", Title: "Numbers", Draw: Nav},
+		{ID: "map", Title: "Map", Draw: Map},
 	}
 }
 

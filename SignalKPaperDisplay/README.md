@@ -23,6 +23,12 @@ layout scaled), drawn from a SignalK server's data:
 <td align="center"><img src="docs/images/display-nav.png" width="220" alt="The Nav page with eight boxes"><br><b>Nav</b><br>(eight boxes, any value)</td>
 <td align="center"><img src="docs/images/display-settings.png" width="220" alt="The settings list"><br><b>Settings</b></td>
 </tr>
+<tr>
+<td align="center"><img src="docs/images/display-map.png" width="220" alt="The map page: our boat in the middle, ships around it out to 5 nautical miles"><br><b>Map</b><br>(5 nm, heading up)</td>
+<td align="center"><img src="docs/images/display-map-north-up.png" width="220" alt="The map page, north up, at a 2 nautical mile range"><br><b>Map</b><br>(2 nm, north up)</td>
+<td></td>
+<td></td>
+</tr>
 </table>
 
 And the web page that controls it from a phone or laptop (see "Remote
@@ -43,6 +49,17 @@ server and the units.
 Early, but running on a real Kindle Paperwhite 3. Working now:
 
 - SignalK client + data model with staleness tracking
+- A **Map** page: a round, radar-style map with our boat in the middle and the
+  AIS ships around it, out to 1, 2, 5 or 10 nautical miles (5 by default; tap
+  the range in the top right corner to change it). Each ship is a dart pointing
+  along its course - solid if it is getting nearer, hollow if not - with a line
+  showing where it will be in ten minutes, and its name for the nearest few; the
+  one that will pass closest is ringed, and its closest approach (CPA) and the
+  time to it (TCPA) are shown underneath, beside the wind. Heading-up (ahead is
+  up the screen, like the compass card) or north-up (tap the top left corner);
+  the apparent and true wind are marked outside the ring, as on the compass, and
+  a tap on the wind figure switches true and apparent. Ranges are written in
+  your distance unit ("5 nm" on the nautical preset, "9.26 km" on metric).
 - Pages: a large rotating Compass and an eight-box Nav grid (SOG, heading,
   depth, COG, VMG, the closest AIS contact, wind speed and angle), selectable at runtime.
   VMG is velocity made good to the wind: boat speed (through the water if sent,
@@ -115,9 +132,10 @@ Early, but running on a real Kindle Paperwhite 3. Working now:
 - Self-update from GitHub releases (see below)
 - One-command install and uninstall scripts for each Kindle platform (see "Installing")
 
-Not built yet: Wind and AIS pages, front-light sliders, a timezone setting and
-an install/update-now button in settings, and direct framebuffer drawing with
-dirty-region updates.
+Not built yet: a timezone setting (the clock is the Kindle's own local time), an
+update-now button in settings (updates are automatic every 6 hours, or
+`./paperdisplay -update`), and direct framebuffer drawing (the app draws through
+FBInk, refreshing small regions where it can).
 
 ## Running it on the Kindle
 
@@ -215,8 +233,9 @@ off), so from a phone or laptop on the same network you can open
 `http://<the Kindle's address>:8080/` and change what is on screen without
 touching it:
 
-- **Screen** - which page shows (Compass or Numbers).
+- **Screen** - which page shows (Compass, Numbers or Map).
 - **Display** - invert colours, and the backlight level (where the Kindle has one).
+- **Map** - its range (1, 2, 5 or 10 nm) and heading-up or north-up.
 - **Compass** - the wind widget (apparent or true), and two widgets that can show
   anything: the **speed widget** (bottom left, SOG until you change it; a tap on
   the screen still cycles SOG, STW, VMG) and the **depth widget** (bottom right,
@@ -233,7 +252,8 @@ touching it:
 
 Each change does what the same change on the touch screen does: the units, the
 layout, invert and the backlight level are saved; the wind, speed and depth
-widgets start the same way (apparent wind, SOG, depth) on every boot. A raw path is written in your
+widgets, and the map's range and orientation, start the same way (apparent
+wind, SOG, depth, 5 nm heading-up) on every boot. A raw path is written in your
 units: the server's own units for it are asked for (SignalK's `meta`), and without
 them it is worked out from the path's name (`...speedApparent` is a speed,
 `...temperature` a temperature, `...oilPressure` bar, and so on); a path it cannot
@@ -249,6 +269,9 @@ curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control 
      -d '{"page":"nav","invert":true,"brightness":12,"windTrue":true,
           "speed":"path:environment.depth.belowTransducer","depth":"batv",
           "boxes":{"0":"depth","5":"path:propulsion.main.oilPressure"}}'
+
+curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control \
+     -d '{"page":"map","mapRange":2,"mapNorthUp":true}'
 
 curl -X POST -H 'Content-Type: application/json' http://kindle:8080/api/control \
      -d '{"demo":true,"server":"192.168.1.20:3000",

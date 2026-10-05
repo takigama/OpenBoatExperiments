@@ -45,6 +45,8 @@ type Controller interface {
 	SetWindTrue(on bool)
 	SetSpeed(kind string) error
 	SetDepth(kind string) error
+	SetMapRange(nm int) error
+	SetMapNorthUp(on bool)
 	SetDemoMode(on bool)
 	SetServer(hostPort string) error
 	SetUnits(preset string, overrides map[string]string) error
@@ -185,6 +187,7 @@ type stateJSON struct {
 	Wind     windJSON   `json:"wind"`
 	Speed    speedJSON  `json:"speed"`
 	Depth    speedJSON  `json:"depth"`
+	Map      mapJSON    `json:"map"`
 	Demo     bool       `json:"demo"`
 	Server   string     `json:"server"`
 	// DefaultServer is what the server goes back to when it is cleared.
@@ -210,6 +213,14 @@ type speedJSON struct {
 	Options []kindJSON `json:"options"` // what the speed widget can show
 }
 
+// mapJSON is the map page's range (nautical miles), the ranges there are, and
+// whether north is up.
+type mapJSON struct {
+	Range   int   `json:"range"`
+	Ranges  []int `json:"ranges"`
+	NorthUp bool  `json:"northUp"`
+}
+
 type unitsJSON struct {
 	Preset  string       `json:"preset"`
 	Presets []string     `json:"presets"`
@@ -233,7 +244,7 @@ func (s *Server) stateNow() stateJSON {
 	c := s.App.Control()
 	st := stateJSON{
 		Version: s.Version, Platform: s.Platform, Page: c.Page, Invert: c.Invert, Boxes: c.Boxes,
-		Wind: windJSON{True: c.WindTrue}, Speed: speedJSON{Kind: c.Speed}, Depth: speedJSON{Kind: c.Depth},
+		Wind: windJSON{True: c.WindTrue}, Speed: speedJSON{Kind: c.Speed}, Depth: speedJSON{Kind: c.Depth}, Map: mapJSON{Range: c.MapRange, Ranges: c.MapRanges, NorthUp: c.MapNorthUp},
 		Demo: c.Demo, Server: c.Server, DefaultServer: c.DefaultServer, Connected: c.Connected, Config: s.AllowConfig,
 		Units:  unitsState(c.Units),
 		Limits: limitsJSON{Boxes: pages.NavBoxes},
@@ -335,6 +346,10 @@ type controlReq struct {
 	WindTrue   *bool           `json:"windTrue"`
 	Speed      *string         `json:"speed"`
 	Depth      *string         `json:"depth"`
+	// The map page: its range in nautical miles (one of the ranges in /api/state),
+	// and whether north is up instead of our heading.
+	MapRange   *int  `json:"mapRange"`
+	MapNorthUp *bool `json:"mapNorthUp"`
 	// The configuration. server is "host" or "host:port" (port 3000 if left out),
 	// or "" for the default; units is a preset (which resets every unit) and/or
 	// overrides, from a metric ID (see /api/state) to a unit symbol.
@@ -425,6 +440,9 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.MapRange != nil && !pages.MapRangeOK(*req.MapRange) {
+		errs["mapRange"] = fmt.Sprintf("the map has no %d nm range (%v)", *req.MapRange, pages.MapRanges)
+	}
 	if req.Depth != nil {
 		if _, ok := pages.DepthFromID(*req.Depth); !ok {
 			errs["depth"] = fmt.Sprintf("the depth widget cannot show %q", *req.Depth)
@@ -495,6 +513,14 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		if err := s.App.SetDepth(*req.Depth); err != nil {
 			errs["depth"] = err.Error()
 		}
+	}
+	if req.MapRange != nil {
+		if err := s.App.SetMapRange(*req.MapRange); err != nil {
+			errs["mapRange"] = err.Error()
+		}
+	}
+	if req.MapNorthUp != nil {
+		s.App.SetMapNorthUp(*req.MapNorthUp)
 	}
 	if req.Units != nil {
 		if err := s.App.SetUnits(req.Units.Preset, req.Units.Overrides); err != nil {

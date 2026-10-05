@@ -93,9 +93,11 @@ type App struct {
 	// What the compass page's two tappable widgets show: the wind speed (true or
 	// apparent) and the speed (SOG, STW, VMG). Not saved - they start as apparent
 	// wind and SOG on every boot. Guarded by mu.
-	windTrue bool
-	speed    pages.SpeedSource
-	depthW   string // the compass depth widget's setting (see pages.DepthFromID); "" is depth
+	windTrue   bool
+	speed      pages.SpeedSource
+	mapRange   int    // the map's range in nautical miles; 0 is the default (pages.DefaultMapRange)
+	mapNorthUp bool   // the map has north up rather than our heading
+	depthW     string // the compass depth widget's setting (see pages.DepthFromID); "" is depth
 	// force asks for a redraw at once, past the partial-refresh rationing, for a
 	// tap that changes a value on the same screen (not a new page).
 	force bool
@@ -270,7 +272,8 @@ func (a *App) HandleEvent(ev input.Event) {
 	}
 
 	w, h := a.designSize()
-	if ev.Kind == input.Tap && a.compassTap(image.Pt(ev.X, ev.Y), image.Rect(0, 0, w, h)) {
+	if ev.Kind == input.Tap && (a.compassTap(image.Pt(ev.X, ev.Y), image.Rect(0, 0, w, h)) ||
+		a.mapTap(image.Pt(ev.X, ev.Y), image.Rect(0, 0, w, h))) {
 		return
 	}
 	action := ""
@@ -295,6 +298,42 @@ func (a *App) HandleEvent(ev input.Event) {
 // compassTap handles a tap on one of the compass page's two tappable widgets,
 // reporting whether it was on one. They sit in the left third of the screen,
 // where a tap would otherwise mean "previous page", so these win there.
+// mapTap handles a tap on the map page's three things: which way is up, the range,
+// and the wind widget (true or apparent, as on the compass). False if the tap is
+// not on one, or this is not the map page.
+func (a *App) mapTap(pt image.Point, b image.Rectangle) bool {
+	if a.currentPage().ID != "map" {
+		return false
+	}
+	switch {
+	case pt.In(pages.MapOrientRect(b)):
+		a.mu.Lock()
+		a.mapNorthUp = !a.mapNorthUp
+		now := a.mapNorthUp
+		a.force = true
+		a.mu.Unlock()
+		log.Printf("touch: tap at (%d,%d) -> map is %s", pt.X, pt.Y, map[bool]string{false: "heading up", true: "north up"}[now])
+	case pt.In(pages.MapRangeRect(b)):
+		a.mu.Lock()
+		a.mapRange = pages.NextMapRange(a.mapRange)
+		nm := a.mapRange
+		a.force = true
+		a.mu.Unlock()
+		log.Printf("touch: tap at (%d,%d) -> map range %d nm", pt.X, pt.Y, nm)
+	case pt.In(pages.MapWindRect(b)) && pages.WindWidgetShown(a.State.Snapshot().Own):
+		a.mu.Lock()
+		a.windTrue = !a.windTrue
+		now := a.windTrue
+		a.force = true
+		a.mu.Unlock()
+		log.Printf("touch: tap at (%d,%d) -> wind speed shows %s", pt.X, pt.Y, map[bool]string{false: "apparent", true: "true"}[now])
+	default:
+		return false
+	}
+	a.nudge()
+	return true
+}
+
 func (a *App) compassTap(pt image.Point, b image.Rectangle) bool {
 	if a.currentPage().ID != "compass" {
 		return false
@@ -622,13 +661,14 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	server := a.serverNow()
 	a.mu.Lock()
 	windTrue, speed, depthW, demo, farewell := a.windTrue, a.speed, a.depthW, a.Demo, a.farewell
+	mapRange, mapNorthUp := a.mapRange, a.mapNorthUp
 	a.mu.Unlock()
 	if farewell != "" {
 		pages.Farewell(c, farewell)
 	} else if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
-		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Depth: depthW, Demo: demo})
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Depth: depthW, MapRange: mapRange, MapNorthUp: mapNorthUp, Demo: demo})
 	}
 	if invert {
 		invertInPlace(c.Img)
