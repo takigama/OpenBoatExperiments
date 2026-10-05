@@ -22,6 +22,7 @@ const (
 	SettingsLight                              // set the front light brightness
 	SettingsPower                              // switch off, restart, or back to the Kindle's own software
 	SettingsPowerConfirm                       // are you sure about View.Power
+	SettingsNoPower                            // choose how long off power before the NO POWER screen
 )
 
 // Version is the running release number, shown at the foot of the settings
@@ -47,6 +48,9 @@ type SettingsView struct {
 	Demo bool
 
 	Power string // SettingsPowerConfirm: which of the PowerChoices is being confirmed
+
+	// NoPower is the no-power timeout in minutes (0 is never), filled in by the app.
+	NoPower int
 }
 
 type ActionKind int
@@ -71,6 +75,8 @@ const (
 	ActOpenPower                   // root -> the power screen
 	ActPowerPick                   // power screen -> confirm Action.Value
 	ActPowerDo                     // do Action.Value (a power choice), confirmed
+	ActOpenNoPower                 // power screen -> the no-power timeout picker
+	ActSetNoPower                  // set the no-power timeout to Action.Level minutes (0: never)
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -215,7 +221,7 @@ func ParentScreen(s SettingsScreen) SettingsScreen {
 	if s == SettingsPickBox {
 		return SettingsBoxes
 	}
-	if s == SettingsPowerConfirm {
+	if s == SettingsPowerConfirm || s == SettingsNoPower {
 		return SettingsPower
 	}
 	return SettingsRoot
@@ -279,6 +285,10 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 		}
 	case SettingsPower, SettingsPowerConfirm:
 		return powerTap(v, image.Pt(x, y), width)
+	case SettingsNoPower:
+		if row >= 0 && row < len(NoPowerChoices) {
+			return Action{Kind: ActSetNoPower, Level: NoPowerChoices[row].Minutes}
+		}
 	case SettingsLight:
 		return lightTap(v, image.Pt(x, y))
 	case SettingsServer:
@@ -369,6 +379,8 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 		title = "BACKLIGHT"
 	case SettingsPower, SettingsPowerConfirm:
 		title = "POWER"
+	case SettingsNoPower:
+		title = "NO-POWER MODE"
 	}
 	// A back chevron where the cog is on other pages, in the same tap area.
 	chevronLeft(c, 38, int(cogY), 22, render.Black)
@@ -444,6 +456,19 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 
 	case SettingsPower, SettingsPowerConfirm:
 		drawPower(c, v)
+
+	case SettingsNoPower:
+		for i, ch := range NoPowerChoices {
+			min := ch.Minutes
+			row(c, i, ch.Label, func(cy int) { radio(c, b.Dx()-80, cy, v.NoPower == min) })
+		}
+		for i, l := range []string{
+			"After this long off external power the screen shows",
+			"NO POWER and stops updating, to save the battery.",
+			"Plugging in, a tap or the power button brings it back.",
+		} {
+			c.Text(40, settingsTop+len(NoPowerChoices)*settingsRowH+60+i*46, l, 36, render.Regular, render.Left, render.Dark)
+		}
 
 	case SettingsPickBox:
 		current := NormalizeBoxes(boxes)[clampBox(v.Box)]

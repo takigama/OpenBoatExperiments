@@ -47,6 +47,8 @@ type Controller interface {
 	SetDepth(kind string) error
 	SetMapRange(nm int) error
 	SetMapNorthUp(on bool)
+	SetNoPowerMinutes(minutes int) error
+	Wake()
 	SetDemoMode(on bool)
 	SetServer(hostPort string) error
 	SetUnits(preset string, overrides map[string]string) error
@@ -176,20 +178,21 @@ type kindJSON struct {
 }
 
 type stateJSON struct {
-	Version  string     `json:"version"`
-	Platform string     `json:"platform"`
-	Page     string     `json:"page"`
-	Pages    []kindJSON `json:"pages"`
-	Invert   bool       `json:"invert"`
-	Boxes    []string   `json:"boxes"`
-	Kinds    []kindJSON `json:"kinds"` // what a Nav box can show
-	Light    *lightJSON `json:"light"` // nil: no front light
-	Wind     windJSON   `json:"wind"`
-	Speed    speedJSON  `json:"speed"`
-	Depth    speedJSON  `json:"depth"`
-	Map      mapJSON    `json:"map"`
-	Demo     bool       `json:"demo"`
-	Server   string     `json:"server"`
+	Version  string      `json:"version"`
+	Platform string      `json:"platform"`
+	Page     string      `json:"page"`
+	Pages    []kindJSON  `json:"pages"`
+	Invert   bool        `json:"invert"`
+	Boxes    []string    `json:"boxes"`
+	Kinds    []kindJSON  `json:"kinds"` // what a Nav box can show
+	Light    *lightJSON  `json:"light"` // nil: no front light
+	Wind     windJSON    `json:"wind"`
+	Speed    speedJSON   `json:"speed"`
+	Depth    speedJSON   `json:"depth"`
+	Map      mapJSON     `json:"map"`
+	NoPower  noPowerJSON `json:"noPower"`
+	Demo     bool        `json:"demo"`
+	Server   string      `json:"server"`
 	// DefaultServer is what the server goes back to when it is cleared.
 	DefaultServer string     `json:"defaultServer"`
 	Units         unitsJSON  `json:"units"`
@@ -215,6 +218,20 @@ type speedJSON struct {
 
 // mapJSON is the map page's range (nautical miles), the ranges there are, and
 // whether north is up.
+// noPowerJSON is the no-power mode: after how many minutes off external power the
+// screen goes to NO POWER (0 is never), the timeouts to offer, and whether it is
+// showing now.
+type noPowerJSON struct {
+	Minutes int             `json:"minutes"`
+	Active  bool            `json:"active"`
+	Options []noPowerOption `json:"options"`
+}
+
+type noPowerOption struct {
+	Minutes int    `json:"minutes"`
+	Label   string `json:"label"`
+}
+
 type mapJSON struct {
 	Range   int   `json:"range"`
 	Ranges  []int `json:"ranges"`
@@ -245,12 +262,16 @@ func (s *Server) stateNow() stateJSON {
 	st := stateJSON{
 		Version: s.Version, Platform: s.Platform, Page: c.Page, Invert: c.Invert, Boxes: c.Boxes,
 		Wind: windJSON{True: c.WindTrue}, Speed: speedJSON{Kind: c.Speed}, Depth: speedJSON{Kind: c.Depth}, Map: mapJSON{Range: c.MapRange, Ranges: c.MapRanges, NorthUp: c.MapNorthUp},
-		Demo: c.Demo, Server: c.Server, DefaultServer: c.DefaultServer, Connected: c.Connected, Config: s.AllowConfig,
+		NoPower: noPowerJSON{Minutes: c.NoPowerMin, Active: c.NoPower},
+		Demo:    c.Demo, Server: c.Server, DefaultServer: c.DefaultServer, Connected: c.Connected, Config: s.AllowConfig,
 		Units:  unitsState(c.Units),
 		Limits: limitsJSON{Boxes: pages.NavBoxes},
 	}
 	for _, p := range c.Pages {
 		st.Pages = append(st.Pages, kindJSON{ID: p.ID, Name: p.Name})
+	}
+	for _, o := range pages.NoPowerChoices {
+		st.NoPower.Options = append(st.NoPower.Options, noPowerOption{Minutes: o.Minutes, Label: o.Label})
 	}
 	for _, k := range pages.BoxKinds {
 		kj := kindJSON{ID: k.ID, Name: k.Name, Label: k.Label}
@@ -350,6 +371,11 @@ type controlReq struct {
 	// and whether north is up instead of our heading.
 	MapRange   *int  `json:"mapRange"`
 	MapNorthUp *bool `json:"mapNorthUp"`
+	// NoPowerMinutes is how long off external power before the screen goes to NO
+	// POWER: 0 for never, or 1 to a week's worth of minutes. wake brings it back
+	// from NO POWER for another timeout.
+	NoPowerMinutes *int  `json:"noPowerMinutes"`
+	Wake           *bool `json:"wake"`
 	// The configuration. server is "host" or "host:port" (port 3000 if left out),
 	// or "" for the default; units is a preset (which resets every unit) and/or
 	// overrides, from a metric ID (see /api/state) to a unit symbol.
@@ -440,6 +466,9 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if req.NoPowerMinutes != nil && !settings.ValidNoPower(*req.NoPowerMinutes) {
+		errs["noPowerMinutes"] = fmt.Sprintf("no-power mode is 0 (never) or 1 to %d minutes", settings.MaxNoPowerMinutes)
+	}
 	if req.MapRange != nil && !pages.MapRangeOK(*req.MapRange) {
 		errs["mapRange"] = fmt.Sprintf("the map has no %d nm range (%v)", *req.MapRange, pages.MapRanges)
 	}
@@ -512,6 +541,14 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	if req.Depth != nil {
 		if err := s.App.SetDepth(*req.Depth); err != nil {
 			errs["depth"] = err.Error()
+		}
+	}
+	if req.Wake != nil && *req.Wake {
+		s.App.Wake()
+	}
+	if req.NoPowerMinutes != nil {
+		if err := s.App.SetNoPowerMinutes(*req.NoPowerMinutes); err != nil {
+			errs["noPowerMinutes"] = err.Error()
 		}
 	}
 	if req.MapRange != nil {

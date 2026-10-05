@@ -32,11 +32,41 @@ type File struct {
 	// Brightness is the front light level the user chose, applied when the
 	// app starts. Nil means never set: the light is left as the device has it.
 	Brightness *int `json:"brightness,omitempty"`
+	// NoPowerMinutes is how long the device may be off external power before the
+	// display goes to its NO POWER screen and stops updating to save the battery.
+	// Nil means never chosen: DefaultNoPowerMinutes. Zero means never.
+	NoPowerMinutes *int `json:"noPowerMinutes,omitempty"`
+}
+
+// DefaultNoPowerMinutes is the no-power timeout until it is changed: an hour.
+const DefaultNoPowerMinutes = 60
+
+// MaxNoPowerMinutes is the longest timeout that can be set: a week.
+const MaxNoPowerMinutes = 7 * 24 * 60
+
+// ValidNoPower reports whether minutes is a timeout that can be set: zero (never)
+// or from one minute to MaxNoPowerMinutes.
+func ValidNoPower(minutes int) bool {
+	return minutes == 0 || (minutes >= 1 && minutes <= MaxNoPowerMinutes)
+}
+
+// NoPower is the timeout in force, in minutes: the chosen one, else the default.
+// Zero means never.
+func (f File) NoPower() int {
+	if f.NoPowerMinutes == nil {
+		return DefaultNoPowerMinutes
+	}
+	return *f.NoPowerMinutes
 }
 
 // Clone returns an independent copy (the unit overrides are a map).
 func (f File) Clone() File {
-	return File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...), Server: f.Server, Brightness: f.cloneBrightness()}
+	c := File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...), Server: f.Server, Brightness: f.cloneBrightness()}
+	if f.NoPowerMinutes != nil {
+		n := *f.NoPowerMinutes
+		c.NoPowerMinutes = &n
+	}
+	return c
 }
 
 func (f File) cloneBrightness() *int {

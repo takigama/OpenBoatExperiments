@@ -109,6 +109,20 @@ type App struct {
 	// SettingsPath is where settings changes are saved; empty means don't persist.
 	SettingsPath string
 
+	// NoPowerMin is how many minutes off external power before the NO POWER
+	// screen; zero is never (see nopower.go). NoPowerChosen says it was set by the
+	// user, and so is saved. OnNoPower is called, outside any lock, when no-power
+	// mode begins (true) and ends (false): main uses it to stop and restart the
+	// SignalK connection.
+	NoPowerMin     int
+	NoPowerChosen  bool
+	OnNoPower      func(on bool)
+	noPower        bool      // showing NO POWER; guarded by mu
+	noPowerShown   bool      // the screen has been drawn since it began; guarded by mu
+	unpluggedSince time.Time // when it went off external power; zero while on it; guarded by mu
+	lastActivity   time.Time // the last touch or command; guarded by mu
+	lightBefore    int       // the front light's level before no-power mode turned it off; guarded by mu
+
 	showMu   sync.Mutex // one picture sent to the display at a time
 	farewell string     // the power choice being carried out; its last picture replaces every page. Guarded by mu.
 
@@ -221,6 +235,7 @@ func (a *App) InitLight() {
 func (a *App) withLight(v pages.SettingsView) pages.SettingsView {
 	a.mu.Lock()
 	v.Demo = a.Demo
+	v.NoPower = a.NoPowerMin
 	v.Level = a.lightLevel
 	a.mu.Unlock()
 	if a.Light != nil {
@@ -251,6 +266,9 @@ func (a *App) unitsNow() units.Settings {
 // middle is deliberately inert, so a stray tap there does nothing. While
 // settings are open every tap belongs to the settings screens.
 func (a *App) HandleEvent(ev input.Event) {
+	if a.activity() {
+		return // the touch that wakes it does nothing else
+	}
 	// Touches arrive in device pixels; every tap area is in design units.
 	ev.X, ev.Y = a.toDesign(ev.X, ev.Y)
 	a.mu.Lock()
@@ -483,6 +501,11 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.lightLevel = act.Level
 		chosen := act.Level
 		a.Brightness = &chosen
+	case pages.ActOpenNoPower:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsNoPower}
+	case pages.ActSetNoPower:
+		a.NoPowerMin, a.NoPowerChosen = act.Level, true
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsPower}
 	case pages.ActOpenPower:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsPower}
 	case pages.ActPowerPick:
@@ -517,7 +540,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	}
 	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit ||
-		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || newServer != "" || setLight >= 0
+		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || act.Kind == pages.ActSetNoPower || newServer != "" || setLight >= 0
 	saved := a.settingsFileLocked()
 	// Every screen is a different picture, so a change of screen is a full
 	// refresh - but moving the light is the same screen redrawn, and a flash
@@ -570,6 +593,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 // stopped, so it opens the power screen from wherever the app is; pressed again
 // there, it closes it.
 func (a *App) PowerButton() {
+	a.activity()
 	a.mu.Lock()
 	if a.farewell != "" { // already going down: nothing more to ask
 		a.mu.Unlock()
@@ -660,11 +684,14 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	boxes := a.boxesNow()
 	server := a.serverNow()
 	a.mu.Lock()
+	noPower := a.noPower
 	windTrue, speed, depthW, demo, farewell := a.windTrue, a.speed, a.depthW, a.Demo, a.farewell
 	mapRange, mapNorthUp := a.mapRange, a.mapNorthUp
 	a.mu.Unlock()
 	if farewell != "" {
 		pages.Farewell(c, farewell)
+	} else if noPower {
+		pages.NoPowerScreen(c)
 	} else if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
@@ -758,6 +785,19 @@ func (a *App) Run(ctx context.Context) {
 	var lastFull, lastDraw time.Time // zero, so the first frame is a full refresh
 	for {
 		now := time.Now()
+		a.powerTick(now)
+		if a.inNoPower() {
+			// NO POWER: one picture, then nothing - no redraws, no heartbeat, no
+			// header guard - until power is back or someone touches it.
+			a.showNoPower(now)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(noPowerPoll):
+			case <-a.wakeChan():
+			}
+			continue
+		}
 		full := a.takePageChanged() || lastFull.IsZero() ||
 			(a.FullRefreshEvery > 0 && now.Sub(lastFull) >= a.FullRefreshEvery)
 		forced := a.takeForce()

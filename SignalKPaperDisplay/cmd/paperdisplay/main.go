@@ -58,7 +58,7 @@ func main() {
 		waveform     = flag.String("waveform", "DU", "e-ink waveform for partial updates with -display fbink: DU is fast (~290ms on a Paperwhite 3, coarse grays), GL16 or \"\" (FBInk's choice) is slower (~540ms) but smoother; full refreshes always use full quality")
 		eipsTmp      = flag.String("tmp", "/var/tmp/paperdisplay.png", "staging PNG for eips/fbink (use tmpfs, not flash)")
 		pageID       = flag.String("page", "compass", "page to start on: compass, nav")
-		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset, unit:<metric>, boxes, box:<1-6>, server, light, power or power-confirm:<choice>")
+		settingsView = flag.String("settings-view", "", "start on a settings screen (for previews): root, preset, unit:<metric>, boxes, box:<1-6>, server, light, power, nopower, nopower-picker or power-confirm:<choice>")
 		settingsPath = flag.String("settings", "settings.json", "unit settings file (missing = metric defaults)")
 		fullEvery    = flag.Duration("full-refresh", 5*time.Minute, "flashing full refresh interval, to clear e-ink ghosting")
 		once         = flag.Bool("once", false, "render a single frame after -wait, then exit (for previews)")
@@ -210,6 +210,17 @@ func main() {
 			log.Printf("signalk: units for %s: %v", path, err)
 		}
 	}
+	// How long off external power before NO POWER: the saved choice, else an hour.
+	a.NoPowerMin, a.NoPowerChosen = saved.NoPower(), saved.NoPowerMinutes != nil
+	// In no-power mode nothing may keep the CPU and the radio busy: the SignalK
+	// connection (and the demo feed, if that is what is on) stops, and comes back
+	// with the screen.
+	a.OnNoPower = func(on bool) {
+		client.SetPaused(on)
+		if a.Control().Demo {
+			dem.Set(!on)
+		}
+	}
 	a.Battery = detectBattery(*displayKind, *fakeBattery)
 	a.Light = detectLight(prof, *displayKind, *settingsView)
 	a.InitLight()
@@ -230,6 +241,10 @@ func main() {
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsLight})
 	case v == "server":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsServer, Text: host})
+	case v == "nopower":
+		a.PreviewNoPower()
+	case v == "nopower-picker":
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsNoPower})
 	case v == "power":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPower})
 	case strings.HasPrefix(v, "power-confirm:"):

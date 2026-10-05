@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"signalkpaperdisplay/internal/pages"
 	"signalkpaperdisplay/internal/settings"
 	"signalkpaperdisplay/internal/units"
 )
@@ -17,6 +18,7 @@ import (
 // SetDemoMode switches demo mode on or off, as the settings switch does. It is
 // never saved: the app starts on the real server whatever it was left at.
 func (a *App) SetDemoMode(on bool) {
+	a.activity()
 	a.mu.Lock()
 	changed := a.Demo != on
 	a.Demo = on
@@ -38,6 +40,7 @@ func (a *App) SetDemoMode(on bool) {
 // default - the -signalk flag, which is the launcher's SIGNALK_HOST. The
 // connection moves at once and what the old server sent is forgotten.
 func (a *App) SetServer(hostPort string) error {
+	a.activity()
 	norm := ""
 	if strings.TrimSpace(hostPort) != "" {
 		n, err := settings.NormalizeServer(hostPort)
@@ -76,6 +79,7 @@ func (a *App) SetServer(hostPort string) error {
 // individual overrides on top of it, a metric ID to a unit symbol. It is all or
 // nothing, and saved.
 func (a *App) SetUnits(preset string, overrides map[string]string) error {
+	a.activity()
 	u := a.unitsNow() // a copy to change and check, so a bad request changes nothing
 	if preset != "" {
 		if err := u.SetPreset(preset); err != nil {
@@ -102,6 +106,11 @@ func (a *App) SetUnits(preset string, overrides map[string]string) error {
 	a.nudge()
 	return nil
 }
+
+var errBadNoPower = fmt.Errorf("no-power mode is 0 (never) or 1 to %d minutes", settings.MaxNoPowerMinutes)
+
+// noPowerWords says a timeout in words, for the log.
+func noPowerWords(minutes int) string { return pages.NoPowerLabel(minutes) }
 
 // UnitsNow is the current unit settings, a copy.
 func (a *App) UnitsNow() units.Settings { return a.unitsNow() }

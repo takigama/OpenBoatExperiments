@@ -74,6 +74,12 @@ func powerButton(i, width int) image.Rectangle {
 	return image.Rect(60, y, width-60, y+powerBtnH)
 }
 
+// noPowerRowRect is the row on the power screen that opens the no-power timeout.
+func noPowerRowRect(width int) image.Rectangle {
+	y := powerTop + len(PowerChoices)*(powerBtnH+powerBtnGap) + 20
+	return image.Rect(60, y, width-60, y+110)
+}
+
 // powerTap is what a tap does on the power screen or its confirmation.
 func powerTap(v SettingsView, pt image.Point, width int) Action {
 	if v.Screen == SettingsPowerConfirm {
@@ -89,6 +95,9 @@ func powerTap(v SettingsView, pt image.Point, width int) Action {
 		if pt.In(powerButton(i, width)) {
 			return Action{Kind: ActPowerPick, Value: c.ID}
 		}
+	}
+	if pt.In(noPowerRowRect(width)) {
+		return Action{Kind: ActOpenNoPower}
 	}
 	return Action{}
 }
@@ -120,8 +129,15 @@ func drawPower(c *render.Canvas, v SettingsView) {
 		c.Text(r.Min.X+40, r.Min.Y+84, ch.Label, 66, render.Bold, render.Left, render.Black)
 		c.Text(r.Min.X+40, r.Min.Y+142, fitText(c, ch.Sub, 36, render.Regular, r.Dx()-80), 36, render.Regular, render.Left, render.Black)
 	}
-	last := powerButton(len(PowerChoices)-1, b.Dx())
-	c.Text(b.Dx()/2, last.Max.Y+70, "The Kindle's power button opens this screen too.", 36, render.Regular, render.Center, render.Dark)
+	// The timeout row: what the screen does after a while off power.
+	nr := noPowerRowRect(b.Dx())
+	c.FillRect(nr, render.Black)
+	c.FillRect(nr.Inset(5), render.White)
+	c.Text(nr.Min.X+40, nr.Min.Y+70, "No-power mode", 50, render.Bold, render.Left, render.Black)
+	chevronRight(c, nr.Max.X-36, (nr.Min.Y+nr.Max.Y)/2, 18, render.Black)
+	c.Text(nr.Max.X-76, nr.Min.Y+70, NoPowerLabel(v.NoPower), 46, render.Bold, render.Right, render.Black)
+	c.Text(b.Dx()/2, nr.Max.Y+56, "After that long off power: NO POWER, and the screen stops.", 34, render.Regular, render.Center, render.Dark)
+	c.Text(b.Dx()/2, nr.Max.Y+120, "The Kindle's power button opens this screen too.", 36, render.Regular, render.Center, render.Dark)
 }
 
 // Farewell draws the last picture before the Kindle is switched off,

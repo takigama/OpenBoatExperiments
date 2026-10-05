@@ -54,6 +54,11 @@
   <span class="small" id="ver"></span>
 </header>
 <main>
+  <section id="npbanner" hidden style="border-color:var(--bad)">
+    <div class="row"><strong>Showing NO POWER: the screen has stopped updating.</strong>
+      <button id="wake" class="on">Wake it</button></div>
+  </section>
+
   <section>
     <h2>Screen</h2>
     <div class="seg" id="pages"></div>
@@ -63,6 +68,9 @@
     <h2>Display</h2>
     <div class="row"><label for="invert">Invert colours (white on black)</label>
       <label class="switch"><input type="checkbox" id="invert"><span></span></label></div>
+    <div class="row" style="margin-top:.6rem"><label for="nopower">No-power mode after</label></div>
+    <select id="nopower"></select>
+    <div class="small" style="margin:.3rem 0 .8rem">Off external power for that long: the screen shows NO POWER and stops updating, to save the battery.</div>
     <div id="lightbox">
       <div class="row"><label for="light">Backlight</label><span id="lightval" class="small"></span></div>
       <input type="range" id="light" min="0" max="24" step="1">
@@ -220,6 +228,16 @@ function render() {
   }
   g.querySelectorAll("select").forEach((s, i) => fill(s, st.kinds, st.boxes[i]));
 
+  $("npbanner").hidden = !st.noPower.active;
+  const np = $("nopower");
+  if (document.activeElement !== np) {
+    np.textContent = "";
+    st.noPower.options.forEach(o => { const op = document.createElement("option"); op.value = o.minutes; op.textContent = o.label; np.appendChild(op); });
+    if (!st.noPower.options.some(o => o.minutes === st.noPower.minutes)) { // a value from the API that is not on the list
+      const op = document.createElement("option"); op.value = st.noPower.minutes; op.textContent = st.noPower.minutes + " minutes"; np.appendChild(op);
+    }
+    np.value = st.noPower.minutes;
+  }
   renderConfig();
   $("foot").textContent = "Server " + st.server + (st.connected ? "" : " (not connected)") + ". Changes are what the touch screen does: units and layout are saved, the wind and speed widgets start the same way each boot.";
 }
@@ -297,6 +315,8 @@ $("light").onchange = e => send({ brightness: +e.target.value });
 document.querySelectorAll("#wind button").forEach(b => b.onclick = () => send({ windTrue: b.dataset.v === "true" }));
 $("speed").onchange = e => chosen(e.target, v => send({ speed: v }));
 document.querySelectorAll("#maporient button").forEach(b => b.onclick = () => send({ mapNorthUp: b.dataset.v === "true" }));
+$("nopower").onchange = e => send({ noPowerMinutes: +e.target.value });
+$("wake").onclick = () => send({ wake: true });
 $("depth").onchange = e => chosen(e.target, v => send({ depth: v }));
 
 refresh();

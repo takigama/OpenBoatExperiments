@@ -48,14 +48,16 @@ func (f *fake) SetInvert(on bool)          { f.rec(fmt.Sprintf("invert %v", on),
 func (f *fake) SetBox(i int, k string) error {
 	return f.rec(fmt.Sprintf("box %d %s", i, k), nil)
 }
-func (f *fake) SetBrightness(l int) error { return f.rec(fmt.Sprintf("brightness %d", l), nil) }
-func (f *fake) SetWindTrue(on bool)       { f.rec(fmt.Sprintf("wind %v", on), nil) }
-func (f *fake) SetSpeed(k string) error   { return f.rec("speed "+k, nil) }
-func (f *fake) SetDepth(k string) error   { return f.rec("depth "+k, nil) }
-func (f *fake) SetMapRange(nm int) error  { return f.rec(fmt.Sprintf("maprange %d", nm), nil) }
-func (f *fake) SetMapNorthUp(on bool)     { f.rec(fmt.Sprintf("mapnorth %v", on), nil) }
-func (f *fake) SetDemoMode(on bool)       { f.rec(fmt.Sprintf("demo %v", on), nil) }
-func (f *fake) SetServer(h string) error  { return f.rec("server "+h, nil) }
+func (f *fake) SetBrightness(l int) error     { return f.rec(fmt.Sprintf("brightness %d", l), nil) }
+func (f *fake) SetWindTrue(on bool)           { f.rec(fmt.Sprintf("wind %v", on), nil) }
+func (f *fake) SetSpeed(k string) error       { return f.rec("speed "+k, nil) }
+func (f *fake) SetDepth(k string) error       { return f.rec("depth "+k, nil) }
+func (f *fake) SetMapRange(nm int) error      { return f.rec(fmt.Sprintf("maprange %d", nm), nil) }
+func (f *fake) SetMapNorthUp(on bool)         { f.rec(fmt.Sprintf("mapnorth %v", on), nil) }
+func (f *fake) SetNoPowerMinutes(m int) error { return f.rec(fmt.Sprintf("nopower %d", m), nil) }
+func (f *fake) Wake()                         { f.rec("wake", nil) }
+func (f *fake) SetDemoMode(on bool)           { f.rec(fmt.Sprintf("demo %v", on), nil) }
+func (f *fake) SetServer(h string) error      { return f.rec("server "+h, nil) }
 func (f *fake) SetUnits(p string, o map[string]string) error {
 	return f.rec(fmt.Sprintf("units %s %v", p, o), nil)
 }
@@ -638,5 +640,84 @@ func TestMapThroughTheAPI(t *testing.T) {
 	}
 	if len(f.calls) != 0 {
 		t.Errorf("something was applied despite the bad request: %v", f.calls)
+	}
+}
+
+func TestNoPowerThroughTheAPI(t *testing.T) {
+	f := newFake()
+	f.c.NoPowerMin = 60
+	s := serve(t, f, "")
+
+	resp, err := http.Get(s.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var st stateJSON
+	json.NewDecoder(resp.Body).Decode(&st)
+	if st.NoPower.Minutes != 60 || st.NoPower.Active || len(st.NoPower.Options) != len(pages.NoPowerChoices) {
+		t.Errorf("no-power in the state: %+v", st.NoPower)
+	}
+	if o := st.NoPower.Options; o[0].Minutes != 1 || o[len(o)-1].Minutes != 0 || o[len(o)-1].Label != "Never" {
+		t.Errorf("options run from 1 minute to never: %+v", o)
+	}
+
+	for _, ok := range []string{"0", "1", "90", "10080"} {
+		f.calls = nil
+		if resp, out := post(t, s, `{"noPowerMinutes":`+ok+`}`, nil); resp.StatusCode != 200 {
+			t.Errorf("%s: %d %v", ok, resp.StatusCode, out)
+		}
+		if len(f.calls) != 1 || f.calls[0] != "nopower "+ok {
+			t.Errorf("%s: calls = %v", ok, f.calls)
+		}
+	}
+	// Bad ones are refused with the rest of the request.
+	f.calls = nil
+	for _, bad := range []string{"-1", "10081", "2147483648", "1.5", "\"60\""} {
+		resp, out := post(t, s, `{"invert":true,"noPowerMinutes":`+bad+`}`, nil)
+		if resp.StatusCode != 400 {
+			t.Errorf("%s: status %d, want 400", bad, resp.StatusCode)
+		}
+		_ = out
+	}
+	if _, out := post(t, s, `{"noPowerMinutes":-5}`, nil); out["errors"] == nil {
+		t.Errorf("no error named: %v", out)
+	} else if e, _ := out["errors"].(map[string]any); e["noPowerMinutes"] == nil {
+		t.Errorf("the field is not named: %v", e)
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("something was applied despite the bad request: %v", f.calls)
+	}
+
+	// Waking it.
+	f.calls = nil
+	post(t, s, `{"wake":true}`, nil)
+	if len(f.calls) != 1 || f.calls[0] != "wake" {
+		t.Errorf("wake: %v", f.calls)
+	}
+	f.calls = nil
+	post(t, s, `{"wake":false}`, nil)
+	if len(f.calls) != 0 {
+		t.Errorf("wake false should do nothing: %v", f.calls)
+	}
+	// While it is showing, the state says so (the page shows a banner).
+	f.c.NoPower = true
+	r2, err := http.Get(s.URL + "/api/state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Body.Close()
+	var st2 stateJSON
+	json.NewDecoder(r2.Body).Decode(&st2)
+	if !st2.NoPower.Active {
+		t.Error("the state should say NO POWER is showing")
+	}
+
+	// A display setting, like invert: it works with config changes switched off.
+	g := newFake()
+	srv := httptest.NewServer((&Server{App: g, Version: "43", AllowConfig: false}).Handler())
+	defer srv.Close()
+	if resp, _ := post(t, srv, `{"noPowerMinutes":15,"wake":true}`, nil); resp.StatusCode != 200 || len(g.calls) != 2 {
+		t.Errorf("with config off: %d %v", resp.StatusCode, g.calls)
 	}
 }

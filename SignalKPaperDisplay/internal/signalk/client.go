@@ -3,6 +3,7 @@ package signalk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -27,6 +28,46 @@ type Client struct {
 	url     string             // the address in use, once SetServer has changed it
 	cancel  context.CancelFunc // ends the current connection
 	changed bool               // the server was changed since the last connection ended
+	paused  bool               // no connection is wanted, and none is attempted
+	resume  chan struct{}      // closed when a pause ends
+}
+
+var errPaused = errors.New("paused")
+
+// SetPaused stops the connection - and any attempt to make one - until it is
+// resumed: for when the dashboard has gone to NO POWER and is saving the battery,
+// which a server sending several times a second would keep spending. A pause ends
+// with a fresh connection, which sends the server's whole state again. It is safe
+// to call while Run is running.
+func (c *Client) SetPaused(p bool) {
+	c.mu.Lock()
+	if p == c.paused {
+		c.mu.Unlock()
+		return
+	}
+	c.paused = p
+	var cancel context.CancelFunc
+	if p {
+		c.resume = make(chan struct{})
+		cancel = c.cancel
+	} else if c.resume != nil {
+		close(c.resume)
+		c.resume = nil
+	}
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel() // ends the connection in use
+	}
+}
+
+// pausedCh is a channel that is closed when the pause ends, or nil if not paused.
+func (c *Client) pausedCh() <-chan struct{} {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.paused {
+		return nil
+	}
+	return c.resume
 }
 
 // SetServer points the client at a different "host:port" and reconnects to it
@@ -98,11 +139,24 @@ func (c *Client) Run(ctx context.Context) {
 	backoff := time.Second
 	var rl retryLog
 	for ctx.Err() == nil {
+		if ch := c.pausedCh(); ch != nil {
+			c.State.setConnected(false)
+			select {
+			case <-ch:
+				backoff = time.Second
+			case <-ctx.Done():
+				return
+			}
+			continue
+		}
 		started := time.Now()
 		err := c.session(ctx)
 		c.State.setConnected(false)
 		if ctx.Err() != nil {
 			return
+		}
+		if c.pausedCh() != nil { // it was stopped on purpose: no log, no back-off
+			continue
 		}
 		if c.takeChanged() {
 			log.Printf("signalk: reconnecting")
@@ -133,6 +187,10 @@ func (c *Client) session(parent context.Context) error {
 	// The address and the means of ending this connection are taken together,
 	// so a SetServer that comes after this point is sure to end it.
 	c.mu.Lock()
+	if c.paused { // paused between Run's check and here
+		c.mu.Unlock()
+		return errPaused
+	}
 	url := c.url
 	if url == "" {
 		url = c.URL

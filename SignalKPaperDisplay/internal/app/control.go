@@ -40,6 +40,10 @@ type Control struct {
 	DefaultServer string
 	Units         units.Settings
 	Connected     bool
+	// NoPowerMin is the minutes off external power before NO POWER (0: never);
+	// NoPower says it is showing now.
+	NoPowerMin int
+	NoPower    bool
 }
 
 // Choice is an ID and the name to show for it.
@@ -62,6 +66,8 @@ func (a *App) Control() Control {
 		Server:        a.serverLocked(),
 		DefaultServer: a.DefaultServer,
 		Units:         a.Units.Clone(),
+		NoPowerMin:    a.NoPowerMin,
+		NoPower:       a.noPower,
 		Light:         a.lightLevel,
 	}
 	a.mu.Unlock()
@@ -95,6 +101,10 @@ func (a *App) settingsFileLocked() settings.File {
 		b := *a.Brightness
 		f.Brightness = &b
 	}
+	if a.NoPowerChosen {
+		n := a.NoPowerMin
+		f.NoPowerMinutes = &n
+	}
 	return f
 }
 
@@ -109,6 +119,7 @@ func (a *App) saveSettings(f settings.File) {
 
 // ChoosePage shows the page with that ID.
 func (a *App) ChoosePage(id string) error {
+	a.activity()
 	if !a.SetPage(id) {
 		return fmt.Errorf("no page %q", id)
 	}
@@ -119,6 +130,7 @@ func (a *App) ChoosePage(id string) error {
 
 // SetInvert switches white-on-black on or off, and saves it.
 func (a *App) SetInvert(on bool) {
+	a.activity()
 	a.mu.Lock()
 	changed := a.Invert != on
 	a.Invert = on
@@ -141,6 +153,7 @@ func ValidBox(id string) bool {
 
 // SetBox makes Nav box i (0-based) show a kind, and saves it.
 func (a *App) SetBox(i int, kind string) error {
+	a.activity()
 	if i < 0 || i >= pages.NavBoxes {
 		return fmt.Errorf("there is no box %d (0 to %d)", i, pages.NavBoxes-1)
 	}
@@ -162,6 +175,7 @@ func (a *App) SetBox(i int, kind string) error {
 
 // SetBrightness sets the front light, and saves the level.
 func (a *App) SetBrightness(level int) error {
+	a.activity()
 	if a.Light == nil {
 		return fmt.Errorf("this device has no front light")
 	}
@@ -186,6 +200,7 @@ func (a *App) SetBrightness(level int) error {
 // SetWindTrue makes the compass wind widget show the true wind (or the
 // apparent). Not saved: it starts as apparent on every boot.
 func (a *App) SetWindTrue(on bool) {
+	a.activity()
 	a.mu.Lock()
 	a.windTrue = on
 	a.force = true
@@ -198,6 +213,7 @@ func (a *App) SetWindTrue(on bool) {
 // single-number kind a Nav box can show, or a raw SignalK path. Not saved: it
 // starts as SOG on every boot.
 func (a *App) SetSpeed(kind string) error {
+	a.activity()
 	src, ok := pages.SpeedFromID(kind)
 	if !ok {
 		return fmt.Errorf("the speed widget cannot show %q", kind)
@@ -216,6 +232,7 @@ func (a *App) SetSpeed(kind string) error {
 // Not saved: it shows depth on every boot. A full refresh, since the widget's
 // label is a static one.
 func (a *App) SetDepth(kind string) error {
+	a.activity()
 	setting, ok := pages.DepthFromID(kind)
 	if !ok {
 		return fmt.Errorf("the depth widget cannot show %q", kind)
@@ -233,6 +250,7 @@ func (a *App) SetDepth(kind string) error {
 // SetMapRange sets the map's range, in nautical miles (one of pages.MapRanges).
 // Not saved: it is 5 on every boot.
 func (a *App) SetMapRange(nm int) error {
+	a.activity()
 	if !pages.MapRangeOK(nm) {
 		return fmt.Errorf("the map has no %d nm range (%v)", nm, pages.MapRanges)
 	}
@@ -250,6 +268,7 @@ func (a *App) SetMapRange(nm int) error {
 
 // SetMapNorthUp puts north up on the map, or our heading. Not saved.
 func (a *App) SetMapNorthUp(on bool) {
+	a.activity()
 	a.mu.Lock()
 	a.mapNorthUp = on
 	a.force = true

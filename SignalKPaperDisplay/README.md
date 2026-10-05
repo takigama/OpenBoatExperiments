@@ -234,7 +234,9 @@ off), so from a phone or laptop on the same network you can open
 touching it:
 
 - **Screen** - which page shows (Compass, Numbers or Map).
-- **Display** - invert colours, and the backlight level (where the Kindle has one).
+- **Display** - invert colours, the backlight level (where the Kindle has one), and
+  how long off external power before the NO POWER screen (see "No-power mode"),
+  with a **Wake it** button while it is showing.
 - **Map** - its range (1, 2, 5 or 10 nm) and heading-up or north-up.
 - **Compass** - the wind widget (apparent or true), and two widgets that can show
   anything: the **speed widget** (bottom left, SOG until you change it; a tap on
@@ -315,6 +317,32 @@ The power button is heard through the kernel's own announcement of the press
 chip's driver: `bd7181x` on the Kindle 8th generation. On another Kindle, run
 `-key-test`, press the button, and add the driver it shows to `internal/powerkey`;
 until then the settings row does the same job.
+
+### No-power mode
+
+A dashboard that is not plugged in is running on its battery, and there is no
+point keeping the screen current when nobody will see it before the battery is
+flat. After the Kindle has been **off external power for an hour** (the default)
+it goes into no-power mode: the screen shows one huge **NO POWER** (on two lines),
+and everything that costs power stops - the screen is no longer redrawn (an e-ink
+screen keeps its picture with no power, so the message costs nothing to leave up),
+the SignalK connection (and the demo feed, if that is on) is dropped, and the
+front light is switched off. The Kindle's Wi-Fi stays on, so the web page can still
+reach it.
+
+It comes back, with the screen redrawn, the light at its old level and the
+connection remade, as soon as power is plugged in. A **tap on the screen**, a
+press of the **power button**, or any command from the **web page** (or its Wake
+button, or `{"wake": true}` in the API) wakes it too, and it then waits a whole
+timeout again from there. It never blanks while someone is using it (30 seconds
+since the last touch or command), and with no battery reading at all it never
+goes to NO POWER.
+
+The timeout is a setting: **Settings, Power, No-power mode** (1, 5, 15 or 30
+minutes, 1, 2, 4 or 8 hours, or **Never**), or **No-power mode after** on the web
+page; the API takes any whole number of minutes from 1 to a week, or 0 for never
+(`{"noPowerMinutes": 90}`). It is saved. It does not suspend the Kindle itself:
+that is a deeper saving, but one the Kindle then cannot be reached through.
 
 ### Plugging it into a PC
 
