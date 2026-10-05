@@ -10,6 +10,33 @@ WebSocket, draws the screen itself, and (once added) reads the touchscreen
 to switch pages. Because it's pure Go with no C dependencies, one Docker
 build image cross-compiles every target.
 
+## Screenshots
+
+What the Kindle shows - these are the app's own frames, the same pictures it
+sends to the screen (here a Paperwhite 3, 1072x1448; other screens are the same
+layout scaled), drawn from a SignalK server's data:
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/display-compass.png" width="300" alt="The compass page"><br><b>Compass</b></td>
+<td align="center"><img src="docs/images/display-nav.png" width="300" alt="The Nav page with eight boxes"><br><b>Nav</b> (eight boxes, any value)</td>
+<td align="center"><img src="docs/images/display-settings.png" width="300" alt="The settings list"><br><b>Settings</b></td>
+</tr>
+</table>
+
+And the web page that controls it from a phone or laptop (see "Remote
+control" below), here on a phone-width screen with a few widgets changed from
+their defaults: the compass speed and depth widgets, and a raw SignalK path in
+a Nav box. The second half of the page, Setup, covers demo mode, the SignalK
+server and the units.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/web-control-top.png" width="300" alt="The control page: screen, display, compass widgets and the eight Nav boxes"></td>
+<td align="center"><img src="docs/images/web-control-setup.png" width="300" alt="The control page's Setup section: demo mode, server and units"></td>
+</tr>
+</table>
+
 ## Status
 
 Early, but running on a real Kindle Paperwhite 3. Working now:
