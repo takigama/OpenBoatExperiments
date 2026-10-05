@@ -23,6 +23,8 @@ const (
 	SettingsPower                              // switch off, restart, or back to the Kindle's own software
 	SettingsPowerConfirm                       // are you sure about View.Power
 	SettingsNoPower                            // choose how long off power before the NO POWER screen
+	SettingsMore                               // time zone, idle switch, software update
+	SettingsZone                               // choose the time zone, a page of View.Page at a time
 )
 
 // Version is the running release number, shown at the foot of the settings
@@ -51,6 +53,17 @@ type SettingsView struct {
 
 	// NoPower is the no-power timeout in minutes (0 is never), filled in by the app.
 	NoPower int
+
+	// The "more" screen, filled in by the app: the time zone in use ("" is the
+	// device's own) and the time it makes it now; whether idle mode is on, and the
+	// switch it watches; and the software update's one-line status, with whether a
+	// check is running.
+	Zone, Clock     string
+	IdleOn          bool
+	IdlePath        string
+	UpdateMsg       string
+	UpdateBusy      bool
+	UpdateAvailable bool // an update has been found and not yet installed
 }
 
 type ActionKind int
@@ -77,6 +90,12 @@ const (
 	ActPowerDo                     // do Action.Value (a power choice), confirmed
 	ActOpenNoPower                 // power screen -> the no-power timeout picker
 	ActSetNoPower                  // set the no-power timeout to Action.Level minutes (0: never)
+	ActOpenMore                    // root -> time zone, idle switch, software update
+	ActOpenZone                    // more -> the time zone picker
+	ActZonePage                    // show page Action.Page of the time zone picker
+	ActSetZone                     // use time zone Action.Value ("" is the device's own)
+	ActToggleIdle                  // switch idle mode on or off
+	ActUpdateNow                   // look for a newer release and install it
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -89,7 +108,7 @@ type Action struct {
 }
 
 const (
-	settingsRowH = 84 // the list's rows must all fit on the tallest screen, with the notes under them
+	settingsRowH = 80 // the list's rows must all fit on the tallest screen, with the notes under them
 	settingsTop  = headerH + 30
 )
 
@@ -139,8 +158,11 @@ func demoRow(hasLight bool) int {
 	return serverRow() + 1
 }
 
+// moreRow opens the screen of less-used settings, after the demo switch.
+func moreRow(hasLight bool) int { return demoRow(hasLight) + 1 }
+
 // powerRow is the very last row, opening the power screen.
-func powerRow(hasLight bool) int { return demoRow(hasLight) + 1 }
+func powerRow(hasLight bool) int { return moreRow(hasLight) + 1 }
 
 // The front light screen: a bar you tap to pick a level, minus and plus
 // buttons, and off and maximum buttons.
@@ -224,6 +246,9 @@ func ParentScreen(s SettingsScreen) SettingsScreen {
 	if s == SettingsPowerConfirm || s == SettingsNoPower {
 		return SettingsPower
 	}
+	if s == SettingsZone {
+		return SettingsMore
+	}
 	return SettingsRoot
 }
 
@@ -280,9 +305,25 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 		if row == demoRow(v.MaxLevel > 0) {
 			return Action{Kind: ActToggleDemo}
 		}
+		if row == moreRow(v.MaxLevel > 0) {
+			return Action{Kind: ActOpenMore}
+		}
 		if row == powerRow(v.MaxLevel > 0) {
 			return Action{Kind: ActOpenPower}
 		}
+	case SettingsMore:
+		switch row {
+		case moreZoneRow:
+			return Action{Kind: ActOpenZone}
+		case moreIdleRow:
+			return Action{Kind: ActToggleIdle}
+		case moreUpdateRow:
+			if !v.UpdateBusy { // a check already running is not started twice
+				return Action{Kind: ActUpdateNow}
+			}
+		}
+	case SettingsZone:
+		return zoneTap(v, image.Pt(x, y))
 	case SettingsPower, SettingsPowerConfirm:
 		return powerTap(v, image.Pt(x, y), width)
 	case SettingsNoPower:
@@ -381,6 +422,10 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 		title = "POWER"
 	case SettingsNoPower:
 		title = "NO-POWER MODE"
+	case SettingsMore:
+		title = "MORE SETTINGS"
+	case SettingsZone:
+		title = "TIME ZONE"
 	}
 	// A back chevron where the cog is on other pages, in the same tap area.
 	chevronLeft(c, 38, int(cogY), 22, render.Black)
@@ -429,6 +474,7 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 			}
 			c.Text(b.Dx()-50, cy+16, state, 50, render.Bold, render.Right, render.Black)
 		})
+		row(c, moreRow(v.MaxLevel > 0), "More settings", func(cy int) { chevronRight(c, b.Dx()-50, cy, 18, render.Dark) })
 		row(c, powerRow(v.MaxLevel > 0), "Power", func(cy int) { chevronRight(c, b.Dx()-50, cy, 18, render.Dark) })
 		footRow := powerRow(v.MaxLevel > 0) + 1
 		c.Text(40, settingsTop+footRow*settingsRowH+60,
@@ -450,6 +496,12 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 
 	case SettingsServer:
 		drawServerEditor(c, v)
+
+	case SettingsMore:
+		drawMore(c, v)
+
+	case SettingsZone:
+		drawZones(c, v)
 
 	case SettingsLight:
 		drawLight(c, v)

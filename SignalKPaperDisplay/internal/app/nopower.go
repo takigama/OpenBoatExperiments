@@ -85,9 +85,11 @@ func (a *App) enterNoPower(now time.Time) {
 		return
 	}
 	a.noPower = true
-	a.noPowerShown = false
+	a.sleepDrawn = ""
 	before := a.lightLevel
-	a.lightBefore = before
+	if before > 0 { // idle mode may have turned it off already, and noted where it was
+		a.lightBefore = before
+	}
 	a.mu.Unlock()
 	log.Printf("power: off external power for %d min: no-power mode (the screen stops updating)", a.NoPowerMin)
 
@@ -116,13 +118,16 @@ func (a *App) exitNoPower(now time.Time, restart bool) {
 		return
 	}
 	a.noPower = false
-	a.noPowerShown = false
+	a.sleepDrawn = ""
 	a.pageChanged = true // a whole new picture
 	if restart {
 		a.unpluggedSince = now
 	}
-	before := a.lightBefore
-	a.lightBefore = 0
+	before := 0
+	if !a.idle { // idle mode, still on, keeps the light off and the note of where it was
+		before = a.lightBefore
+		a.lightBefore = 0
+	}
 	a.mu.Unlock()
 	log.Print("power: back from no-power mode")
 
@@ -142,17 +147,22 @@ func (a *App) exitNoPower(now time.Time, restart bool) {
 }
 
 // activity records that someone is using the dashboard, which wakes it from no-power
-// mode and holds it off for a while. It reports whether it woke it.
+// mode and from idle mode, and holds both off for a while. It reports whether it
+// woke it from either.
 func (a *App) activity() bool {
 	now := time.Now()
 	a.mu.Lock()
 	a.lastActivity = now
 	was := a.noPower
+	wasIdle := a.idle
 	a.mu.Unlock()
 	if was {
 		a.exitNoPower(now, true)
 	}
-	return was
+	if wasIdle {
+		a.exitIdle(now, true)
+	}
+	return was || wasIdle
 }
 
 // Wake brings the dashboard back from no-power mode, if it is in it, for another
@@ -165,21 +175,6 @@ func (a *App) PreviewNoPower() {
 	a.mu.Lock()
 	a.noPower = true
 	a.mu.Unlock()
-}
-
-// showNoPower draws the NO POWER screen once, in full, the first time it is called
-// after going into the mode. The caller is the main loop.
-func (a *App) showNoPower(now time.Time) {
-	a.mu.Lock()
-	shown := a.noPowerShown
-	a.noPowerShown = true
-	a.mu.Unlock()
-	if shown {
-		return
-	}
-	if _, err := a.Show(now, true); err != nil {
-		log.Printf("display: %v", err)
-	}
 }
 
 // SetNoPowerMinutes sets how long off external power before no-power mode: from 1

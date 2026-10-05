@@ -31,10 +31,13 @@ func TestSettingsTapRoot(t *testing.T) {
 	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+4), 1072); got.Kind != ActToggleDemo {
 		t.Errorf("the row after the server = %+v, want the demo switch", got)
 	}
-	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+5), 1072); got.Kind != ActOpenPower {
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+5), 1072); got.Kind != ActOpenMore {
+		t.Errorf("the row after the demo switch = %+v, want the more settings", got)
+	}
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+6), 1072); got.Kind != ActOpenPower {
 		t.Errorf("the last row = %+v, want the power screen", got)
 	}
-	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+6), 1072); got.Kind != ActNone {
+	if got := SettingsTap(root, 500, rowY(len(units.Metrics)+7), 1072); got.Kind != ActNone {
 		t.Errorf("a tap below the list = %+v, want nothing", got)
 	}
 	if got := SettingsTap(root, 500, headerH+5, 1072); got.Kind != ActNone {
@@ -365,7 +368,7 @@ func TestBacklightRowOnlyOnDevicesWithALight(t *testing.T) {
 		Settings(c, v, units.Settings{}, false, nil, "")
 		return c
 	}
-	r := image.Rect(700, row-40, 900, row+40) // right-hand side, left of the demo row's On/Off
+	r := image.Rect(700, row-36, 900, row+36) // right-hand side, left of the demo row's On/Off, clear of the rule under it
 	if inked(draw(with), r) == 0 {
 		t.Error("the row should show the current level")
 	}

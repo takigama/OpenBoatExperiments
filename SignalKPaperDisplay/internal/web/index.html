@@ -114,6 +114,26 @@
       <button id="srvsave">Save</button>
     </div>
     <div class="row"><span class="small" id="srvhint"></span><button id="srvdef" style="min-height:2.2rem">Use default</button></div>
+
+    <div class="row" style="margin-top:1rem"><label for="tz">Time zone</label><span id="tzstat" class="small"></span></div>
+    <div style="display:flex;gap:.5rem">
+      <input type="text" id="tz" list="tzlist" placeholder="Australia/Sydney" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0">
+      <datalist id="tzlist"></datalist>
+      <button id="tzsave">Save</button>
+    </div>
+    <div class="row"><span class="small">Any name from the tz database. Empty is the device's own zone.</span><button id="tzdef" style="min-height:2.2rem">Use device zone</button></div>
+
+    <div class="row" style="margin-top:1rem"><label for="idle">Idle mode: sleep while a switch is off</label>
+      <label class="switch"><input type="checkbox" id="idle"><span></span></label></div>
+    <div style="display:flex;gap:.5rem">
+      <input type="text" id="idlepath" placeholder="electrical.switches.kindle.state" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0">
+      <button id="idlesave">Save</button>
+    </div>
+    <div class="row"><span class="small" id="idlestat"></span><button id="idledef" style="min-height:2.2rem">Use default</button></div>
+
+    <div class="row" style="margin-top:1rem"><span>Software</span><span class="small" id="upstat"></span></div>
+    <button id="upnow">Update now</button>
+
     <div class="row" style="margin-top:1rem"><span>Units</span><span class="small">a preset resets every unit</span></div>
     <div class="seg" id="preset"></div>
     <div class="grid" id="metrics" style="margin-top:.8rem"></div>
@@ -252,6 +272,21 @@ function renderConfig() {
   $("srvhint").textContent = "Default: " + st.defaultServer;
   $("srvdef").disabled = st.server === st.defaultServer;
 
+  if (document.activeElement !== $("tz")) $("tz").value = st.time.zone;
+  const dl = $("tzlist");
+  if (!dl.children.length) st.time.zones.forEach(z => { const o = document.createElement("option"); o.value = z; dl.appendChild(o); });
+  $("tzstat").textContent = (st.time.zone || "device zone") + " · the clock reads " + st.time.clock;
+  $("tzdef").disabled = st.time.zone === "";
+
+  if (document.activeElement !== $("idle")) $("idle").checked = st.idle.enabled;
+  if (document.activeElement !== $("idlepath")) $("idlepath").value = st.idle.path;
+  $("idlestat").textContent = !st.idle.enabled ? "off" : (st.idle.active ? "IDLE now" : "the switch is " + st.idle.switch);
+  $("idledef").disabled = st.idle.path === st.idle.defaultPath;
+
+  $("upnow").disabled = !st.update.can || st.update.busy;
+  $("upnow").textContent = st.update.busy ? "Working…" : "Update now";
+  $("upstat").textContent = "v" + st.version + (st.update.message ? " · " + st.update.message : "");
+
   const pr = $("preset"); pr.textContent = "";
   st.units.presets.forEach(p => {
     const b = document.createElement("button"); b.textContent = p[0].toUpperCase() + p.slice(1);
@@ -309,6 +344,14 @@ $("demo").onchange = e => send({ demo: e.target.checked });
 $("srvsave").onclick = () => send({ server: $("srv").value.trim() });
 $("srv").onkeydown = e => { if (e.key === "Enter") $("srvsave").click(); };
 $("srvdef").onclick = () => send({ server: "" });
+$("tzsave").onclick = () => send({ timezone: $("tz").value.trim() });
+$("tz").onkeydown = e => { if (e.key === "Enter") $("tzsave").click(); };
+$("tzdef").onclick = () => send({ timezone: "" });
+$("idle").onchange = e => send({ idle: { enabled: e.target.checked } });
+$("idlesave").onclick = () => send({ idle: { path: $("idlepath").value.trim() } });
+$("idlepath").onkeydown = e => { if (e.key === "Enter") $("idlesave").click(); };
+$("idledef").onclick = () => send({ idle: { path: "" } });
+$("upnow").onclick = () => send({ update: true });
 $("invert").onchange = e => send({ invert: e.target.checked });
 $("light").oninput = e => { $("lightval").textContent = e.target.value + " / " + e.target.max; };
 $("light").onchange = e => send({ brightness: +e.target.value });

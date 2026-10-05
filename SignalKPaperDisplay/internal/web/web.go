@@ -53,6 +53,9 @@ type Controller interface {
 	SetDemoMode(on bool)
 	SetServer(hostPort string) error
 	SetUnits(preset string, overrides map[string]string) error
+	SetTimezone(name string) error
+	SetIdleSwitch(enabled bool, path string) error
+	UpdateNow() error
 }
 
 // Server serves the control page and API.
@@ -205,6 +208,38 @@ type stateJSON struct {
 	Connected     bool       `json:"connected"`
 	PathKinds     []kindJSON `json:"pathKinds,omitempty"` // the paths in use, named
 	Limits        limitsJSON `json:"limits"`
+	Time          timeJSON   `json:"time"`
+	Idle          idleJSON   `json:"idle"`
+	Update        updateJSON `json:"update"`
+}
+
+// timeJSON is the clock's time zone ("" is the device's own), the time of day it
+// gives, and the zones the screen offers (the page accepts any name the zone
+// database knows).
+type timeJSON struct {
+	Zone  string   `json:"zone"`
+	Clock string   `json:"clock"`
+	Zones []string `json:"zones"`
+}
+
+// idleJSON is idle mode: whether it is on, the SignalK switch it watches and the
+// default for that, what the switch last said ("on", "off", "unknown") and whether
+// the screen is idle now.
+type idleJSON struct {
+	Enabled     bool   `json:"enabled"`
+	Path        string `json:"path"`
+	DefaultPath string `json:"defaultPath"`
+	Switch      string `json:"switch"`
+	Active      bool   `json:"active"`
+}
+
+// updateJSON is the software update: whether this display can do one, whether a
+// check is running, and what the last one found.
+type updateJSON struct {
+	Can       bool   `json:"can"`
+	Busy      bool   `json:"busy"`
+	Message   string `json:"message"`
+	Available bool   `json:"available"`
 }
 
 type lightJSON struct {
@@ -271,6 +306,14 @@ func (s *Server) stateNow() stateJSON {
 		Demo:    c.Demo, Server: c.Server, DefaultServer: c.DefaultServer, Connected: c.Connected, Config: s.AllowConfig,
 		Units:  unitsState(c.Units),
 		Limits: limitsJSON{Boxes: pages.NavBoxes},
+		Time:   timeJSON{Zone: c.Timezone, Clock: c.Clock},
+		Idle:   idleJSON{Enabled: c.IdleEnabled, Path: c.IdlePath, DefaultPath: settings.DefaultIdlePath, Switch: c.IdleSwitch, Active: c.Idle},
+		Update: updateJSON{Can: c.CanUpdate, Busy: c.UpdateBusy, Message: c.UpdateMsg, Available: c.UpdateAvailable},
+	}
+	for _, z := range pages.ZoneChoices {
+		if z.Name != "" {
+			st.Time.Zones = append(st.Time.Zones, z.Name)
+		}
 	}
 	for _, p := range c.Pages {
 		st.Pages = append(st.Pages, kindJSON{ID: p.ID, Name: p.Name})
@@ -387,6 +430,17 @@ type controlReq struct {
 	Demo   *bool     `json:"demo"`
 	Server *string   `json:"server"`
 	Units  *unitsReq `json:"units"`
+	// timezone is an IANA name such as "Australia/Sydney", or "" for the device's
+	// own; idle turns idle mode on or off and/or chooses the switch it watches (""
+	// for the default); update true looks for a newer release and installs it.
+	Timezone *string  `json:"timezone"`
+	Idle     *idleReq `json:"idle"`
+	Update   *bool    `json:"update"`
+}
+
+type idleReq struct {
+	Enabled *bool   `json:"enabled"`
+	Path    *string `json:"path"`
 }
 
 type unitsReq struct {
@@ -483,12 +537,25 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if req.Demo != nil || req.Server != nil || req.Units != nil {
+	if req.Demo != nil || req.Server != nil || req.Units != nil || req.Timezone != nil || req.Idle != nil || req.Update != nil {
 		if !s.AllowConfig {
 			// Refused whole: not "demo mode but not the server".
-			writeJSON(w, http.StatusForbidden, map[string]any{"errors": map[string]string{"config": "changing demo mode, the server or the units from here is turned off (-web-config=false)"}})
+			writeJSON(w, http.StatusForbidden, map[string]any{"errors": map[string]string{"config": "changing demo mode, the server, the units, the time zone, idle mode or updating from here is turned off (-web-config=false)"}})
 			return
 		}
+	}
+	if req.Timezone != nil {
+		if _, err := settings.ParseTimezone(*req.Timezone); err != nil {
+			errs["timezone"] = err.Error()
+		}
+	}
+	if req.Idle != nil && req.Idle.Path != nil && *req.Idle.Path != "" {
+		if _, ok := signalk.MetaPath(*req.Idle.Path); !ok {
+			errs["idle"] = fmt.Sprintf("%q is not a SignalK path like %s", *req.Idle.Path, settings.DefaultIdlePath)
+		}
+	}
+	if req.Update != nil && *req.Update && !c.CanUpdate {
+		errs["update"] = "this display cannot update itself"
 	}
 	if req.Server != nil && strings.TrimSpace(*req.Server) != "" {
 		if _, err := settings.NormalizeServer(*req.Server); err != nil {
@@ -574,8 +641,30 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 			errs["server"] = err.Error()
 		}
 	}
+	if req.Timezone != nil {
+		if err := s.App.SetTimezone(*req.Timezone); err != nil {
+			errs["timezone"] = err.Error()
+		}
+	}
+	if req.Idle != nil {
+		enabled, path := c.IdleEnabled, c.IdleChosen // what is not mentioned stays
+		if req.Idle.Enabled != nil {
+			enabled = *req.Idle.Enabled
+		}
+		if req.Idle.Path != nil {
+			path = *req.Idle.Path
+		}
+		if err := s.App.SetIdleSwitch(enabled, path); err != nil {
+			errs["idle"] = err.Error()
+		}
+	}
 	if req.Demo != nil {
 		s.App.SetDemoMode(*req.Demo)
+	}
+	if req.Update != nil && *req.Update {
+		if err := s.App.UpdateNow(); err != nil {
+			errs["update"] = err.Error()
+		}
 	}
 	if len(errs) > 0 { // something that passed the checks failed to apply, e.g. the light
 		out := s.stateNow()

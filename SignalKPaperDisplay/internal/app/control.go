@@ -44,6 +44,23 @@ type Control struct {
 	// NoPower says it is showing now.
 	NoPowerMin int
 	NoPower    bool
+	// The time zone chosen ("" is the device's own) and the time of day in it.
+	Timezone string
+	Clock    string
+	// Idle mode: whether it is on, the switch it watches (the default's path when
+	// none was chosen; IdleChosen is the chosen one or ""), what the switch last
+	// said ("on", "off" or "unknown"), and whether the screen is idle now.
+	IdleEnabled bool
+	IdlePath    string
+	IdleChosen  string
+	IdleSwitch  string
+	Idle        bool
+	// The software update: whether this display can do one, whether a check is
+	// running, and what the last one found.
+	CanUpdate       bool
+	UpdateBusy      bool
+	UpdateMsg       string
+	UpdateAvailable bool
 }
 
 // Choice is an ID and the name to show for it.
@@ -53,24 +70,40 @@ type Choice struct{ ID, Name string }
 func (a *App) Control() Control {
 	a.mu.Lock()
 	c := Control{
-		Page:          pages.All()[a.page].ID,
-		Invert:        a.Invert,
-		Boxes:         pages.NormalizeBoxes(a.Boxes),
-		WindTrue:      a.windTrue,
-		Speed:         a.speed.ID(),
-		Depth:         pages.DepthWidgetID(a.depthW),
-		MapRange:      pages.MapRangeOrDefault(a.mapRange),
-		MapNorthUp:    a.mapNorthUp,
-		MapRanges:     append([]int(nil), pages.MapRanges...),
-		Demo:          a.Demo,
-		Server:        a.serverLocked(),
-		DefaultServer: a.DefaultServer,
-		Units:         a.Units.Clone(),
-		NoPowerMin:    a.NoPowerMin,
-		NoPower:       a.noPower,
-		Light:         a.lightLevel,
+		Page:            pages.All()[a.page].ID,
+		Invert:          a.Invert,
+		Boxes:           pages.NormalizeBoxes(a.Boxes),
+		WindTrue:        a.windTrue,
+		Speed:           a.speed.ID(),
+		Depth:           pages.DepthWidgetID(a.depthW),
+		MapRange:        pages.MapRangeOrDefault(a.mapRange),
+		MapNorthUp:      a.mapNorthUp,
+		MapRanges:       append([]int(nil), pages.MapRanges...),
+		Demo:            a.Demo,
+		Server:          a.serverLocked(),
+		DefaultServer:   a.DefaultServer,
+		Units:           a.Units.Clone(),
+		NoPowerMin:      a.NoPowerMin,
+		NoPower:         a.noPower,
+		Light:           a.lightLevel,
+		Timezone:        a.Timezone,
+		Clock:           a.clockLocked(time.Now()),
+		IdleEnabled:     a.IdleEnabled,
+		IdlePath:        a.idlePathLocked(),
+		IdleChosen:      a.IdlePath,
+		Idle:            a.idle,
+		CanUpdate:       a.OnUpdate != nil,
+		UpdateBusy:      a.updateBusy,
+		UpdateMsg:       a.updateMsg,
+		UpdateAvailable: a.updateNew,
 	}
 	a.mu.Unlock()
+	c.IdleSwitch = "unknown"
+	if a.State != nil {
+		if on, known, _ := a.State.Switch(); known {
+			c.IdleSwitch = map[bool]string{true: "on", false: "off"}[on]
+		}
+	}
 	for _, p := range pages.All() {
 		c.Pages = append(c.Pages, Choice{p.ID, p.Title})
 	}
@@ -96,7 +129,8 @@ func (a *App) Paths() []signalk.PathInfo {
 
 // settingsFileLocked is what gets saved. The caller holds a.mu.
 func (a *App) settingsFileLocked() settings.File {
-	f := settings.File{Settings: a.Units.Clone(), Invert: a.Invert, Boxes: append([]string(nil), a.Boxes...), Server: a.Server}
+	f := settings.File{Settings: a.Units.Clone(), Invert: a.Invert, Boxes: append([]string(nil), a.Boxes...), Server: a.Server,
+		Timezone: a.Timezone, IdleEnabled: a.IdleEnabled, IdlePath: a.IdlePath}
 	if a.Brightness != nil {
 		b := *a.Brightness
 		f.Brightness = &b

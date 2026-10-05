@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+	_ "time/tzdata" // the zone database, built in: a Kindle has none we can rely on
 
 	"signalkpaperdisplay/internal/units"
 )
@@ -36,6 +38,50 @@ type File struct {
 	// display goes to its NO POWER screen and stops updating to save the battery.
 	// Nil means never chosen: DefaultNoPowerMinutes. Zero means never.
 	NoPowerMinutes *int `json:"noPowerMinutes,omitempty"`
+	// Timezone is the IANA name the clock is shown in ("Australia/Sydney"). Empty
+	// means the device's own zone, which on a Kindle is usually not the boat's.
+	Timezone string `json:"timezone,omitempty"`
+	// IdleEnabled turns on idle mode: the dashboard goes to its IDLE screen while the
+	// SignalK switch at IdlePath is off. Empty IdlePath means DefaultIdlePath.
+	IdleEnabled bool   `json:"idleEnabled,omitempty"`
+	IdlePath    string `json:"idlePath,omitempty"`
+}
+
+// DefaultIdlePath is the switch idle mode watches until another is chosen.
+const DefaultIdlePath = "electrical.switches.kindle.state"
+
+// IdleSwitchPath is the SignalK path idle mode watches: the chosen one, else the
+// default.
+func (f File) IdleSwitchPath() string {
+	if f.IdlePath == "" {
+		return DefaultIdlePath
+	}
+	return f.IdlePath
+}
+
+// ParseTimezone turns a zone name into a location. "" (and "Local") is the device's
+// own zone, returned as nil. The zone database is built into the program, so this
+// does not depend on the device having one.
+func ParseTimezone(name string) (*time.Location, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || name == "Local" {
+		return nil, nil
+	}
+	if len(name) > 64 {
+		return nil, fmt.Errorf("a time zone name is at most 64 characters")
+	}
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '/', r == '_', r == '-', r == '+':
+		default:
+			return nil, fmt.Errorf("%q is not a time zone name like Australia/Sydney", name)
+		}
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("%q is not a time zone name like Australia/Sydney", name)
+	}
+	return loc, nil
 }
 
 // DefaultNoPowerMinutes is the no-power timeout until it is changed: an hour.
@@ -61,7 +107,8 @@ func (f File) NoPower() int {
 
 // Clone returns an independent copy (the unit overrides are a map).
 func (f File) Clone() File {
-	c := File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...), Server: f.Server, Brightness: f.cloneBrightness()}
+	c := File{Settings: f.Settings.Clone(), Invert: f.Invert, Boxes: append([]string(nil), f.Boxes...), Server: f.Server, Brightness: f.cloneBrightness(),
+		Timezone: f.Timezone, IdleEnabled: f.IdleEnabled, IdlePath: f.IdlePath}
 	if f.NoPowerMinutes != nil {
 		n := *f.NoPowerMinutes
 		c.NoPowerMinutes = &n

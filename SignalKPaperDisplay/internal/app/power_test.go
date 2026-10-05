@@ -29,8 +29,8 @@ func newPowerApp(t *testing.T, onPower func(string) error) (*App, *[]string) {
 
 func openPower(a *App) {
 	a.HandleEvent(tap(30, 40)) // the cog
-	// With no front light the power row is the last: after the demo switch.
-	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+5)))
+	// With no front light the power row is the last: after the demo switch and the more row.
+	a.HandleEvent(tap(500, pages.SettingsRowY(len(units.Metrics)+6)))
 }
 
 func TestPowerFlowAsksBeforeDoingAnything(t *testing.T) {

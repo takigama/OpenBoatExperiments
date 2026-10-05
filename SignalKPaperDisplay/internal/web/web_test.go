@@ -62,6 +62,12 @@ func (f *fake) SetUnits(p string, o map[string]string) error {
 	return f.rec(fmt.Sprintf("units %s %v", p, o), nil)
 }
 
+func (f *fake) SetTimezone(n string) error { return f.rec("timezone "+n, nil) }
+func (f *fake) SetIdleSwitch(on bool, p string) error {
+	return f.rec(fmt.Sprintf("idle %v %s", on, p), nil)
+}
+func (f *fake) UpdateNow() error { return f.rec("update", nil) }
+
 func serve(t *testing.T, f *fake, token string) *httptest.Server {
 	t.Helper()
 	s := httptest.NewServer((&Server{App: f, Token: token, Version: "43", Platform: "kindle-test", AllowConfig: true}).Handler())

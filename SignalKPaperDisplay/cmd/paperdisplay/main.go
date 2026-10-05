@@ -202,6 +202,25 @@ func main() {
 			dir = filepath.Dir(exe)
 		}
 		a.OnPower = func(kind string) error { return runPower(kind, dir) }
+		// "Update now" on the screen or the web page: the same update the periodic
+		// check does. Not on a PC preview, which would replace its own binary.
+		a.OnUpdate = func() (app.UpdateResult, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+			defer cancel()
+			o, err := updateCheck(ctx, fetcher, *manifestURL, prof.Name, true)
+			return app.UpdateResult{Current: o.Current, Newest: o.Newest, Installed: o.Installed}, err
+		}
+	}
+	a.ApplyTimezone(saved.Timezone)
+	// Idle mode: while the switch is off the SignalK connection is cut down to that
+	// one path, and widened again when the screen wakes.
+	a.IdleEnabled, a.IdlePath = saved.IdleEnabled, saved.IdlePath
+	a.ApplyIdle()
+	a.OnIdle = func(on bool, path string) {
+		if !on {
+			path = ""
+		}
+		client.SetIdle(path)
 	}
 	a.FetchMeta = func(path string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -245,6 +264,12 @@ func main() {
 		a.PreviewNoPower()
 	case v == "nopower-picker":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsNoPower})
+	case v == "idle":
+		a.PreviewIdle()
+	case v == "more":
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsMore})
+	case v == "zone":
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsZone, Page: pages.ZonePageOf(saved.Timezone)})
 	case v == "power":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPower})
 	case strings.HasPrefix(v, "power-confirm:"):
@@ -258,12 +283,13 @@ func main() {
 		}
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickBox, Box: n - 1})
 	default:
-		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6>, server, light, power or power-confirm:<stock|restart|poweroff>)", v)
+		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6>, server, light, more, zone, idle, nopower, nopower-picker, power or power-confirm:<stock|restart|poweroff>)", v)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	forceExitAfterCancel(ctx)
+	a.OnRestart = stop // after an "Update now" install, exit so the launcher starts the new version
 	go client.Run(ctx)
 
 	if *webAddr != "" && !*once {

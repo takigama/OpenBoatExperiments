@@ -26,8 +26,8 @@ layout scaled), drawn from a SignalK server's data:
 <tr>
 <td align="center"><img src="docs/images/display-map.png" width="220" alt="The map page: our boat in the middle, ships around it out to 5 nautical miles"><br><b>Map</b><br>(5 nm, heading up)</td>
 <td align="center"><img src="docs/images/display-map-north-up.png" width="220" alt="The map page, north up, at a 2 nautical mile range"><br><b>Map</b><br>(2 nm, north up)</td>
-<td></td>
-<td></td>
+<td align="center"><img src="docs/images/display-more.png" width="220" alt="The more settings screen: time zone, idle switch and software update"><br><b>More settings</b><br>(time zone, idle, update)</td>
+<td align="center"><img src="docs/images/display-idle.png" width="220" alt="The IDLE screen, shown while the idle switch is off"><br><b>Idle</b><br>(a SignalK switch is off)</td>
 </tr>
 </table>
 
@@ -251,7 +251,10 @@ is using it - it serves on 8080 instead, and says so in its log.)
   "Use default" goes back to the launcher's), and the **units** (a preset, then any
   unit individually), as the settings screen does. Changing the server moves the
   connection at once; if the new address is wrong the header says NO DATA, and
-  it can be put right from the same page.
+  it can be put right from the same page. Also here: the **time zone** (any name
+  from the tz database, with the common ones suggested; empty is the Kindle's own),
+  **idle mode** and its SignalK switch, and an **Update now** button (see "Time
+  zone", "Idle mode" and "Updating from GitHub").
 
 Each change does what the same change on the touch screen does: the units, the
 layout, invert and the backlight level are saved; the wind, speed and depth
@@ -345,6 +348,44 @@ page; the API takes any whole number of minutes from 1 to a week, or 0 for never
 (`{"noPowerMinutes": 90}`). It is saved. It does not suspend the Kindle itself:
 that is a deeper saving, but one the Kindle then cannot be reached through.
 
+### Idle mode
+
+Idle mode puts the dashboard to sleep from the boat's own wiring: it follows one
+SignalK **switch**, `electrical.switches.kindle.state` unless you choose another.
+While that switch is **off** the screen shows one big **IDLE** (and the switch's
+name), nothing is redrawn, the front light goes off, and the SignalK connection is
+cut down to that one path - the app subscribes to the switch alone (the stream is
+opened with `subscribe=none`, then the switch is subscribed to) and keeps the link
+alive with pings, since a switch can stay put for days. **On** wakes it: the light,
+the whole connection and the page come back.
+
+A **tap**, the **power button** or any command from the web page wakes it too. The
+switch is still off then, so idle mode stays out of the way for five minutes after
+that, and goes back to sleep after five quiet minutes; flipping the switch on and
+off again starts it afresh. Like no-power mode it never blanks while someone is
+using the screen (30 seconds since the last touch). The two share the sleeping
+screen: if the battery runs out while idle, NO POWER takes over and the light
+stays off until both are over.
+
+It is off until you turn it on: **Settings, More settings, Idle switch**, or
+**Idle mode** on the web page (`{"idle": {"enabled": true}}`). The switch's path is
+set on the web page (`{"idle": {"path": "electrical.switches.nav.state"}}`, or `""`
+for the default); the settings screen shows which one it is. It is saved. The value
+can be a boolean, a number (0 is off) or a word (`"on"`/`"off"`); a value that is
+none of those, or a server that has said nothing, never puts the screen to sleep.
+It is ignored in demo mode.
+
+### Time zone
+
+The Kindle's own time zone is whatever its stock software left, which is often UTC,
+so the header clock (and the arrival times in the Nav boxes) can be wrong for the
+boat. **Settings, More settings, Time zone** picks one from a list of the places
+boats go (three pages, each with its UTC offset right now, the device's own first),
+and the web page takes **any** name from the tz database, such as
+`Australia/Sydney` (`{"timezone": "Australia/Sydney"}`). Daylight saving follows the
+zone. The zone database is built into the program, so it does not depend on the
+Kindle having one. It is saved.
+
 ### Plugging it into a PC
 
 Use a wall charger, not a PC's USB port, while the app is running. A USB data
@@ -365,6 +406,14 @@ download URL and SHA-256. On the device:
 ./paperdisplay -update           # install it (then restart the app)
 ./paperdisplay ... -update-every 6h   # check periodically while running
 ```
+
+To update by hand, without waiting for the periodic check: **Settings, More
+settings, Software update**, or **Update now** on the web page
+(`{"update": true}`). It looks for a newer release, installs it, shows what it found
+("Up to date: v50 is the newest", "Installed v51: restarting...", or why it
+failed) and, after an install, restarts the app; the launcher then starts the new
+version within a minute. It does nothing on a PC preview, which would replace its
+own program.
 
 The download is verified against the manifest's SHA-256 before anything on
 disk is touched; the previous binary is kept as `paperdisplay.prev` for

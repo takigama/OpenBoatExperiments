@@ -31,7 +31,21 @@ func newFetcher(kind, curlBin string) update.Fetcher {
 // It reports whether a new binary was installed (the caller should then
 // exit so the launcher starts the new version).
 func runUpdate(ctx context.Context, f update.Fetcher, manifestURL, platform string, apply bool) (bool, error) {
+	o, err := updateCheck(ctx, f, manifestURL, platform, apply)
+	return o.Installed, err
+}
+
+// updateOutcome is what an update check found: the version running, the newest one
+// the manifest lists, and whether it was installed.
+type updateOutcome struct {
+	Current, Newest int
+	Installed       bool
+}
+
+// updateCheck is runUpdate, saying what it found as well as what it did.
+func updateCheck(ctx context.Context, f update.Fetcher, manifestURL, platform string, apply bool) (updateOutcome, error) {
 	cur := versionNumber()
+	out := updateOutcome{Current: cur, Newest: cur}
 	// raw.githubusercontent.com caches files for about five minutes, so right
 	// after a release the manifest can still name the previous version. A
 	// changing query string gets past that cache.
@@ -40,25 +54,27 @@ func runUpdate(ctx context.Context, f update.Fetcher, manifestURL, platform stri
 	}
 	rel, newer, err := update.Check(ctx, f, manifestURL, platform, cur)
 	if err != nil {
-		return false, err
+		return out, err
 	}
+	out.Newest = rel.Version
 	if !newer {
 		log.Printf("update: up to date (running v%d, newest v%d)", cur, rel.Version)
-		return false, nil
+		return out, nil
 	}
 	if !apply {
 		log.Printf("update: v%d is available (running v%d)", rel.Version, cur)
-		return false, nil
+		return out, nil
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return false, err
+		return out, err
 	}
 	if err := update.Apply(ctx, f, rel, exe); err != nil {
-		return false, err
+		return out, err
 	}
 	log.Printf("update: installed v%d (was v%d); previous kept as %s.prev", rel.Version, cur, exe)
-	return true, nil
+	out.Installed = true
+	return out, nil
 }
 
 // autoUpdate checks every interval and, when it installs something, calls

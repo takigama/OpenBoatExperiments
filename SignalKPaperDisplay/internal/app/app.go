@@ -118,10 +118,40 @@ type App struct {
 	NoPowerChosen  bool
 	OnNoPower      func(on bool)
 	noPower        bool      // showing NO POWER; guarded by mu
-	noPowerShown   bool      // the screen has been drawn since it began; guarded by mu
+	sleepDrawn     string    // which sleeping screen ("nopower", "idle") has been drawn since it began; guarded by mu
 	unpluggedSince time.Time // when it went off external power; zero while on it; guarded by mu
 	lastActivity   time.Time // the last touch or command; guarded by mu
-	lightBefore    int       // the front light's level before no-power mode turned it off; guarded by mu
+	lightBefore    int       // the front light's level before a sleeping mode turned it off; guarded by mu
+
+	// Idle mode (see idle.go): the screen sleeps while a SignalK switch is off.
+	// IdleEnabled and IdlePath ("" is settings.DefaultIdlePath) are the choice, saved.
+	// OnIdle is called, outside any lock, when idle mode begins (true) and ends
+	// (false), with the path being watched: main narrows the SignalK connection to
+	// that one path while it lasts. Without a SignalK switch to watch the app never
+	// goes idle on its own.
+	IdleEnabled bool
+	IdlePath    string
+	OnIdle      func(on bool, path string)
+	idle        bool      // showing IDLE; guarded by mu
+	idleHold    time.Time // a tap woke it: no idling again before this; guarded by mu
+	swSeen      bool      // the switch's last value is known; guarded by mu
+	swOn        bool      // and it was this; guarded by mu
+
+	// Timezone is the IANA name the clock is shown in, "" for the device's own
+	// zone. Set it before running, with ApplyTimezone; after that SetTimezone.
+	// Guarded by mu.
+	Timezone string
+	zone     *time.Location // nil: the device's own
+
+	// OnUpdate looks for a newer release, installs it if there is one, and reports
+	// what it found; nil means this display cannot update itself (a PC preview).
+	// OnRestart is called after an install, once the screen has said so, to have the
+	// launcher start the new version. See update.go.
+	OnUpdate   func() (UpdateResult, error)
+	OnRestart  func()
+	updateBusy bool   // a check is running; guarded by mu
+	updateMsg  string // what the last one found; guarded by mu
+	updateNew  bool   // it found a newer release and has not installed it; guarded by mu
 
 	showMu   sync.Mutex // one picture sent to the display at a time
 	farewell string     // the power choice being carried out; its last picture replaces every page. Guarded by mu.
@@ -237,6 +267,11 @@ func (a *App) withLight(v pages.SettingsView) pages.SettingsView {
 	v.Demo = a.Demo
 	v.NoPower = a.NoPowerMin
 	v.Level = a.lightLevel
+	v.Zone = a.Timezone
+	v.IdleOn = a.IdleEnabled
+	v.IdlePath = a.idlePathLocked()
+	v.UpdateMsg, v.UpdateBusy, v.UpdateAvailable = a.updateMsg, a.updateBusy, a.updateNew
+	v.Clock = a.clockLocked(time.Now())
 	a.mu.Unlock()
 	if a.Light != nil {
 		v.MaxLevel = a.Light.Max()
@@ -467,6 +502,8 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	setLight := -1       // set when the front light is to change
 	powerKind := ""      // set when a power choice was confirmed
 	demoChanged := false // set when demo mode was switched
+	idleChanged := false // set when idle mode was switched on or off
+	startUpdate := false // set when "software update" was tapped
 	switch act.Kind {
 	case pages.ActBack:
 		if view.Screen == pages.SettingsRoot {
@@ -506,6 +543,22 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	case pages.ActSetNoPower:
 		a.NoPowerMin, a.NoPowerChosen = act.Level, true
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsPower}
+	case pages.ActOpenMore:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsMore}
+	case pages.ActOpenZone:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsZone, Page: pages.ZonePageOf(a.Timezone)}
+	case pages.ActZonePage:
+		a.settingsView.Page = act.Page
+	case pages.ActSetZone:
+		if zerr := a.setTimezoneLocked(act.Value); zerr != nil {
+			err = zerr
+		}
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsMore}
+	case pages.ActToggleIdle:
+		a.IdleEnabled = !a.IdleEnabled // stays on the list: it says On or Off at once
+		idleChanged = true
+	case pages.ActUpdateNow:
+		startUpdate = true
 	case pages.ActOpenPower:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsPower}
 	case pages.ActPowerPick:
@@ -540,7 +593,8 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsBoxes}
 	}
 	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit ||
-		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || act.Kind == pages.ActSetNoPower || newServer != "" || setLight >= 0
+		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || act.Kind == pages.ActSetNoPower || newServer != "" || setLight >= 0 ||
+		act.Kind == pages.ActSetZone || idleChanged
 	saved := a.settingsFileLocked()
 	// Every screen is a different picture, so a change of screen is a full
 	// refresh - but moving the light is the same screen redrawn, and a flash
@@ -558,6 +612,12 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	}
 	if powerKind != "" {
 		a.doPower(powerKind)
+	}
+	if idleChanged {
+		a.idleSettingChanged()
+	}
+	if startUpdate {
+		a.UpdateNow()
 	}
 	if demoChanged {
 		a.mu.Lock()
@@ -684,14 +744,17 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	boxes := a.boxesNow()
 	server := a.serverNow()
 	a.mu.Lock()
-	noPower := a.noPower
+	noPower, idle, idlePath := a.noPower, a.idle, a.idlePathLocked()
 	windTrue, speed, depthW, demo, farewell := a.windTrue, a.speed, a.depthW, a.Demo, a.farewell
 	mapRange, mapNorthUp := a.mapRange, a.mapNorthUp
+	now = a.inZoneLocked(now) // every clock on every page reads in the chosen zone
 	a.mu.Unlock()
 	if farewell != "" {
 		pages.Farewell(c, farewell)
 	} else if noPower {
 		pages.NoPowerScreen(c)
+	} else if idle {
+		pages.IdleScreen(c, idlePath)
 	} else if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
@@ -786,14 +849,16 @@ func (a *App) Run(ctx context.Context) {
 	for {
 		now := time.Now()
 		a.powerTick(now)
-		if a.inNoPower() {
-			// NO POWER: one picture, then nothing - no redraws, no heartbeat, no
-			// header guard - until power is back or someone touches it.
-			a.showNoPower(now)
+		a.idleTick(now)
+		if a.sleeping() {
+			// NO POWER or IDLE: one picture, then nothing - no redraws, no heartbeat,
+			// no header guard - until power is back, the switch is on, or someone
+			// touches it.
+			a.showSleep(now)
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(noPowerPoll):
+			case <-time.After(a.sleepPoll()):
 			case <-a.wakeChan():
 			}
 			continue

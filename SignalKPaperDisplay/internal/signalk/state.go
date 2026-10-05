@@ -194,6 +194,11 @@ type State struct {
 	cat   map[string]catalogEntry
 	watch map[string]bool
 	meta  map[string]string
+
+	// The idle switch: the one path whose on/off value is kept, whatever it is
+	// (see switch.go).
+	swPath string
+	sw     switchReading
 }
 
 func NewState() *State {
@@ -217,6 +222,7 @@ func (s *State) resetLocked() {
 	s.lastMsg = time.Time{}
 	s.cat = nil // a different server may call things differently; what to watch stays
 	s.meta = nil
+	s.sw = switchReading{} // which switch to watch stays; what it said does not
 }
 
 // SetDemo switches demo mode on or off. Either way everything held is forgotten,
@@ -340,6 +346,7 @@ func (s *State) applyOwn(path string, raw json.RawMessage, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.noteLocked(path, raw, now)
+	s.noteSwitchLocked(path, raw, now)
 	if id, ok := fuelTankID(path); ok {
 		r := s.fuel[id]
 		setNum(&r, raw, now)
