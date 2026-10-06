@@ -460,6 +460,7 @@ internal/web/          the remote control web page and JSON API
 internal/demo/         the simulated boat for demo mode
 internal/powerkey/     the power button, heard as a kernel uevent
 platforms/<name>/      one directory per device (see below)
+tools/                 helpers: Kindle probe, FBInk build, a SignalK simulator and test scripts
 Dockerfile, Makefile   reproducible Docker build, one make target per platform
 ```
 
