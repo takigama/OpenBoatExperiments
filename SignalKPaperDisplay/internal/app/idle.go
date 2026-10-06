@@ -103,9 +103,19 @@ func (a *App) ApplyIdle() {
 	a.exitIdle(time.Now(), false)
 }
 
-// idleSettingChanged is ApplyIdle for after the user changed the choice.
-func (a *App) idleSettingChanged() {
+// idleSettingChanged is ApplyIdle for after the user changed the choice. wasIdle says
+// the screen was idle when the change was asked for, before whatever woke it.
+func (a *App) idleSettingChanged(wasIdle bool) {
 	a.ApplyIdle()
+	a.mu.Lock()
+	watching := a.IdleEnabled
+	a.mu.Unlock()
+	// A server says a value when it changes, and once when a connection is made: a
+	// switch that only now began to be watched has to be asked for again. (Leaving
+	// idle already makes a new connection, which is such a request.)
+	if watching && !wasIdle && a.OnSwitchWatch != nil {
+		a.OnSwitchWatch()
+	}
 	a.mu.Lock()
 	enabled, path := a.IdleEnabled, a.idlePathLocked()
 	a.mu.Unlock()
@@ -232,7 +242,10 @@ func (a *App) SetIdleSwitch(enabled bool, path string) error {
 			return fmt.Errorf("%q is not a SignalK path like electrical.switches.kindle.state", path)
 		}
 	}
-	a.activity()
+	a.mu.Lock()
+	wasIdle := a.idle
+	a.mu.Unlock()
+	a.activity() // this is a touch: it wakes the screen
 	a.mu.Lock()
 	a.IdleEnabled = enabled
 	a.IdlePath = path
@@ -243,6 +256,6 @@ func (a *App) SetIdleSwitch(enabled bool, path string) error {
 	a.pageChanged = true
 	a.mu.Unlock()
 	a.saveSettings(f)
-	a.idleSettingChanged()
+	a.idleSettingChanged(wasIdle)
 	return nil
 }

@@ -222,6 +222,7 @@ func main() {
 		}
 		client.SetIdle(path)
 	}
+	a.OnSwitchWatch = client.Resync // a switch newly watched has to be asked for: servers only say a value when it changes
 	a.FetchMeta = func(path string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 		defer cancel()

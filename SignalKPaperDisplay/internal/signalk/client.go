@@ -131,6 +131,21 @@ func (c *Client) Reconnect() {
 	}
 }
 
+// Resync makes a new connection to the same server without forgetting anything, so
+// the server sends its whole state again. It is for when something that was being
+// ignored is wanted: a server only says a value when it changes (and once on
+// connecting), so a switch that began to be watched while the link was up would
+// otherwise stay unknown until it next changed. Safe to call while Run is running.
+func (c *Client) Resync() {
+	c.mu.Lock()
+	c.changed = true // a new connection now, not after a back-off
+	cancel := c.cancel
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // takeChanged reports, and clears, whether the server was changed.
 func (c *Client) takeChanged() bool {
 	c.mu.Lock()

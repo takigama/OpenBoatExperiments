@@ -132,10 +132,14 @@ type App struct {
 	IdleEnabled bool
 	IdlePath    string
 	OnIdle      func(on bool, path string)
-	idle        bool      // showing IDLE; guarded by mu
-	idleHold    time.Time // a tap woke it: no idling again before this; guarded by mu
-	swSeen      bool      // the switch's last value is known; guarded by mu
-	swOn        bool      // and it was this; guarded by mu
+	// OnSwitchWatch is called, outside any lock, when idle mode is turned on or its
+	// switch changed while the app is awake and connected: the server only says a
+	// value when it changes, so main has the connection remade to be told it again.
+	OnSwitchWatch func()
+	idle          bool      // showing IDLE; guarded by mu
+	idleHold      time.Time // a tap woke it: no idling again before this; guarded by mu
+	swSeen        bool      // the switch's last value is known; guarded by mu
+	swOn          bool      // and it was this; guarded by mu
 
 	// Timezone is the IANA name the clock is shown in, "" for the device's own
 	// zone. Set it before running, with ApplyTimezone; after that SetTimezone.
@@ -614,7 +618,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.doPower(powerKind)
 	}
 	if idleChanged {
-		a.idleSettingChanged()
+		a.idleSettingChanged(false)
 	}
 	if startUpdate {
 		a.UpdateNow()
