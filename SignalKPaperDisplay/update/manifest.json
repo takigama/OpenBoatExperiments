@@ -1,6 +1,6 @@
 {
   "platforms": {
-    "kindle-basic": { "version": 51, "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/signalkpaperdisplay-v51/paperdisplay-kindle-basic", "sha256": "101e59babfe257de3ca98f3991025b611bcaac142dfbf3694e5878db1f624d8c" },
-    "kindle-pw3": { "version": 51, "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/signalkpaperdisplay-v51/paperdisplay-kindle-pw3", "sha256": "101e59babfe257de3ca98f3991025b611bcaac142dfbf3694e5878db1f624d8c" }
+    "kindle-basic": { "version": 52, "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/signalkpaperdisplay-v52/paperdisplay-kindle-basic", "sha256": "8db3f49a5943c24d140db7dce2dd718655da6f7fcc727e3a580a754515664bb2" },
+    "kindle-pw3": { "version": 52, "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/signalkpaperdisplay-v52/paperdisplay-kindle-pw3", "sha256": "8db3f49a5943c24d140db7dce2dd718655da6f7fcc727e3a580a754515664bb2" }
   }
 }
