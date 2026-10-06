@@ -45,10 +45,42 @@ type File struct {
 	// SignalK switch at IdlePath is off. Empty IdlePath means DefaultIdlePath.
 	IdleEnabled bool   `json:"idleEnabled,omitempty"`
 	IdlePath    string `json:"idlePath,omitempty"`
+	// NoGPSSeconds is how long our own GPS position may go without an update before
+	// the header says NO DATA. Nil means never chosen: DefaultNoGPSSeconds. Zero turns
+	// the check off.
+	NoGPSSeconds *int `json:"noGpsSeconds,omitempty"`
 }
 
-// DefaultIdlePath is the switch idle mode watches until another is chosen.
-const DefaultIdlePath = "electrical.switches.kindle.state"
+// DefaultNoGPSSeconds is the GPS timeout until it is changed. A GPS fix comes about
+// once a second, so this is about ten missed fixes.
+const DefaultNoGPSSeconds = 10
+
+// The shortest and longest GPS timeout that can be set (zero, off, is also allowed).
+// Under two seconds a single late fix would raise the alarm.
+const (
+	MinNoGPSSeconds = 2
+	MaxNoGPSSeconds = 3600
+)
+
+// ValidNoGPS reports whether seconds is a GPS timeout that can be set: zero (off) or
+// from MinNoGPSSeconds to MaxNoGPSSeconds.
+func ValidNoGPS(seconds int) bool {
+	return seconds == 0 || (seconds >= MinNoGPSSeconds && seconds <= MaxNoGPSSeconds)
+}
+
+// NoGPS is the GPS timeout in force, in seconds: the chosen one, else the default.
+// Zero means off.
+func (f File) NoGPS() int {
+	if f.NoGPSSeconds == nil {
+		return DefaultNoGPSSeconds
+	}
+	return *f.NoGPSSeconds
+}
+
+// DefaultIdlePath is the switch idle mode watches until another is chosen: the first
+// channel of the first switch bank, in SignalK's form
+// electrical.switches.bank.<bank>.<channel>.state (channels are numbered from 1).
+const DefaultIdlePath = "electrical.switches.bank.0.1.state"
 
 // IdleSwitchPath is the SignalK path idle mode watches: the chosen one, else the
 // default.
@@ -112,6 +144,10 @@ func (f File) Clone() File {
 	if f.NoPowerMinutes != nil {
 		n := *f.NoPowerMinutes
 		c.NoPowerMinutes = &n
+	}
+	if f.NoGPSSeconds != nil {
+		n := *f.NoGPSSeconds
+		c.NoGPSSeconds = &n
 	}
 	return c
 }

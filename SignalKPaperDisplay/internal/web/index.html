@@ -71,6 +71,9 @@
     <div class="row" style="margin-top:.6rem"><label for="nopower">No-power mode after</label></div>
     <select id="nopower"></select>
     <div class="small" style="margin:.3rem 0 .8rem">Off external power for that long: the screen shows NO POWER and stops updating, to save the battery.</div>
+    <div class="row"><label for="nogps">NO DATA when GPS is silent for</label></div>
+    <select id="nogps"></select>
+    <div class="small" style="margin:.3rem 0 .8rem">Our own GPS position not updated for that long: the header says NO DATA. A GPS fix comes about once a second, so 10 seconds is about ten missed fixes.</div>
     <div id="lightbox">
       <div class="row"><label for="light">Backlight</label><span id="lightval" class="small"></span></div>
       <input type="range" id="light" min="0" max="24" step="1">
@@ -126,7 +129,7 @@
     <div class="row" style="margin-top:1rem"><label for="idle">Idle mode: sleep while a switch is off</label>
       <label class="switch"><input type="checkbox" id="idle"><span></span></label></div>
     <div style="display:flex;gap:.5rem">
-      <input type="text" id="idlepath" placeholder="electrical.switches.kindle.state" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0">
+      <input type="text" id="idlepath" placeholder="electrical.switches.bank.0.1.state" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:0">
       <button id="idlesave">Save</button>
     </div>
     <div class="row"><span class="small" id="idlestat"></span><button id="idledef" style="min-height:2.2rem">Use default</button></div>
@@ -249,6 +252,15 @@ function render() {
   g.querySelectorAll("select").forEach((s, i) => fill(s, st.kinds, st.boxes[i]));
 
   $("npbanner").hidden = !st.noPower.active;
+  const ng = $("nogps");
+  if (document.activeElement !== ng) {
+    ng.textContent = "";
+    st.noGps.options.forEach(o => { const op = document.createElement("option"); op.value = o.seconds; op.textContent = o.label; ng.appendChild(op); });
+    if (!st.noGps.options.some(o => o.seconds === st.noGps.seconds)) { // a value from the API that is not on the list
+      const op = document.createElement("option"); op.value = st.noGps.seconds; op.textContent = st.noGps.seconds + " seconds"; ng.appendChild(op);
+    }
+    ng.value = st.noGps.seconds;
+  }
   const np = $("nopower");
   if (document.activeElement !== np) {
     np.textContent = "";
@@ -359,6 +371,7 @@ document.querySelectorAll("#wind button").forEach(b => b.onclick = () => send({ 
 $("speed").onchange = e => chosen(e.target, v => send({ speed: v }));
 document.querySelectorAll("#maporient button").forEach(b => b.onclick = () => send({ mapNorthUp: b.dataset.v === "true" }));
 $("nopower").onchange = e => send({ noPowerMinutes: +e.target.value });
+$("nogps").onchange = e => send({ noGpsSeconds: +e.target.value });
 $("wake").onclick = () => send({ wake: true });
 $("depth").onchange = e => chosen(e.target, v => send({ depth: v }));
 

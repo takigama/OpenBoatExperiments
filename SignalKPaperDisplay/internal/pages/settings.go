@@ -25,6 +25,7 @@ const (
 	SettingsNoPower                            // choose how long off power before the NO POWER screen
 	SettingsMore                               // time zone, idle switch, software update
 	SettingsZone                               // choose the time zone, a page of View.Page at a time
+	SettingsNoGPS                              // choose how long without a GPS position before NO DATA
 )
 
 // Version is the running release number, shown at the foot of the settings
@@ -58,6 +59,7 @@ type SettingsView struct {
 	// device's own) and the time it makes it now; whether idle mode is on, and the
 	// switch it watches; and the software update's one-line status, with whether a
 	// check is running.
+	NoGPS           int // seconds without a GPS position before NO DATA (0: off)
 	Zone, Clock     string
 	IdleOn          bool
 	IdlePath        string
@@ -96,6 +98,8 @@ const (
 	ActSetZone                     // use time zone Action.Value ("" is the device's own)
 	ActToggleIdle                  // switch idle mode on or off
 	ActUpdateNow                   // look for a newer release and install it
+	ActOpenNoGPS                   // more -> the GPS timeout picker
+	ActSetNoGPS                    // set the GPS timeout to Action.Level seconds (0: off)
 )
 
 // Action is what a tap on the settings screen asks the app to do.
@@ -246,7 +250,7 @@ func ParentScreen(s SettingsScreen) SettingsScreen {
 	if s == SettingsPowerConfirm || s == SettingsNoPower {
 		return SettingsPower
 	}
-	if s == SettingsZone {
+	if s == SettingsZone || s == SettingsNoGPS {
 		return SettingsMore
 	}
 	return SettingsRoot
@@ -317,6 +321,8 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 			return Action{Kind: ActOpenZone}
 		case moreIdleRow:
 			return Action{Kind: ActToggleIdle}
+		case moreGPSRow:
+			return Action{Kind: ActOpenNoGPS}
 		case moreUpdateRow:
 			if !v.UpdateBusy { // a check already running is not started twice
 				return Action{Kind: ActUpdateNow}
@@ -324,6 +330,10 @@ func SettingsTap(v SettingsView, x, y, width int) Action {
 		}
 	case SettingsZone:
 		return zoneTap(v, image.Pt(x, y))
+	case SettingsNoGPS:
+		if row >= 0 && row < len(NoGPSChoices) {
+			return Action{Kind: ActSetNoGPS, Level: NoGPSChoices[row].Seconds}
+		}
 	case SettingsPower, SettingsPowerConfirm:
 		return powerTap(v, image.Pt(x, y), width)
 	case SettingsNoPower:
@@ -426,6 +436,8 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 		title = "MORE SETTINGS"
 	case SettingsZone:
 		title = "TIME ZONE"
+	case SettingsNoGPS:
+		title = "NO DATA AFTER"
 	}
 	// A back chevron where the cog is on other pages, in the same tap area.
 	chevronLeft(c, 38, int(cogY), 22, render.Black)
@@ -502,6 +514,9 @@ func Settings(c *render.Canvas, v SettingsView, u units.Settings, invert bool, b
 
 	case SettingsZone:
 		drawZones(c, v)
+
+	case SettingsNoGPS:
+		drawNoGPS(c, v)
 
 	case SettingsLight:
 		drawLight(c, v)

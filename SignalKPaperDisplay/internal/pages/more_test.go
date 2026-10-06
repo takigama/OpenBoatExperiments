@@ -88,8 +88,8 @@ func TestMoreScreenShowsItsState(t *testing.T) {
 		"idle On vs Off":     {idleOn, idleRow},
 		"the zone's name":    {zone, zoneRow},
 		"the update working": {busy, updRow},
-		"the update message": {msg, image.Rect(40, 740, 1040, 830)},
-		"the clock":          {clock, image.Rect(40, 370, 1040, 430)},
+		"the update message": {msg, image.Rect(40, 955, 1040, 1020)},
+		"the clock":          {clock, image.Rect(40, 455, 1040, 510)},
 	} {
 		if !differsIn(plain, drawSettings(t, tc.v), tc.r) {
 			t.Errorf("%s makes no difference to the screen", name)
@@ -100,12 +100,13 @@ func TestMoreScreenShowsItsState(t *testing.T) {
 // What changes while the screen is up - the clock, the update's progress, the
 // switch's path - is redrawn in place under the fast waveform, which has no grey.
 func TestMoreScreenLiveTextIsSolidBlack(t *testing.T) {
-	v := SettingsView{Screen: SettingsMore, Clock: "14:32", IdlePath: settings.DefaultIdlePath, UpdateMsg: "Installed v50: restarting..."}
+	v := SettingsView{Screen: SettingsMore, Clock: "14:32", IdlePath: settings.DefaultIdlePath, UpdateMsg: "Installed v50: restarting...", NoGPS: 10}
 	c := drawSettings(t, v)
 	for name, r := range map[string]image.Rectangle{
-		"the clock":   image.Rect(40, 380, 1040, 425),
-		"the path":    image.Rect(40, 565, 1040, 615),
-		"the message": image.Rect(40, 760, 1040, 815),
+		"the clock":       image.Rect(40, 455, 1040, 510),
+		"the path":        image.Rect(40, 645, 1040, 700),
+		"the GPS timeout": image.Rect(40, 792, 1040, 835),
+		"the message":     image.Rect(40, 960, 1040, 1015),
 	} {
 		if got := darkest(c, r); got > 10 {
 			t.Errorf("%s is drawn in grey %d; it must be solid black", name, got)
@@ -118,7 +119,7 @@ func TestMoreScreenLiveTextIsSolidBlack(t *testing.T) {
 
 func TestMoreScreenFitsAboveTheVersionLabel(t *testing.T) {
 	// The update message is the lowest thing on the screen.
-	if bottom := settingsTop + 3*settingsRowH + 56 + 92 + 190 + 104 + 20; bottom > 1448-80 {
+	if bottom := settingsTop + 4*settingsRowH + 56 + 92 + 190 + 120 + 104 + 20; bottom > 1448-80 {
 		t.Errorf("the message sits too low (%d)", bottom)
 	}
 }

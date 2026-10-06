@@ -232,6 +232,8 @@ func main() {
 	}
 	// How long off external power before NO POWER: the saved choice, else an hour.
 	a.NoPowerMin, a.NoPowerChosen = saved.NoPower(), saved.NoPowerMinutes != nil
+	// How long without a GPS position before NO DATA: the saved choice, else ten seconds.
+	a.NoGPSSec, a.NoGPSChosen = saved.NoGPS(), saved.NoGPSSeconds != nil
 	// In no-power mode nothing may keep the CPU and the radio busy: the SignalK
 	// connection (and the demo feed, if that is what is on) stops, and comes back
 	// with the screen.
@@ -269,6 +271,8 @@ func main() {
 		a.PreviewIdle()
 	case v == "more":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsMore})
+	case v == "nogps":
+		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsNoGPS})
 	case v == "zone":
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsZone, Page: pages.ZonePageOf(saved.Timezone)})
 	case v == "power":
@@ -284,7 +288,7 @@ func main() {
 		}
 		a.OpenSettings(pages.SettingsView{Screen: pages.SettingsPickBox, Box: n - 1})
 	default:
-		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6>, server, light, more, zone, idle, nopower, nopower-picker, power or power-confirm:<stock|restart|poweroff>)", v)
+		log.Fatalf("unknown -settings-view %q (want root, preset, unit:<metric>, boxes, box:<1-6>, server, light, more, zone, nogps, idle, nopower, nopower-picker, power or power-confirm:<stock|restart|poweroff>)", v)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

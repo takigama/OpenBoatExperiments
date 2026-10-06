@@ -49,6 +49,7 @@ type Controller interface {
 	SetMapRange(nm int) error
 	SetMapNorthUp(on bool)
 	SetNoPowerMinutes(minutes int) error
+	SetNoGPSSeconds(seconds int) error
 	Wake()
 	SetDemoMode(on bool)
 	SetServer(hostPort string) error
@@ -199,6 +200,7 @@ type stateJSON struct {
 	Depth    speedJSON   `json:"depth"`
 	Map      mapJSON     `json:"map"`
 	NoPower  noPowerJSON `json:"noPower"`
+	NoGPS    noGPSJSON   `json:"noGps"`
 	Demo     bool        `json:"demo"`
 	Server   string      `json:"server"`
 	// DefaultServer is what the server goes back to when it is cleared.
@@ -267,6 +269,19 @@ type noPowerJSON struct {
 	Options []noPowerOption `json:"options"`
 }
 
+// noGPSJSON is the GPS timeout: after how many seconds without a GPS position the
+// header says NO DATA (0 is off), the choices to offer, and the default.
+type noGPSJSON struct {
+	Seconds int           `json:"seconds"`
+	Default int           `json:"default"`
+	Options []noGPSOption `json:"options"`
+}
+
+type noGPSOption struct {
+	Seconds int    `json:"seconds"`
+	Label   string `json:"label"`
+}
+
 type noPowerOption struct {
 	Minutes int    `json:"minutes"`
 	Label   string `json:"label"`
@@ -303,6 +318,7 @@ func (s *Server) stateNow() stateJSON {
 		Version: s.Version, Platform: s.Platform, Page: c.Page, Invert: c.Invert, Boxes: c.Boxes,
 		Wind: windJSON{True: c.WindTrue}, Speed: speedJSON{Kind: c.Speed}, Depth: speedJSON{Kind: c.Depth}, Map: mapJSON{Range: c.MapRange, Ranges: c.MapRanges, NorthUp: c.MapNorthUp},
 		NoPower: noPowerJSON{Minutes: c.NoPowerMin, Active: c.NoPower},
+		NoGPS:   noGPSJSON{Seconds: c.NoGPSSec, Default: settings.DefaultNoGPSSeconds},
 		Demo:    c.Demo, Server: c.Server, DefaultServer: c.DefaultServer, Connected: c.Connected, Config: s.AllowConfig,
 		Units:  unitsState(c.Units),
 		Limits: limitsJSON{Boxes: pages.NavBoxes},
@@ -317,6 +333,9 @@ func (s *Server) stateNow() stateJSON {
 	}
 	for _, p := range c.Pages {
 		st.Pages = append(st.Pages, kindJSON{ID: p.ID, Name: p.Name})
+	}
+	for _, o := range pages.NoGPSChoices {
+		st.NoGPS.Options = append(st.NoGPS.Options, noGPSOption{Seconds: o.Seconds, Label: o.Label})
 	}
 	for _, o := range pages.NoPowerChoices {
 		st.NoPower.Options = append(st.NoPower.Options, noPowerOption{Minutes: o.Minutes, Label: o.Label})
@@ -422,8 +441,12 @@ type controlReq struct {
 	// NoPowerMinutes is how long off external power before the screen goes to NO
 	// POWER: 0 for never, or 1 to a week's worth of minutes. wake brings it back
 	// from NO POWER for another timeout.
-	NoPowerMinutes *int  `json:"noPowerMinutes"`
-	Wake           *bool `json:"wake"`
+	NoPowerMinutes *int `json:"noPowerMinutes"`
+	// NoGPSSeconds is how long our own GPS position may go without an update before the
+	// header says NO DATA: 0 for off, or 2 seconds to an hour. A GPS fix comes about
+	// once a second, so this is roughly how many missed fixes it takes.
+	NoGPSSeconds *int  `json:"noGpsSeconds"`
+	Wake         *bool `json:"wake"`
 	// The configuration. server is "host" or "host:port" (port 3000 if left out),
 	// or "" for the default; units is a preset (which resets every unit) and/or
 	// overrides, from a metric ID (see /api/state) to a unit symbol.
@@ -528,6 +551,9 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	if req.NoPowerMinutes != nil && !settings.ValidNoPower(*req.NoPowerMinutes) {
 		errs["noPowerMinutes"] = fmt.Sprintf("no-power mode is 0 (never) or 1 to %d minutes", settings.MaxNoPowerMinutes)
 	}
+	if req.NoGPSSeconds != nil && !settings.ValidNoGPS(*req.NoGPSSeconds) {
+		errs["noGpsSeconds"] = fmt.Sprintf("the GPS timeout is 0 (off) or %d to %d seconds", settings.MinNoGPSSeconds, settings.MaxNoGPSSeconds)
+	}
 	if req.MapRange != nil && !pages.MapRangeOK(*req.MapRange) {
 		errs["mapRange"] = fmt.Sprintf("the map has no %d nm range (%v)", *req.MapRange, pages.MapRanges)
 	}
@@ -621,6 +647,11 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	if req.NoPowerMinutes != nil {
 		if err := s.App.SetNoPowerMinutes(*req.NoPowerMinutes); err != nil {
 			errs["noPowerMinutes"] = err.Error()
+		}
+	}
+	if req.NoGPSSeconds != nil {
+		if err := s.App.SetNoGPSSeconds(*req.NoGPSSeconds); err != nil {
+			errs["noGpsSeconds"] = err.Error()
 		}
 	}
 	if req.MapRange != nil {

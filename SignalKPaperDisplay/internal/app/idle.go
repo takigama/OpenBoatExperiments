@@ -9,7 +9,7 @@ import (
 	"signalkpaperdisplay/internal/signalk"
 )
 
-// Idle mode. A SignalK switch - electrical.switches.kindle.state, say, flipped by
+// Idle mode. A SignalK switch - electrical.switches.bank.0.1.state, say, flipped by
 // whatever the boat uses to say "nobody is looking at this" - puts the dashboard to
 // sleep: while it is off the screen shows one IDLE picture and nothing is redrawn,
 // the front light is off, and the connection to the server is cut down to that one
@@ -239,7 +239,7 @@ func (a *App) PreviewIdle() {
 func (a *App) SetIdleSwitch(enabled bool, path string) error {
 	if path != "" {
 		if _, ok := signalk.MetaPath(path); !ok {
-			return fmt.Errorf("%q is not a SignalK path like electrical.switches.kindle.state", path)
+			return fmt.Errorf("%q is not a SignalK path like electrical.switches.bank.0.1.state", path)
 		}
 	}
 	a.mu.Lock()

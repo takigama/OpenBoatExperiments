@@ -26,7 +26,7 @@ layout scaled), drawn from a SignalK server's data:
 <tr>
 <td align="center"><img src="docs/images/display-map.png" width="220" alt="The map page: our boat in the middle, ships around it out to 5 nautical miles"><br><b>Map</b><br>(5 nm, heading up)</td>
 <td align="center"><img src="docs/images/display-map-north-up.png" width="220" alt="The map page, north up, at a 2 nautical mile range"><br><b>Map</b><br>(2 nm, north up)</td>
-<td align="center"><img src="docs/images/display-more.png" width="220" alt="The more settings screen: time zone, idle switch and software update"><br><b>More settings</b><br>(time zone, idle, update)</td>
+<td align="center"><img src="docs/images/display-more.png" width="220" alt="The more settings screen: time zone, idle switch, NO DATA timeout and software update"><br><b>More settings</b><br>(time zone, idle, NO DATA, update)</td>
 <td align="center"><img src="docs/images/display-idle.png" width="220" alt="The IDLE screen, shown while the idle switch is off"><br><b>Idle</b><br>(a SignalK switch is off)</td>
 </tr>
 </table>
@@ -348,10 +348,31 @@ page; the API takes any whole number of minutes from 1 to a week, or 0 for never
 (`{"noPowerMinutes": 90}`). It is saved. It does not suspend the Kindle itself:
 that is a deeper saving, but one the Kindle then cannot be reached through.
 
+### NO DATA
+
+The header turns into a black **NO DATA** banner when the screen cannot be trusted:
+the server link is down, or nothing at all has arrived for 5 seconds, or - the rule
+with a setting - **our own GPS position has not been updated for 10 seconds**
+(the default). A GPS fix comes about once a second, so that is roughly ten missed
+fixes. The last rule is the one that notices your own data stopping while other
+boats' AIS reports keep arriving, which the "nothing at all" rule takes for life.
+
+The time is **Settings, More settings, NO DATA after** (5, 10 or 30 seconds, 1 or
+5 minutes, or **Off**), or **NO DATA when GPS is silent for** on the web page; the API
+takes any whole number of seconds from 2 to 3600, or 0 for off
+(`{"noGpsSeconds": 20}`). It is saved. If you have no GPS on SignalK at all, turn it
+off, or the banner will stay up.
+
+How long to allow depends on where your position comes from. A single GPS puts out
+a fix a second. With several, SignalK normally passes the *preferred* source on to
+its clients, and if that one stops it moves to the next only after the timeout in its
+Server, Source Priorities settings - so the position goes quiet for that long. Set
+NO DATA to longer than that timeout, or it will show during every failover.
+
 ### Idle mode
 
 Idle mode puts the dashboard to sleep from the boat's own wiring: it follows one
-SignalK **switch**, `electrical.switches.kindle.state` unless you choose another.
+SignalK **switch**, `electrical.switches.bank.0.1.state` unless you choose another.
 While that switch is **off** the screen shows one big **IDLE** (and the switch's
 name), nothing is redrawn, the front light goes off, and the SignalK connection is
 cut down to that one path - the app subscribes to the switch alone (the stream is
@@ -490,8 +511,8 @@ dist/host/paperdisplay -signalk localhost:3001 \
 
 - **Staleness is a first-class concept.** Every value carries the local time
   it arrived; anything older than 5 seconds renders as `--`, and a black
-  "NO DATA" banner appears if the server link drops. A frozen screen must
-  never look live.
+  "NO DATA" banner appears if the server link drops, or nothing arrives, or our
+  own GPS goes quiet (see "NO DATA"). A frozen screen must never look live.
 - **Pages are pure.** A page only turns a snapshot into pixels, so each is
   checked as a PNG on a PC and runs unchanged on every device.
 - **No per-device C toolchain.** FBInk, the one C dependency, is run as a

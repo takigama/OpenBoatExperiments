@@ -37,6 +37,9 @@ type Env struct {
 	// Demo is whether the data is made up: the header says so, on every page, so
 	// that it can never be taken for a real boat's.
 	Demo bool
+	// GPSTimeout is how long our own GPS position may go without an update before
+	// the header says NO DATA; zero turns that check off. See Lost.
+	GPSTimeout time.Duration
 }
 
 // SpeedSource says what the compass page's speed box shows: one of the three

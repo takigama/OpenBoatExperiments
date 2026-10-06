@@ -44,6 +44,8 @@ type Control struct {
 	// NoPower says it is showing now.
 	NoPowerMin int
 	NoPower    bool
+	// NoGPSSec is the seconds without a GPS position before NO DATA (0: off).
+	NoGPSSec int
 	// The time zone chosen ("" is the device's own) and the time of day in it.
 	Timezone string
 	Clock    string
@@ -86,6 +88,7 @@ func (a *App) Control() Control {
 		NoPowerMin:      a.NoPowerMin,
 		NoPower:         a.noPower,
 		Light:           a.lightLevel,
+		NoGPSSec:        a.NoGPSSec,
 		Timezone:        a.Timezone,
 		Clock:           a.clockLocked(time.Now()),
 		IdleEnabled:     a.IdleEnabled,
@@ -138,6 +141,10 @@ func (a *App) settingsFileLocked() settings.File {
 	if a.NoPowerChosen {
 		n := a.NoPowerMin
 		f.NoPowerMinutes = &n
+	}
+	if a.NoGPSChosen {
+		n := a.NoGPSSec
+		f.NoGPSSeconds = &n
 	}
 	return f
 }

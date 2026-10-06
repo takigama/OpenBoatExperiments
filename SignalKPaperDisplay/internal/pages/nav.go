@@ -113,17 +113,24 @@ func fitMetric(c *render.Canvas, r image.Rectangle, value, unit string, maxSize 
 // grey the fast waveform can't show).
 var DemoTag = image.Rect(668, 22, 806, 70)
 
-// Header draws the top bar: the page title, and a loud inverted banner
-// whenever the server link is down or data has stopped arriving.
-// Lost reports whether the black NO DATA banner is showing: the server link
-// is down or nothing has arrived recently.
-func Lost(s signalk.Snapshot, now time.Time) bool {
-	return !s.Connected || !s.LastMessage.After(now.Add(-StaleAfter))
+// Lost reports whether the black NO DATA banner is showing: the server link is
+// down, or nothing has arrived recently, or - when gps is not zero - our own GPS
+// position has not been updated for that long. A GPS fix comes about once a second,
+// so each second of gps is about one missed fix. The last rule is the one that
+// notices our own data stopping while other vessels' AIS reports keep arriving, which
+// the second would take for life.
+func Lost(s signalk.Snapshot, now time.Time, gps time.Duration) bool {
+	if !s.Connected || !s.LastMessage.After(now.Add(-StaleAfter)) {
+		return true
+	}
+	return gps > 0 && !s.Own.Pos.Fresh(now, gps)
 }
 
+// Header draws the top bar: the page title, and a loud inverted banner
+// whenever the server link is down or data has stopped arriving (see Lost).
 func Header(c *render.Canvas, title string, s signalk.Snapshot, now time.Time, e Env) {
 	b := c.Bounds()
-	lost := Lost(s, now)
+	lost := Lost(s, now, e.GPSTimeout)
 	// The clock is drawn by us, in the title's font, since the stock Kindle
 	// status bar is gone once we own the screen. It's in local time, so the
 	// device's timezone has to be set correctly.

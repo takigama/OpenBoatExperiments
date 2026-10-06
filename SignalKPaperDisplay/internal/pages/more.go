@@ -19,8 +19,40 @@ import (
 const (
 	moreZoneRow   = 0
 	moreIdleRow   = 1
-	moreUpdateRow = 2
+	moreGPSRow    = 2
+	moreUpdateRow = 3
 )
+
+// NoGPSChoice is one GPS timeout the settings offer, in seconds (0 is off).
+type NoGPSChoice struct {
+	Seconds int
+	Label   string
+}
+
+// NoGPSChoices are the timeouts on the settings screen, shortest first and off last.
+// The web API accepts any number of seconds from settings.MinNoGPSSeconds to
+// settings.MaxNoGPSSeconds, or 0.
+var NoGPSChoices = []NoGPSChoice{
+	{5, "5 seconds"}, {10, "10 seconds"}, {30, "30 seconds"}, {60, "1 minute"}, {300, "5 minutes"}, {0, "Off"},
+}
+
+// NoGPSLabel names a GPS timeout in seconds, whether or not it is one of the choices.
+func NoGPSLabel(seconds int) string {
+	for _, c := range NoGPSChoices {
+		if c.Seconds == seconds {
+			return c.Label
+		}
+	}
+	switch {
+	case seconds <= 0:
+		return "Off"
+	case seconds%60 == 0 && seconds/60 == 1:
+		return "1 minute"
+	case seconds%60 == 0:
+		return fmt.Sprintf("%d minutes", seconds/60)
+	}
+	return fmt.Sprintf("%d seconds", seconds)
+}
 
 // ZoneChoice is one time zone offered on the device. The web page takes any name the
 // zone database knows; the screen has room for a short list of the places boats go.
@@ -161,6 +193,10 @@ func drawMore(c *render.Canvas, v SettingsView) {
 		}
 		c.Text(b.Dx()-50, cy+16, state, 50, render.Bold, render.Right, render.Black)
 	})
+	row(c, moreGPSRow, "NO DATA after", func(cy int) {
+		c.Text(b.Dx()-110, cy+16, NoGPSLabel(v.NoGPS), 44, render.Bold, render.Right, render.Black)
+		chevronRight(c, b.Dx()-50, cy, 18, render.Dark)
+	})
 	row(c, moreUpdateRow, "Software update", func(cy int) {
 		right := "v" + Version
 		if v.UpdateBusy {
@@ -169,7 +205,7 @@ func drawMore(c *render.Canvas, v SettingsView) {
 		c.Text(b.Dx()-50, cy+16, right, 44, render.Bold, render.Right, render.Black)
 	})
 
-	y := settingsTop + 3*settingsRowH + 56
+	y := settingsTop + 4*settingsRowH + 56
 	if v.Clock != "" {
 		c.Text(40, y, "The clock reads "+v.Clock+" in this zone.", 38, render.Regular, render.Left, render.Black)
 	}
@@ -178,6 +214,14 @@ func drawMore(c *render.Canvas, v SettingsView) {
 	c.Text(40, y+44, "SignalK switch is off (set it on the web page):", 36, render.Regular, render.Left, render.Dark)
 	c.Text(40, y+96, fitText(c, v.IdlePath, 40, render.Bold, b.Dx()-80), 40, render.Bold, render.Left, render.Black)
 	y += 190
+	if v.NoGPS <= 0 {
+		c.Text(40, y, "NO DATA does not watch our own GPS (it still shows", 36, render.Regular, render.Left, render.Dark)
+		c.Text(40, y+44, "if the link drops or nothing arrives at all).", 36, render.Regular, render.Left, render.Black)
+	} else {
+		c.Text(40, y, "NO DATA shows when our own GPS position has not", 36, render.Regular, render.Left, render.Dark)
+		c.Text(40, y+44, fitText(c, "updated for "+NoGPSLabel(v.NoGPS)+" (a fix is about 1 a second).", 36, render.Regular, b.Dx()-80), 36, render.Regular, render.Left, render.Black)
+	}
+	y += 120
 	c.Text(40, y, "Software update looks for a newer release, installs", 36, render.Regular, render.Left, render.Dark)
 	c.Text(40, y+44, "it and restarts the app.", 36, render.Regular, render.Left, render.Dark)
 	if v.UpdateMsg != "" {
@@ -199,4 +243,20 @@ func IdleScreen(c *render.Canvas, path string) {
 	c.Text(b.Dx()/2, y, "The switch is off:", 44, render.Regular, render.Center, render.Black)
 	c.Text(b.Dx()/2, y+60, fitText(c, path, 40, render.Bold, b.Dx()-80), 40, render.Bold, render.Center, render.Black)
 	c.Text(b.Dx()/2, y+130, "Switch it on, or tap the screen, to resume", 44, render.Regular, render.Center, render.Black)
+}
+
+// drawNoGPS draws the GPS timeout picker.
+func drawNoGPS(c *render.Canvas, v SettingsView) {
+	b := c.Bounds()
+	for i, ch := range NoGPSChoices {
+		sec := ch.Seconds
+		row(c, i, ch.Label, func(cy int) { radio(c, b.Dx()-80, cy, v.NoGPS == sec) })
+	}
+	for i, l := range []string{
+		"The header shows NO DATA when our own GPS position has",
+		"not updated for this long. A GPS fix comes about once a",
+		"second, so 10 seconds is about ten missed fixes.",
+	} {
+		c.Text(40, settingsTop+len(NoGPSChoices)*settingsRowH+60+i*46, l, 36, render.Regular, render.Left, render.Dark)
+	}
 }

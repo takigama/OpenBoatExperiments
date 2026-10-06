@@ -296,7 +296,7 @@ func TestUpdateFromTheScreenShowsProgressOnTheMoreScreen(t *testing.T) {
 	a.OnUpdate = func() (UpdateResult, error) { <-release; return UpdateResult{Current: 49, Newest: 49}, nil }
 	openMore(a)
 	before, _ := a.Frame(time.Now())
-	updRow := image.Rect(500, pages.SettingsRowY(2)-36, 1072, pages.SettingsRowY(2)+36)
+	updRow := image.Rect(500, pages.SettingsRowY(3)-36, 1072, pages.SettingsRowY(3)+36)
 	snap := func(img *image.Gray) []byte {
 		var b []byte
 		for y := updRow.Min.Y; y < updRow.Max.Y; y++ {
@@ -307,14 +307,14 @@ func TestUpdateFromTheScreenShowsProgressOnTheMoreScreen(t *testing.T) {
 		return b
 	}
 
-	a.HandleEvent(tap(500, pages.SettingsRowY(2)))
+	a.HandleEvent(tap(500, pages.SettingsRowY(3)))
 	waitUntil(t, "the check to start", func() bool { return a.Control().UpdateBusy })
 	working, _ := a.Frame(time.Now())
 	if string(snap(before)) == string(snap(working)) {
 		t.Error("the row should say it is working")
 	}
 	// Tapping again while it works starts nothing more.
-	a.HandleEvent(tap(500, pages.SettingsRowY(2)))
+	a.HandleEvent(tap(500, pages.SettingsRowY(3)))
 	close(release)
 	waitUntil(t, "the answer", func() bool { return a.Control().UpdateMsg == "Up to date: v49 is the newest" })
 	done, _ := a.Frame(time.Now())

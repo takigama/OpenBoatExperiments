@@ -7,7 +7,7 @@ import (
 )
 
 // The idle switch. Idle mode follows one SignalK switch, such as
-// electrical.switches.kindle.state: off sends the dashboard to sleep, on wakes it.
+// electrical.switches.bank.0.1.state: off sends the dashboard to sleep, on wakes it.
 // A switch's value is a boolean in the specification, but servers and the gadgets
 // that feed them send 0 and 1, or "on" and "off", just as often, so all of those
 // are understood. It is kept apart from the numeric catalog, which a boolean

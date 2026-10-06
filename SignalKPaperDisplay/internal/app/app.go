@@ -123,6 +123,12 @@ type App struct {
 	lastActivity   time.Time // the last touch or command; guarded by mu
 	lightBefore    int       // the front light's level before a sleeping mode turned it off; guarded by mu
 
+	// NoGPSSec is how many seconds our own GPS position may go without an update
+	// before the header says NO DATA; zero is off (see pages.Lost). NoGPSChosen says
+	// it was set by the user, and so is saved. Guarded by mu.
+	NoGPSSec    int
+	NoGPSChosen bool
+
 	// Idle mode (see idle.go): the screen sleeps while a SignalK switch is off.
 	// IdleEnabled and IdlePath ("" is settings.DefaultIdlePath) are the choice, saved.
 	// OnIdle is called, outside any lock, when idle mode begins (true) and ends
@@ -272,6 +278,7 @@ func (a *App) withLight(v pages.SettingsView) pages.SettingsView {
 	v.NoPower = a.NoPowerMin
 	v.Level = a.lightLevel
 	v.Zone = a.Timezone
+	v.NoGPS = a.NoGPSSec
 	v.IdleOn = a.IdleEnabled
 	v.IdlePath = a.idlePathLocked()
 	v.UpdateMsg, v.UpdateBusy, v.UpdateAvailable = a.updateMsg, a.updateBusy, a.updateNew
@@ -549,6 +556,11 @@ func (a *App) handleSettingsTap(ev input.Event) {
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsPower}
 	case pages.ActOpenMore:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsMore}
+	case pages.ActOpenNoGPS:
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsNoGPS}
+	case pages.ActSetNoGPS:
+		a.NoGPSSec, a.NoGPSChosen = act.Level, true
+		a.settingsView = pages.SettingsView{Screen: pages.SettingsMore}
 	case pages.ActOpenZone:
 		a.settingsView = pages.SettingsView{Screen: pages.SettingsZone, Page: pages.ZonePageOf(a.Timezone)}
 	case pages.ActZonePage:
@@ -598,7 +610,7 @@ func (a *App) handleSettingsTap(ev input.Event) {
 	}
 	changed := act.Kind == pages.ActSetPreset || act.Kind == pages.ActSetUnit ||
 		act.Kind == pages.ActToggleInvert || act.Kind == pages.ActSetBox || act.Kind == pages.ActSetNoPower || newServer != "" || setLight >= 0 ||
-		act.Kind == pages.ActSetZone || idleChanged
+		act.Kind == pages.ActSetZone || act.Kind == pages.ActSetNoGPS || idleChanged
 	saved := a.settingsFileLocked()
 	// Every screen is a different picture, so a change of screen is a full
 	// refresh - but moving the light is the same screen redrawn, and a flash
@@ -717,7 +729,7 @@ func (a *App) heartbeat(now time.Time) {
 		return
 	}
 	w, _ := a.Display.Size()
-	img, rect := pages.HeartbeatImage(w, pages.HeartbeatOn(now), pages.Lost(a.State.Snapshot(), now))
+	img, rect := pages.HeartbeatImage(w, pages.HeartbeatOn(now), pages.Lost(a.State.Snapshot(), now, a.gpsTimeout()))
 	if img == nil {
 		return
 	}
@@ -752,6 +764,7 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	windTrue, speed, depthW, demo, farewell := a.windTrue, a.speed, a.depthW, a.Demo, a.farewell
 	mapRange, mapNorthUp := a.mapRange, a.mapNorthUp
 	now = a.inZoneLocked(now) // every clock on every page reads in the chosen zone
+	gps := a.gpsTimeoutLocked()
 	a.mu.Unlock()
 	if farewell != "" {
 		pages.Farewell(c, farewell)
@@ -762,7 +775,7 @@ func (a *App) Frame(now time.Time) (*image.Gray, error) {
 	} else if open {
 		pages.Settings(c, view, u, invert, boxes, server)
 	} else {
-		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Depth: depthW, MapRange: mapRange, MapNorthUp: mapNorthUp, Demo: demo})
+		a.currentPage().Draw(c, a.State.Snapshot(), now, pages.Env{Units: u, Boxes: boxes, Battery: a.batteryNow(now), WindTrue: windTrue, Speed: speed, Depth: depthW, MapRange: mapRange, MapNorthUp: mapNorthUp, Demo: demo, GPSTimeout: gps})
 	}
 	if invert {
 		invertInPlace(c.Img)
