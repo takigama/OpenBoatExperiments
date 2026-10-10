@@ -924,3 +924,33 @@ writeup; this is the HELM-specific half of it.
    maps" above. Pin numbers are unverified community defaults - confirm
    against real hardware before trusting a bench test.
 4. Real senders: tach from alternator W-terminal, VDO temp/pressure
+
+## CYD over ESP-NOW (stage 1: receive-only, through HELM)
+
+The CYD pairs with the HELM only and is a listener; HELM is the hub. Verified on real hardware
+(HELM + C3 `can_sim` + CYD): the CYD receives the full engine data stream (~25 frames/s).
+
+- **Pairing**: the CYD is a pairing REQUESTER like `can_sim` (`cyd_espnow_setup()` /
+  `cyd_pairing_tick()`): it broadcasts `PAIR_MSG_REQUEST` with `node_type = NODE_TYPE_CYD` while
+  hunting channels 1-13 for HELM; open HELM's pairing window (Settings -> Wireless Pairing, or `PAIR`
+  on its serial console). HELM records each paired peer's node type (NVS `espT0..5`). Serial `REPAIR`
+  on the CYD forgets HELM and re-pairs. HELM's MAC + key are kept in the CYD's NVS
+  (`helm_mac`/`helm_lmk`/`paired`), the last good channel in `lastch`.
+- **Data**: `espnow_relay_to_displays()` (called at the top of `can_handle_rx()`) forwards every
+  ANNOUNCE / telemetry / hours / name frame HELM receives, over any transport, to each paired
+  NODE_TYPE_CYD peer as an **encrypted unicast**. HELM's own heartbeat is also sent to them as an
+  addressed unicast, in addition to the broadcast.
+- **Contact detection - the trap**: at the close range of a bench, a broadcast sent on one channel
+  is still decoded (faintly) from a neighbouring or even distant channel, but the encrypted unicasts
+  are not. A CYD that counted broadcasts as "contact" sat on the wrong channel (it booted on channel 1)
+  receiving ~10% of the traffic and never hunting. So the CYD (a) boots onto `lastch`, and (b)
+  refreshes its contact timer only from frames **addressed to it** (`info->des_addr` is not the
+  broadcast MAC). It may settle on a channel next to HELM's (it settled on 5 with HELM on 6); that
+  works fine. The CYD's 5 s status line shows the radio channel and the frame rate; HELM's shows how
+  many relays the radio acked (`radio acked N, no ack M`) - a high `no ack` means the CYD is not
+  receiving.
+- **Not done (stage 2)**: glow/start from the CYD over ESP-NOW. Those must reach the engine unit as
+  encrypted unicasts with the CYD as the source; the plan is HELM relaying them (the CYD is paired with
+  HELM only). The CYD's mute stays local by design - only HELM silences the bus-wide alarm.
+- **can_sim needs `CANOFF`** (serial command, persisted) on a bench with no CAN transceiver, or it
+  sends on CAN only and never on ESP-NOW.

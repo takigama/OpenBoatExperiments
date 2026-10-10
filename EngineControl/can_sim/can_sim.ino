@@ -433,9 +433,13 @@ static void hex_to_bytes(const char *hex, uint8_t *buf, int len)
 
 static void espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
-    Serial.printf("ESP-NOW: rx %d bytes from %02X:%02X:%02X:%02X:%02X:%02X (g_paired=%d)\n",
-        len, info->src_addr[0], info->src_addr[1], info->src_addr[2],
-        info->src_addr[3], info->src_addr[4], info->src_addr[5], g_paired);
+    /* not logged per frame: this runs in the radio's own task, and a Serial write that blocks
+     * there (the C3's USB serial does) stalls the receive path and, through the shared port lock,
+     * the main loop too. Only the rare pairing-size messages are worth a line. */
+    if (len == (int)sizeof(espnow_pair_msg_t))
+        Serial.printf("ESP-NOW: pairing msg, %d bytes from %02X:%02X:%02X:%02X:%02X:%02X (g_paired=%d)\n",
+            len, info->src_addr[0], info->src_addr[1], info->src_addr[2],
+            info->src_addr[3], info->src_addr[4], info->src_addr[5], g_paired);
 
     if (!g_paired && len == (int)sizeof(espnow_pair_msg_t)) {
         espnow_pair_msg_t msg;
@@ -709,7 +713,21 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
     f.can_id = id;
     f.dlc = len;
     if (len) memcpy(f.data, data, len);
-    esp_now_send(ESPNOW_BROADCAST_MAC, (uint8_t *)&f, sizeof(f));
+    esp_err_t err = esp_now_send(ESPNOW_BROADCAST_MAC, (uint8_t *)&f, sizeof(f));
+
+    /* how many bus frames the radio accepted vs refused, every 5 s - ESP-NOW has a small send
+     * queue, and this board bursts several frames per loop pass */
+    static uint32_t ok_count = 0, fail_count = 0, last_report_ms = 0;
+    static esp_err_t last_err = ESP_OK;
+    if (err == ESP_OK) ok_count++;
+    else { fail_count++; last_err = err; }
+    if (millis() - last_report_ms >= 5000) {
+        Serial.printf("ESP-NOW: sent %lu bus frames, %lu refused by the radio%s%s\n",
+            (unsigned long)ok_count, (unsigned long)fail_count,
+            fail_count ? ", last error " : "", fail_count ? esp_err_to_name(last_err) : "");
+        ok_count = fail_count = 0;
+        last_report_ms = millis();
+    }
 }
 
 /* ==================== alarmer: hears the WHOLE bus, not just sim_a/b ==================== */
@@ -1191,7 +1209,7 @@ static void bus_handle_rx(const twai_message_t *m)
     if (md_is_unicast_command(m->identifier, &cmd_e))
         Serial.printf("Rx: id=0x%03lX dlc=%d - unicast command for engine %d\n",
             (unsigned long)m->identifier, m->data_length_code, cmd_e);
-    else
+    else if (m->identifier != MSG_HB_HELM)   /* the 1 Hz heartbeat would be a line a second */
         Serial.printf("Rx: id=0x%03lX dlc=%d\n", (unsigned long)m->identifier, m->data_length_code);
 
     if (m->identifier == MSG_ENROLL_ASSIGN) {

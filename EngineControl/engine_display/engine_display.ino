@@ -3531,6 +3531,10 @@ static void can_handle_rx(const twai_message_t *m)
 {
     int e;
 
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+    espnow_relay_to_displays(m->identifier, m->data, m->data_length_code);
+#endif
+
     if (m->identifier == MSG_ENROLL_REQUEST) {
         if (g_display_role == DISPLAY_ROLE_PRIMARY && m->data_length_code >= 7) {
             uint8_t assigned = enroll_find_or_assign(&m->data[0], m->data[6]);
@@ -3779,6 +3783,9 @@ typedef struct {
     bool    has_mac;
     uint8_t mac[6];
     uint8_t lmk[ESPNOW_LMK_LEN];
+    uint8_t node_type;   /* NODE_TYPE_* the peer announced when it paired (0 = unknown / paired
+                          * before this field existed). NODE_TYPE_CYD peers get engine data relayed
+                          * to them, see espnow_relay_to_displays(). */
 } espnow_peer_slot_t;
 static espnow_peer_slot_t espnow_peers[ESPNOW_MAX_PAIRED];
 
@@ -3815,6 +3822,8 @@ static void espnow_pairing_load_from_nvs(void)
             strncpy(hex, hl.c_str(), 32); hex[32] = 0;
             espnow_hex_to_lmk(hex, espnow_peers[i].lmk);
             espnow_peers[i].has_mac = true;
+            snprintf(key, sizeof(key), "espT%d", i);
+            espnow_peers[i].node_type = prefs.getUChar(key, 0);
         }
     }
 }
@@ -3855,7 +3864,7 @@ static void espnow_random_lmk(uint8_t *lmk)
  * Returns false if the allowlist is full or the radio's peer table
  * rejects the add (also capped at ESPNOW_MAX_PAIRED). lmk_out is filled
  * on success either way, for the caller to embed in the PAIR_MSG_ACK. */
-static bool espnow_pairing_accept_mac(const uint8_t *mac, uint8_t *lmk_out)
+static bool espnow_pairing_accept_mac(const uint8_t *mac, uint8_t node_type, uint8_t *lmk_out)
 {
     int idx = espnow_peer_find(mac);
     if (idx < 0) {
@@ -3867,6 +3876,7 @@ static bool espnow_pairing_accept_mac(const uint8_t *mac, uint8_t *lmk_out)
         memcpy(espnow_peers[idx].mac, mac, 6);
         espnow_random_lmk(espnow_peers[idx].lmk);
     }
+    espnow_peers[idx].node_type = node_type;
 
     esp_now_peer_info_t peer = {};
     memcpy(peer.peer_addr, mac, 6);
@@ -3886,6 +3896,8 @@ static bool espnow_pairing_accept_mac(const uint8_t *mac, uint8_t *lmk_out)
         snprintf(key, sizeof(key), "espL%d", idx);
         espnow_lmk_to_hex(espnow_peers[idx].lmk, hex);
         prefs.putString(key, hex);
+        snprintf(key, sizeof(key), "espT%d", idx);
+        prefs.putUChar(key, node_type);
     }
 
     memcpy(lmk_out, espnow_peers[idx].lmk, ESPNOW_LMK_LEN);
@@ -4106,7 +4118,7 @@ static void espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *data,
         }
 
         uint8_t lmk[ESPNOW_LMK_LEN];
-        if (!espnow_pairing_accept_mac(info->src_addr, lmk)) {
+        if (!espnow_pairing_accept_mac(info->src_addr, msg.node_type, lmk)) {
             Serial.println("ESP-NOW: pairing allowlist/encrypted-peer table full, ignoring new peer");
             return;
         }
@@ -4125,9 +4137,9 @@ static void espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *data,
         memcpy(g_pending_upgrade_mac, info->src_addr, 6);
         g_pending_upgrade_at_ms = millis() + PAIR_UPGRADE_DELAY_MS;
 
-        Serial.printf("ESP-NOW: paired new peer %02X:%02X:%02X:%02X:%02X:%02X (upgrading to encrypted)\n",
+        Serial.printf("ESP-NOW: paired new peer %02X:%02X:%02X:%02X:%02X:%02X type=%d (upgrading to encrypted)\n",
             info->src_addr[0], info->src_addr[1], info->src_addr[2],
-            info->src_addr[3], info->src_addr[4], info->src_addr[5]);
+            info->src_addr[3], info->src_addr[4], info->src_addr[5], (int)msg.node_type);
         return;
     }
 
@@ -4159,6 +4171,7 @@ static void espnow_setup(void)
         return;
     }
     esp_now_register_recv_cb(espnow_on_recv);
+    esp_now_register_send_cb(espnow_on_sent);
     esp_now_set_pmk(ESPNOW_PMK);
 
     esp_now_peer_info_t bcast = {};
@@ -4988,7 +5001,7 @@ static void remote_ota_modal_tick(void)
     lv_refr_now(NULL);
 }
 
-static void espnow_send_bus_frame(const uint8_t *dest_mac, uint32_t id, const uint8_t *data, uint8_t len)
+static esp_err_t espnow_send_bus_frame(const uint8_t *dest_mac, uint32_t id, const uint8_t *data, uint8_t len)
 {
     espnow_bus_frame_t f = {};
     f.type = ESPNOW_MSG_BUS_FRAME;
@@ -4996,10 +5009,264 @@ static void espnow_send_bus_frame(const uint8_t *dest_mac, uint32_t id, const ui
     f.can_id = id;
     f.dlc = len;
     if (len) memcpy(f.data, data, len);
-    esp_now_send(dest_mac, (uint8_t *)&f, sizeof(f));
+    return esp_now_send(dest_mac, (uint8_t *)&f, sizeof(f));
+}
+
+/* CYD secondary displays have no ESP-NOW link to the engine units - they pair with HELM only (see
+ * the CYD requester below). HELM is the hub: every engine-state frame it receives, over any
+ * transport, is passed on to each paired NODE_TYPE_CYD peer as an encrypted unicast, so the CYD
+ * sees what a display on the CAN bus would. Only the display-relevant frames go: ANNOUNCE,
+ * telemetry, hours and names. Called from can_handle_rx() for every received frame. */
+/* radio-level outcome of each send: did the receiver acknowledge it? (broadcasts always "succeed") */
+static volatile uint32_t g_espnow_tx_acked = 0, g_espnow_tx_noack = 0;
+static void espnow_on_sent(const esp_now_send_info_t *tx_info, esp_now_send_status_t status)
+{
+    (void)tx_info;
+    if (status == ESP_NOW_SEND_SUCCESS) g_espnow_tx_acked++;
+    else g_espnow_tx_noack++;
+}
+
+/* send one frame, as an encrypted unicast, to every paired CYD peer (no eligibility filter) */
+static esp_err_t espnow_unicast_to_displays(uint32_t id, const uint8_t *data, uint8_t len)
+{
+    esp_err_t worst = ESP_OK;
+    for (int i = 0; i < ESPNOW_MAX_PAIRED; i++) {
+        if (espnow_peers[i].has_mac && espnow_peers[i].node_type == NODE_TYPE_CYD) {
+            esp_err_t err = espnow_send_bus_frame(espnow_peers[i].mac, id, data, len);
+            if (err != ESP_OK) worst = err;
+        }
+    }
+    return worst;
+}
+
+static void espnow_relay_to_displays(uint32_t id, const uint8_t *data, uint8_t len)
+{
+    if (md_engine_from_telem(id) < 0 && md_engine_from_hours(id) < 0 &&
+        md_engine_from_announce(id) < 0 && md_engine_from_name(id) < 0)
+        return;
+    static uint32_t ok_count = 0, fail_count = 0, last_report_ms = 0;
+    static esp_err_t last_err = ESP_OK;
+    for (int i = 0; i < ESPNOW_MAX_PAIRED; i++) {
+        if (espnow_peers[i].has_mac && espnow_peers[i].node_type == NODE_TYPE_CYD) {
+            esp_err_t err = espnow_send_bus_frame(espnow_peers[i].mac, id, data, len);
+            if (err == ESP_OK) ok_count++;
+            else { fail_count++; last_err = err; }
+        }
+    }
+    if (millis() - last_report_ms >= 5000) {
+        if (ok_count || fail_count)
+            Serial.printf("ESP-NOW: relay to displays - %lu sent, %lu refused by the radio%s%s; radio acked %lu, no ack %lu\n",
+                (unsigned long)ok_count, (unsigned long)fail_count,
+                fail_count ? ", last error " : "", fail_count ? esp_err_to_name(last_err) : "",
+                (unsigned long)g_espnow_tx_acked, (unsigned long)g_espnow_tx_noack);
+        g_espnow_tx_acked = g_espnow_tx_noack = 0;
+        ok_count = fail_count = 0;
+        last_report_ms = millis();
+    }
 }
 
 #endif /* TARGET_BOARD == BOARD_HELM_S3_800x480 */
+
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+/* ==================== ESP-NOW requester (CYD secondary display) ====================
+ * The CYD pairs with the HELM only and is a listener: HELM relays the engine data to it (see
+ * espnow_relay_to_displays()). Same shape as can_sim's requester: after boot it broadcasts
+ * PAIR_MSG_REQUEST while hunting channels for HELM (open HELM's pairing window - Settings ->
+ * Wireless Pairing, or PAIR on its serial console); once paired it stays quiet, remembers HELM's
+ * MAC + key in NVS, and re-hunts only if HELM goes silent. Stage 1 is receive-only: the CYD
+ * sends nothing over ESP-NOW but the pairing request (its mute stays local by design, and
+ * glow/start over ESP-NOW is a later stage). */
+#define CYD_CHANNEL_SCAN_MAX        13
+#define CYD_CHANNEL_DWELL_MS        2000UL
+#define CYD_LOST_CONTACT_MS         6000UL
+#define CYD_CACHED_CHANNEL_RETRIES  5
+
+static bool     g_cyd_paired = false;
+static uint8_t  g_cyd_helm_mac[6];
+static uint8_t  g_cyd_helm_lmk[ESPNOW_LMK_LEN];
+static uint32_t g_cyd_last_helm_rx_ms = 0;
+static bool     g_cyd_hunting = false;
+static uint8_t  g_cyd_channel = 1;
+static uint8_t  g_cyd_cached_tries_left = 0;
+static uint32_t g_cyd_hunt_last_hop_ms = 0;
+static uint32_t g_cyd_rx_frames = 0;   /* bus frames accepted from HELM, for the status line */
+
+static void cyd_bytes_to_hex(const uint8_t *buf, int len, char *out)
+{
+    for (int j = 0; j < len; j++) snprintf(&out[j * 2], 3, "%02X", buf[j]);
+}
+
+static void cyd_hex_to_bytes(const char *hex, uint8_t *buf, int len)
+{
+    char b[3] = {0};
+    for (int j = 0; j < len; j++) {
+        b[0] = hex[j * 2];
+        b[1] = hex[j * 2 + 1];
+        buf[j] = (uint8_t)strtoul(b, NULL, 16);
+    }
+}
+
+static bool cyd_add_helm_peer(void)
+{
+    esp_now_peer_info_t peer = {};
+    memcpy(peer.peer_addr, g_cyd_helm_mac, 6);
+    peer.channel = 0;
+    peer.encrypt = true;
+    memcpy(peer.lmk, g_cyd_helm_lmk, ESPNOW_LMK_LEN);
+    return (esp_now_is_peer_exist(g_cyd_helm_mac) ? esp_now_mod_peer(&peer) : esp_now_add_peer(&peer)) == ESP_OK;
+}
+
+static void cyd_espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
+{
+    if (!g_cyd_paired && len == (int)sizeof(espnow_pair_msg_t)) {
+        espnow_pair_msg_t msg;
+        memcpy(&msg, data, sizeof(msg));
+        if (msg.fleet_id != FLEET_ID || msg.type != PAIR_MSG_ACK) return;
+
+        /* the ACK arrives unencrypted (see espnow_pairing.h) - HELM then switches to encrypted,
+         * so register it as an encrypted peer now that we have the key */
+        memcpy(g_cyd_helm_mac, info->src_addr, 6);
+        memcpy(g_cyd_helm_lmk, msg.lmk, ESPNOW_LMK_LEN);
+        if (!cyd_add_helm_peer()) {
+            Serial.println("ESP-NOW: got a pairing ACK but could not register HELM as an encrypted peer");
+            return;
+        }
+        g_cyd_paired = true;
+        g_cyd_last_helm_rx_ms = millis();
+        if (prefs_ok) {
+            char hex[33];
+            cyd_bytes_to_hex(g_cyd_helm_mac, 6, hex); hex[12] = 0;
+            prefs.putString("helm_mac", hex);
+            cyd_bytes_to_hex(g_cyd_helm_lmk, ESPNOW_LMK_LEN, hex); hex[32] = 0;
+            prefs.putString("helm_lmk", hex);
+            prefs.putBool("paired", true);
+        }
+        Serial.println("ESP-NOW: paired with HELM (encrypted)");
+        return;
+    }
+
+    if (g_cyd_paired && len == (int)sizeof(espnow_bus_frame_t) && md_mac_eq(info->src_addr, g_cyd_helm_mac)) {
+        espnow_bus_frame_t f;
+        memcpy(&f, data, sizeof(f));
+        if (f.type != ESPNOW_MSG_BUS_FRAME || f.fleet_id != FLEET_ID || f.dlc > 8) return;
+        /* only a frame addressed to us (an encrypted unicast) proves we are on HELM's channel;
+         * broadcasts are still used, but can leak in from a neighbouring channel */
+        if (memcmp(info->des_addr, ESPNOW_BROADCAST_MAC, 6) != 0)
+            g_cyd_last_helm_rx_ms = millis();
+        g_cyd_rx_frames++;
+        twai_message_t m = {};
+        m.identifier = f.can_id;
+        m.data_length_code = f.dlc;
+        if (f.dlc) memcpy(m.data, f.data, f.dlc);
+        can_handle_rx(&m);   /* the same dispatch a CAN frame goes through */
+    }
+}
+
+static void cyd_espnow_setup(void)
+{
+    WiFi.mode(WIFI_STA);   /* radio on, no network join */
+    /* start on the channel that last worked, not channel 1 - a paired CYD that powers up on the
+     * wrong channel can still hear a faint trickle of HELM's broadcasts and never go looking */
+    uint8_t first_ch = prefs_ok ? prefs.getUChar("lastch", 1) : 1;
+    if (first_ch < 1 || first_ch > CYD_CHANNEL_SCAN_MAX) first_ch = 1;
+    g_cyd_channel = first_ch;
+    esp_wifi_set_channel(first_ch, WIFI_SECOND_CHAN_NONE);
+    if (esp_now_init() != ESP_OK) {
+        Serial.println("ESP-NOW: init failed");
+        return;
+    }
+    esp_now_register_recv_cb(cyd_espnow_on_recv);
+    esp_now_set_pmk(ESPNOW_PMK);
+
+    esp_now_peer_info_t bcast = {};
+    memcpy(bcast.peer_addr, ESPNOW_BROADCAST_MAC, 6);
+    bcast.channel = 0;
+    bcast.encrypt = false;
+    esp_now_add_peer(&bcast);
+
+    g_cyd_paired = prefs_ok && prefs.getBool("paired", false);
+    if (g_cyd_paired) {
+        String hm = prefs.getString("helm_mac", "");
+        String hl = prefs.getString("helm_lmk", "");
+        if (hm.length() == 12 && hl.length() == 32) {
+            cyd_hex_to_bytes(hm.c_str(), g_cyd_helm_mac, 6);
+            cyd_hex_to_bytes(hl.c_str(), g_cyd_helm_lmk, ESPNOW_LMK_LEN);
+            if (!cyd_add_helm_peer()) Serial.println("ESP-NOW: failed to restore HELM as an encrypted peer");
+        } else {
+            g_cyd_paired = false;
+        }
+    }
+    g_cyd_last_helm_rx_ms = millis();
+    Serial.printf("ESP-NOW: ready (%s)\n", g_cyd_paired ? "paired, looking for HELM" : "not paired, will hunt");
+}
+
+/* forget HELM so the next tick starts a fresh hunt + pairing request (serial REPAIR) */
+static void cyd_espnow_forget_helm(void)
+{
+    if (g_cyd_paired) esp_now_del_peer(g_cyd_helm_mac);
+    g_cyd_paired = false;
+    if (prefs_ok) {
+        prefs.putBool("paired", false);
+        prefs.remove("helm_mac");
+        prefs.remove("helm_lmk");
+    }
+}
+
+/* called from loop(): while unpaired or HELM has gone quiet, hop channels (cached good one first)
+ * and, if unpaired, broadcast a pairing request on each. */
+static void cyd_pairing_tick(void)
+{
+    static uint32_t last_status_ms = 0;
+    static uint32_t last_status_frames = 0;
+    if (g_cyd_paired && millis() - last_status_ms >= 5000) {
+        uint8_t cur_ch = 0;
+        wifi_second_chan_t cur_second = WIFI_SECOND_CHAN_NONE;
+        esp_wifi_get_channel(&cur_ch, &cur_second);
+        Serial.printf("ESP-NOW: %lu frames from HELM in the last 5 s (radio on channel %d, hunting=%d)\n",
+            (unsigned long)(g_cyd_rx_frames - last_status_frames), (int)cur_ch, (int)g_cyd_hunting);
+        last_status_frames = g_cyd_rx_frames;
+        last_status_ms = millis();
+    }
+    bool lost = g_cyd_paired && (millis() - g_cyd_last_helm_rx_ms > CYD_LOST_CONTACT_MS);
+    bool need_hunt = !g_cyd_paired || lost;
+
+    if (!need_hunt) {
+        if (g_cyd_hunting) {
+            g_cyd_hunting = false;
+            if (prefs_ok) prefs.putUChar("lastch", g_cyd_channel);
+            Serial.printf("ESP-NOW: contact confirmed on channel %d\n", g_cyd_channel);
+        }
+        return;
+    }
+
+    if (!g_cyd_hunting) {
+        g_cyd_hunting = true;
+        uint8_t start = prefs_ok ? prefs.getUChar("lastch", 1) : 1;
+        if (start < 1 || start > CYD_CHANNEL_SCAN_MAX) start = 1;
+        g_cyd_channel = start;
+        g_cyd_cached_tries_left = CYD_CACHED_CHANNEL_RETRIES;
+        g_cyd_hunt_last_hop_ms = millis() - CYD_CHANNEL_DWELL_MS;   /* probe immediately */
+        Serial.printf("ESP-NOW: %s - channel hunt from %d\n", lost ? "lost contact with HELM" : "not paired", g_cyd_channel);
+    } else if (millis() - g_cyd_hunt_last_hop_ms >= CYD_CHANNEL_DWELL_MS) {
+        if (g_cyd_cached_tries_left > 0) g_cyd_cached_tries_left--;
+        else g_cyd_channel = (g_cyd_channel % CYD_CHANNEL_SCAN_MAX) + 1;
+        g_cyd_hunt_last_hop_ms = millis();
+    } else {
+        return;   /* still dwelling on this channel */
+    }
+
+    esp_wifi_set_channel(g_cyd_channel, WIFI_SECOND_CHAN_NONE);
+    if (!g_cyd_paired) {
+        espnow_pair_msg_t msg = {};
+        msg.type = PAIR_MSG_REQUEST;
+        msg.fleet_id = FLEET_ID;
+        WiFi.macAddress(msg.mac);
+        msg.node_type = NODE_TYPE_CYD;
+        esp_now_send(ESPNOW_BROADCAST_MAC, (uint8_t *)&msg, sizeof(msg));
+        Serial.printf("ESP-NOW: pairing request on channel %d\n", g_cyd_channel);
+    }
+}
+#endif /* TARGET_BOARD != BOARD_HELM_S3_800x480 */
 
 /* ==================== bus_send(): transport-routing wrapper ====================
  * Same signature/call sites as the old CAN-only can_send() it replaces.
@@ -5069,6 +5336,11 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
     if (!is_unicast) {
         if (espnow_peer_count() > 0)
             espnow_send_bus_frame(ESPNOW_BROADCAST_MAC, id, data, len);
+        /* the CYDs also get the heartbeat addressed to them: a broadcast can be heard (faintly) from
+         * the wrong channel, an addressed encrypted frame only on the right one, so that is what
+         * tells a CYD it is really in contact - see cyd_espnow_on_recv() */
+        if (id == MSG_HB_HELM)
+            espnow_unicast_to_displays(id, data, len);
         if (g_wired_ok)
             wired_send_frame(id, data, len);
     }
@@ -5114,6 +5386,13 @@ static void handle_serial_line(char *line)
         print_serial_help();
         return;
     }
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+    if (strcasecmp(line, "REPAIR") == 0) {
+        cyd_espnow_forget_helm();
+        Serial.println("ESP-NOW: forgot HELM - will hunt and send pairing requests (open HELM's pairing window)");
+        return;
+    }
+#endif
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
     if (strcasecmp(line, "PAIR") == 0) {
         g_pairing_mode = true;
@@ -5689,6 +5968,7 @@ void setup()
     wired_setup();   /* always-on supplementary transport, see wired_bus.h */
 #else
     can_setup();
+    cyd_espnow_setup();   /* CYD: join the ESP-NOW network through HELM */
 #endif
     heap_report("can");
     if (g_display_role == DISPLAY_ROLE_PRIMARY) {
@@ -5738,6 +6018,8 @@ void loop()
     espnow_upgrade_tick();
     check_for_update_tick();
     wired_bus_tick();
+#else
+    cyd_pairing_tick();
 #endif
     serial_console_tick();
     fake_engines_tick();
