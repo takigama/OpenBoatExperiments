@@ -225,7 +225,9 @@ void streamMessages(bool plain) {
     String srcArg = server.arg("src");
     String keep = (srcArg.length() ? "src=" + srcArg + "&" : String()) + (server.hasArg("n") ? "n=" + server.arg("n") + "&" : String());
 
-    String head = tobe::web::pageHead("Received messages", pause ? String() : String("<meta http-equiv='refresh' content='2'>"));
+    // Refreshed by a script timer (so Copy can stop it); a browser without scripts falls back to a meta refresh.
+    String head = tobe::web::pageHead("Received messages",
+                                      pause ? String() : String("<noscript><meta http-equiv='refresh' content='2'></noscript>"));
     head += "<p>";
     head += "<a href='/messages'>All</a>";
     for (int i = 0; i < RxLog::kSourceCount; i++) {
@@ -239,7 +241,8 @@ void streamMessages(bool plain) {
         head += String(i ? "," : "") + " " + RxLog::sourceName((RxLog::Source)i) + " " + String((unsigned long)RxLog::total((RxLog::Source)i));
     }
     head += ". Newest first; each bus keeps its last " + String((unsigned)RxLog::kPerSource) + ". Times are seconds since boot.</small></p>";
-    head += "<table style='font-family:monospace;font-size:.85em;width:100%'><tr><th>time<th>bus<th>message</tr>";
+    head += "<p><button id=cp style='width:auto;padding:.5em 1.2em'>Copy these messages</button></p>";
+    head += "<table id=m style='font-family:monospace;font-size:.85em;width:100%'><tr><th>time<th>bus<th>message</tr>";
     server.sendContent(head);
 
     String chunk;
@@ -257,6 +260,31 @@ void streamMessages(bool plain) {
     }
     chunk += "</table>";
     if (shown == 0) chunk += "<p>Nothing received yet.</p>";
+
+    // Copy: the rows on screen (whatever bus filter / count is showing) as plain text, one per line, to the clipboard
+    // of the device the page is open on. The board is reached over plain http://<ip>/, where browsers withhold
+    // navigator.clipboard (secure contexts only), so there is an execCommand('copy') fallback through a hidden
+    // textarea. Copying also stops the 2 s refresh, so the "Copied" note stays and the page holds still.
+    static const char kCopyScript[] = R"JS(<script>
+var t=%REFRESH%;
+document.getElementById('cp').onclick=function(){
+ var rows=document.querySelectorAll('#m tr'),out=['# '+document.title+' ('+(rows.length-1)+' messages, newest first)'],i,b=this;
+ for(i=1;i<rows.length;i++){var c=rows[i].cells;out.push(c[0].textContent+' '+c[1].textContent+' '+c[2].textContent);}
+ var txt=out.join('\n'),n=rows.length-1;
+ function done(ok){if(t)clearTimeout(t);b.textContent=ok?('Copied '+n+' messages - refresh paused (reload to resume)'):'Copy failed - select the table text by hand';}
+ function fallback(){
+  var a=document.createElement('textarea');a.value=txt;a.style.position='fixed';a.style.top='0';a.style.opacity='0';
+  document.body.appendChild(a);a.focus();a.select();
+  var ok=false;try{ok=document.execCommand('copy');}catch(e){}
+  document.body.removeChild(a);done(ok);
+ }
+ if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(txt).then(function(){done(true);},fallback);}
+ else{fallback();}
+};
+</script>)JS";
+    String js = kCopyScript;
+    js.replace("%REFRESH%", pause ? String("0") : String("setTimeout(function(){location.reload();},2000)"));
+    chunk += js;
     chunk += tobe::web::pageTail();
     server.sendContent(chunk);
     server.sendContent("");

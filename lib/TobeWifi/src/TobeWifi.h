@@ -23,6 +23,8 @@ struct Config {
     uint32_t joinTimeoutMs = 15000;
     bool apFallback = true;              // begin(): make the setup network when there is nothing to join
     void (*onRadioUp)() = nullptr;       // called right after the radio mode is set (project radio tweaks)
+    void (*onWait)() = nullptr;          // called every ~50 ms while waiting for a join - e.g. tobe::cli.tick(), so
+                                         // the serial command line is alive during the (up to 15 s) join
 };
 
 enum class Mode { None, STA, AP };

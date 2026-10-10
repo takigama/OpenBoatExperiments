@@ -92,7 +92,11 @@ bool joinSaved() {
             WiFi.disconnect(true);
             return false;
         }
-        delay(250);
+        // wait in short steps so a caller (the serial command line) is not dead for the whole join
+        for (int i = 0; i < 5; i++) {
+            if (s_cfg.onWait) s_cfg.onWait();
+            delay(50);
+        }
     }
     s_mode = Mode::STA;
     logf("wifi: joined, IP %s", WiFi.localIP().toString().c_str());

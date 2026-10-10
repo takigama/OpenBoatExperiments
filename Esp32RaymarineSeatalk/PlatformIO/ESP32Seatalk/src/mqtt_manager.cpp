@@ -17,6 +17,11 @@ namespace {
 
 constexpr const char *kPrefsNamespace = "mqtt";
 constexpr uint32_t kReconnectIntervalMs = 5000;
+// A connect to a broker that is not there blocks this whole firmware for as long as it waits, so: a short wait,
+// and a longer pause after each failure (5 s, 10, 20, then 30 s), back to 5 s once it connects.
+constexpr uint32_t kConnectTimeoutMs = 1500;
+constexpr uint32_t kMaxBackoffMs = 30000;
+uint32_t s_reconnectDelayMs = kReconnectIntervalMs;
 
 WiFiClient s_wifiClient;
 PubSubClient s_client(s_wifiClient);
@@ -228,16 +233,20 @@ void tick() {
         return;
     }
 
-    if (millis() - s_lastReconnectAttempt < kReconnectIntervalMs) return;
+    if (millis() - s_lastReconnectAttempt < s_reconnectDelayMs) return;
     s_lastReconnectAttempt = millis();
+    s_wifiClient.setConnectionTimeout(kConnectTimeoutMs);
 
     String clientId = "esp32seatalk-" + String((uint32_t)ESP.getEfuseMac(), HEX);
     if (s_client.connect(clientId.c_str())) {
         tobe::logf("mqtt: connected to %s:%u", s_host.c_str(), s_port);
         s_client.subscribe(setTopicFilter().c_str());
         s_client.subscribe(rawSendTopicFilter().c_str());
+        s_reconnectDelayMs = kReconnectIntervalMs;
     } else {
-        tobe::logf("mqtt: connect failed, state=%d", s_client.state());
+        tobe::logf("mqtt: connect failed, state=%d (next try in %lu s)", s_client.state(),
+                   (unsigned long)(s_reconnectDelayMs * 2 > kMaxBackoffMs ? kMaxBackoffMs : s_reconnectDelayMs * 2) / 1000);
+        s_reconnectDelayMs = s_reconnectDelayMs * 2 > kMaxBackoffMs ? kMaxBackoffMs : s_reconnectDelayMs * 2;
     }
 }
 

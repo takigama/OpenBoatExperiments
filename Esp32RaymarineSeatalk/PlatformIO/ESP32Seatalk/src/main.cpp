@@ -90,6 +90,7 @@ void setup() {
     // keep the NVS namespace this project always used, so a board keeps its saved WiFi across the update
     tobe::wifi::Config wcfg;
     wcfg.nvsNamespace = "wifi";
+    wcfg.onWait = []() { tobe::cli.tick(); };  // the command line works while the board is still joining WiFi
     tobe::wifi::configure(wcfg);
     tobe::cli.begin("SEATALK> ", nullptr, 0);
     tobe::cli.setStatusHook(statusHook);
@@ -111,8 +112,13 @@ void loop() {
     WebConfig::handleClient();
     WebConfig::tick();
     DemoMode::tick();
-    MqttManager::tick();
-    SignalKManager::tick();
+    // MQTT and SignalK connect with blocking TCP connects (seconds each). With no network (the setup network, or
+    // a join that failed) there is nothing to connect to, and every attempt used to stall this loop - the serial
+    // command line and the web page crawled until the board joined a WiFi network.
+    if (tobe::wifi::connected()) {
+        MqttManager::tick();
+        SignalKManager::tick();
+    }
     N2kManager::tick();
 
     if (!s_loopbackTestDone && millis() > kLoopbackTestDelayMs) {

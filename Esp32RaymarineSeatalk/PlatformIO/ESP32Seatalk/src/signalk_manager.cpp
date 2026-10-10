@@ -16,7 +16,7 @@ namespace SignalKManager {
 namespace {
 
 constexpr const char *kPrefsNamespace = "signalk";
-constexpr uint32_t kReconnectIntervalMs = 5000;
+constexpr uint32_t kReconnectIntervalMs = 10000;  // each attempt blocks for up to WEBSOCKETS_TCP_TIMEOUT
 constexpr const char *kOwnSourceLabel = "esp32seatalk";
 
 WebSocketsClient s_ws;
