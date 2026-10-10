@@ -51,14 +51,21 @@ void resetRxDatagram() {
     s_rxExpectedLen = 0;
 }
 
-void IRAM_ATTR armForNextStartBit() {
-    attachInterrupt(digitalPinToInterrupt(s_pin), []() IRAM_ATTR {
-        detachInterrupt(digitalPinToInterrupt(s_pin));
-        s_rxBitIndex = 0;
-        s_rxByte = 0;
-        esp_timer_start_once(s_sampleTimer, kBitUs + kBitUs / 2);  // land at 1st data bit's center
-    }, FALLING);
+// The falling-edge interrupt is attached ONCE (begin()) and stays attached; "armed" is just this flag. It used to
+// detachInterrupt() inside the ISR and attachInterrupt() again after every byte. arduino-esp32 2.x tolerated that,
+// but in 3.x those calls take the driver's non-IRAM, non-ISR-safe path: with the board's own transmissions
+// (demo mode, the lamp test) edging the pin constantly, the main loop stalled for minutes.
+volatile bool s_rxArmed = false;
+
+void IRAM_ATTR onStartBitEdge() {
+    if (!s_rxArmed) return;  // an edge inside a byte we are already sampling (or our own TX): ignore it
+    s_rxArmed = false;
+    s_rxBitIndex = 0;
+    s_rxByte = 0;
+    esp_timer_start_once(s_sampleTimer, kBitUs + kBitUs / 2);  // land at 1st data bit's center
 }
+
+void IRAM_ATTR armForNextStartBit() { s_rxArmed = true; }
 
 // Runs once per bit, kBitUs after the previous edge/sample - see
 // armForNextStartBit(). Task-context callback (esp_timer's default
@@ -144,6 +151,7 @@ void begin(int gpioPin) {
     esp_timer_create(&timerArgs, &s_sampleTimer);
 
     resetRxDatagram();
+    attachInterrupt(digitalPinToInterrupt(s_pin), onStartBitEdge, FALLING);  // once - see s_rxArmed
     armForNextStartBit();
 }
 
