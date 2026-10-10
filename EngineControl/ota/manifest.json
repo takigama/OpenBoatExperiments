@@ -1,21 +1,21 @@
 {
   "helm": {
     "viewe7": {
-      "build": 34,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-helm-viewe7-b34/helm-viewe7.bin",
-      "md5": "21bfd19bf47544228736b4802da19258"
+      "build": 35,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-helm-viewe7-b35/helm-viewe7.bin",
+      "md5": "79b7bb73ee9a422d4cf40eedc139760a"
     }
   },
   "can_sim": {
     "c3": {
-      "build": 25,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-c3-b25/can_sim-c3.bin",
-      "md5": "dd537087f74a6b88e9685029cd35a079"
+      "build": 26,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-c3-b26/can_sim-c3.bin",
+      "md5": "703ae92f242fd38cf6db4a58c3226513"
     },
     "s3zero": {
-      "build": 25,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-s3zero-b25/can_sim-s3zero.bin",
-      "md5": "17a6af29bacad109016ed835b6c5099a"
+      "build": 26,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-s3zero-b26/can_sim-s3zero.bin",
+      "md5": "b1680dba175326338aa413b07bf589ee"
     }
   }
 }
