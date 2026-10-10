@@ -1,0 +1,12 @@
+{
+  "name": "TobeCli",
+  "version": "1.0.0",
+  "description": "TOBE serial command line: line editor (Tab completes, ? lists, history) plus the commands every firmware has",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    { "name": "TobeCore" },
+    { "name": "TobeWifi" },
+    { "name": "TobeOta" }
+  ]
+}

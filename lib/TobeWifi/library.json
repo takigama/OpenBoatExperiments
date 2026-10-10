@@ -1,0 +1,8 @@
+{
+  "name": "TobeWifi",
+  "version": "1.0.0",
+  "description": "TOBE WiFi: saved credentials, join, open setup network, chip-specific radio fixes",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [ { "name": "TobeCore" } ]
+}

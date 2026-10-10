@@ -1,0 +1,7 @@
+{
+  "name": "TobeCore",
+  "version": "1.0.0",
+  "description": "TOBE (takigama open boat experiments) common bits: firmware name/version, console + log ring",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "TobeWeb",
+  "version": "1.0.0",
+  "description": "TOBE web pages: the common page frame, a system section (WiFi, firmware update, log, restart) and setup mode",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    { "name": "TobeCore" },
+    { "name": "TobeWifi" },
+    { "name": "TobeOta" }
+  ]
+}
