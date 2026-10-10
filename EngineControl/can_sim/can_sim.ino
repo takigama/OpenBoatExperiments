@@ -73,6 +73,22 @@
 #error "can_sim: no HW_ID for this chip - add one in can_protocol.h (HW_*, md_hw_key()) and here, plus a variant in tools/devices.json"
 #endif
 
+/* This user's ESP32-C3 modules cannot transmit at the default (maximum, 19.5 dBm)
+ * power: the radio goes completely silent - no beacons, no association, no
+ * ESP-NOW - while receiving still works (also found on the FishFinderProBluetooth
+ * C3, see its wifi_manager.cpp, which uses 8.5). Measured on this board with a
+ * receiver 30 cm away, stepping the power in software: 19.5 dBm never transmits;
+ * 19 and 18.5 work when approached from below but not after starting at 19.5;
+ * 17 dBm and below always work, and the received level stops rising above 17.
+ * 15 dBm keeps a safe margin below that cliff and about twice the range of 8.5.
+ * Call after every WiFi.mode(). The S3 boards are unaffected. */
+static void wifi_tx_cap(void)
+{
+#if CONFIG_IDF_TARGET_ESP32C3
+    WiFi.setTxPower(WIFI_POWER_15dBm);
+#endif
+}
+
 #if CONFIG_IDF_TARGET_ESP32C3
 /* ESP32-C3: only GPIO 0-10 and 18-21 exist. Avoid GPIO 2/8/9 (strapping),
  * 18/19 (native USB, used for Serial here) and 20/21 (UART0). CAN is on 7/10
@@ -1236,6 +1252,7 @@ static void ota_tick(void)
 
     Serial.println("OTA: joining WiFi to download update...");
     WiFi.mode(WIFI_STA);
+    wifi_tx_cap();
     WiFi.begin(g_ota_ssid, g_ota_pass);
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < 20000) delay(500);
@@ -1861,6 +1878,7 @@ static void wifi_setup(void)
      * network at all) is the only way this board ever starts using WiFi. */
     if (ssid.length() == 0) {
         WiFi.mode(WIFI_STA);
+        wifi_tx_cap();
         esp_wifi_set_channel(ESPNOW_AP_FALLBACK_CHANNEL, WIFI_SECOND_CHAN_NONE);
         Serial.printf("WiFi: no credentials - staying off WiFi (ESP-NOW only, channel %d to start). "
                       "Send WIFI:<ssid>,<password> over serial to enable networking.\n",
@@ -1871,6 +1889,7 @@ static void wifi_setup(void)
 
     Serial.printf("WiFi: connecting to \"%s\"", ssid.c_str());
     WiFi.mode(WIFI_STA);
+    wifi_tx_cap();
     WiFi.setSleep(false);
     WiFi.begin(ssid.c_str(), pass.c_str());
     uint32_t start = millis();
