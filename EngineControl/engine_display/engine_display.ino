@@ -130,6 +130,10 @@ static portMUX_TYPE   g_serial_log_mux  = portMUX_INITIALIZER_UNLOCKED;
 class LoggingSerial : public HardwareSerial {
 public:
     LoggingSerial(int uart_nr) : HardwareSerial(uart_nr) {}
+    /* Most of this firmware ends its lines with a bare "\n". A terminal that does not add the carriage
+     * return itself (picocom by default) then shows a staircase, so on the wire every bare LF becomes CR LF.
+     * The copy kept for the web log stays as written. */
+    uint8_t last_ = 0;
     size_t write(uint8_t c) override {
         portENTER_CRITICAL(&g_serial_log_mux);
         g_serial_log_buf[g_serial_log_pos++] = c;
@@ -138,6 +142,8 @@ public:
             g_serial_log_wrap = true;
         }
         portEXIT_CRITICAL(&g_serial_log_mux);
+        if (c == '\n' && last_ != '\r') HardwareSerial::write((uint8_t)'\r');
+        last_ = c;
         return HardwareSerial::write(c);
     }
     size_t write(const uint8_t *buf, size_t sz) override {
@@ -152,7 +158,17 @@ public:
             }
         }
         portEXIT_CRITICAL(&g_serial_log_mux);
-        return HardwareSerial::write(buf, sz);
+        size_t start = 0;
+        for (size_t i = 0; i < sz; i++) {
+            if (buf[i] == '\n' && last_ != '\r') {
+                if (i > start) HardwareSerial::write(buf + start, i - start);
+                HardwareSerial::write((uint8_t)'\r');
+                start = i;
+            }
+            last_ = buf[i];
+        }
+        if (sz > start) HardwareSerial::write(buf + start, sz - start);
+        return sz;
     }
 };
 

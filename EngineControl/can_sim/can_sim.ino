@@ -51,6 +51,44 @@
 #include "espnow_pairing.h"
 #include "espnow_bus.h"
 #include "fleet_security.h"
+
+/* Most output here ends its lines with a bare "\n". A terminal that does not add the carriage return itself
+ * (picocom by default) then shows a staircase, so everything printed goes through this thin wrapper, which
+ * turns each bare LF into CR LF on the way out. (`Serial` is a different class on the C3 and the S3, hence
+ * the deduced type.) The headers that print are included AFTER the #define below so they use it too. */
+static auto &g_real_serial = Serial;
+class CrlfSerial : public Stream {
+public:
+    void begin(unsigned long baud) { g_real_serial.begin(baud); }
+    int available() override { return g_real_serial.available(); }
+    int read() override { return g_real_serial.read(); }
+    int peek() override { return g_real_serial.peek(); }
+    void flush() override { g_real_serial.flush(); }
+    size_t write(uint8_t c) override {
+        if (c == '\n' && last_ != '\r') g_real_serial.write((uint8_t)'\r');
+        last_ = c;
+        return g_real_serial.write(c);
+    }
+    size_t write(const uint8_t *buf, size_t n) override {
+        size_t start = 0;
+        for (size_t i = 0; i < n; i++) {
+            if (buf[i] == '\n' && last_ != '\r') {
+                if (i > start) g_real_serial.write(buf + start, i - start);
+                g_real_serial.write((uint8_t)'\r');
+                start = i;
+            }
+            last_ = buf[i];
+        }
+        if (n > start) g_real_serial.write(buf + start, n - start);
+        return n;
+    }
+    using Print::write;
+private:
+    uint8_t last_ = 0;
+};
+static CrlfSerial g_crlf_serial;
+#define Serial g_crlf_serial
+
 #include "setup_web.h"
 #include "serial_cli.h"
 #include "wired_bus.h"

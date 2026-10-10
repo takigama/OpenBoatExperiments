@@ -1026,3 +1026,8 @@ The serial console is a small line editor, so it can be used from a plain termin
   g_log_serial`). Any header that prints must be included AFTER that line, or its output goes to the core's
   original, never-begun Serial object and silently vanishes (this broke both the CLI echo and the CYD's
   setup-mode messages until the includes were moved).
+
+**Line endings**: most output in this firmware ends lines with a bare `\n`, which a terminal that does not add the
+carriage return itself (picocom's default: `omap` empty) shows as a staircase. On the wire every bare LF is now sent as
+CR LF: `LoggingSerial` does it on the HELM/CYD (the copy kept for the web log is untouched) and `CrlfSerial` in
+`can_sim.ino` wraps whatever `Serial` the chip has. Measured on the HELM and the C3: 0 bare LF in the output.
