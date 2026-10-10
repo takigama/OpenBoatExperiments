@@ -1,0 +1,9 @@
+*.sh text eol=lf
+build/Dockerfile text eol=lf
+build/*.json text eol=lf
+build/*.ini text eol=lf
+build/scripts/* text eol=lf
+lib/** text eol=lf
+build/** text eol=lf
+*.png binary
+*.bin binary

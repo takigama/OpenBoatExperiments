@@ -1,0 +1,108 @@
+{
+    "_comment": [
+        "The registry of everything build.sh can build. One entry per firmware image.",
+        "name       the firmware name; release files are TOBE-<name>-v<version>.bin",
+        "project    which project it belongs to (build.sh <project> builds all of them); defaults to the name",
+        "dir        the PlatformIO project folder (has platformio.ini), relative to the repository root",
+        "env        the PlatformIO environment in that platformio.ini",
+        "version    the build number: a plain integer that only ever goes up. release.sh bumps it.",
+        "ota        absent/false = this firmware is not released over the air (flash it by USB);",
+        "           {} = single firmware manifest {build,url,md5}; {device,variant} = an entry in a shared manifest",
+        "manifest   where the OTA manifest is, relative to the repository root (default <dir>/ota/manifest.json)",
+        "url_max    longest release URL allowed (boards updated over a bus have to fit it in a message)",
+        "tag_prefix short release-tag prefix (tag = <tag_prefix>-<version>) so a URL fits url_max; default tobe-<name>-v<version>"
+    ],
+    "repo": "takigama/OpenBoatExperiments",
+    "branch": "master",
+    "firmware": {
+        "ESP32Seatalk": {
+            "dir": "Esp32RaymarineSeatalk/PlatformIO/ESP32Seatalk",
+            "env": "esp32-c3",
+            "version": 23,
+            "ota": {}
+        },
+        "EngineControl-CYD": {
+            "project": "EngineControl",
+            "dir": "EngineControl/engine_display",
+            "env": "cyd",
+            "version": 37
+        },
+        "EngineControl-CanSim-C3": {
+            "project": "EngineControl",
+            "dir": "EngineControl/can_sim",
+            "env": "c3",
+            "version": 28,
+            "manifest": "EngineControl/ota/manifest.json",
+            "ota": {
+                "device": "can_sim",
+                "variant": "c3"
+            },
+            "url_max": 118,
+            "tag_prefix": "cs-c3"
+        },
+        "EngineControl-CanSim-S3Zero": {
+            "project": "EngineControl",
+            "dir": "EngineControl/can_sim",
+            "env": "s3zero",
+            "version": 28,
+            "manifest": "EngineControl/ota/manifest.json",
+            "ota": {
+                "device": "can_sim",
+                "variant": "s3zero"
+            },
+            "url_max": 118,
+            "tag_prefix": "cs-s3z"
+        },
+        "EngineControl-Helm": {
+            "project": "EngineControl",
+            "dir": "EngineControl/engine_display",
+            "env": "helm",
+            "version": 37,
+            "manifest": "EngineControl/ota/manifest.json",
+            "ota": {
+                "device": "helm",
+                "variant": "viewe7"
+            }
+        },
+        "FishFinderProBluetooth": {
+            "dir": "FishFinderProBluetooth/PlatformIO/FishFinderProBluetooth",
+            "env": "esp32-c3",
+            "version": 4,
+            "ota": {}
+        },
+        "FishFinderProBluetoothCYD": {
+            "dir": "FishFinderProBluetoothCYD/PlatformIO/FishFinderProBluetoothCYD",
+            "env": "esp32dev",
+            "version": 11,
+            "ota": {}
+        },
+        "ManOverBoard-DisplayTest": {
+            "project": "ManOverBoard",
+            "dir": "ManOverBoard/ESP32",
+            "env": "display_mob_test",
+            "version": 1
+        },
+        "ManOverBoard-FullFeatured": {
+            "dir": "ManOverBoard/ESP32",
+            "env": "full_featured",
+            "version": 1,
+            "project": "ManOverBoard"
+        },
+        "ManOverBoard-SerialBridgeC3": {
+            "project": "ManOverBoard",
+            "dir": "ManOverBoard/ESP32-C3",
+            "env": "esp32-c3-devkitm-1",
+            "version": 1
+        },
+        "OpenSensor": {
+            "dir": "OpenSensor/PlatformIO/OpenSenseESP32",
+            "env": "esp32-c3-devkitm-1",
+            "version": 1
+        },
+        "TheHub": {
+            "dir": "TheHub/ESP32StandAloneHub/StandAloneHub",
+            "env": "denky32",
+            "version": 1
+        }
+    }
+}

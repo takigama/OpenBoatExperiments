@@ -17,3 +17,7 @@ fp-info-cache
 Thumbs.db
 *.bak
 *~
+
+# firmware build output and caches (build/build.sh)
+build/firmware/
+build/.work/
