@@ -963,7 +963,7 @@ the release images are public, so a compiled-in key would be public too (the old
 in this repo were exactly that, and are gone). All of it lives in `fleet_security.h` (identical copies in
 `engine_display/` and `can_sim/`) with the message layouts in `espnow_pairing.h` / `espnow_bus.h`.
 
-- **Setting it**: serial `KEY <passphrase>` (12+ characters), then the board restarts. `KEY?` prints a
+- **Setting it**: serial `KEY <passphrase>` (12+ characters), then the board restarts. `KEYSHOW` prints a
   *fingerprint* - an 8-hex-digit code that is the same on every board holding the same secret, so you can
   compare boards without showing the secret. `KEYCLEAR` forgets it. With no key, ESP-NOW stays OFF.
   Passphrase -> PBKDF2-HMAC-SHA256 (10000 rounds, fixed public salt) -> 32-byte master key, stored.
@@ -980,7 +980,7 @@ in this repo were exactly that, and are gone). All of it lives in `fleet_securit
   recording. Addressed frames are also encrypted by the radio with the pair key.
 - **Contact** is judged only from frames *addressed* to a board (`info->des_addr` not the broadcast address);
   HELM therefore also sends its heartbeat as an addressed unicast to every joined board.
-- **Serial menu** on every board: `MENU`, `STATUS`, `KEY`, `KEY?`, `KEYCLEAR`, `WIFI:<ssid>,<pass>`, `REBOOT`;
+- **Serial menu** on every board: `MENU`, `STATUS`, `KEY`, `KEYSHOW`, `KEYCLEAR`, `WIFI:<ssid>,<pass>`, `REBOOT`;
   HELM adds `UPDATE` (check, then Update All), `CLEARPEERS`, `CANON/CANOFF`; the CYD and can_sim add `REPAIR`.
 - **Verified on the bench** (HELM + C3 can_sim + CYD): same phrase -> all join by themselves, same fingerprint,
   full data to the CYD, encrypted ignition commands HELM -> C3; a different phrase on the C3 -> HELM logs
@@ -996,7 +996,7 @@ in this repo were exactly that, and are gone). All of it lives in `fleet_securit
   normally): it joins the WiFi it has saved, if any, otherwise starts its own **open** network `EC-xxxx` (the
   last two address bytes; page at `http://192.168.4.1/`). The CYD also shows where to connect on its screen.
   The open network is a deliberate choice for convenience - anyone in range during those minutes could set a key;
-  keep setup mode short and compare fingerprints afterwards (`KEY?`).
+  keep setup mode short and compare fingerprints afterwards (`KEYSHOW`).
 - Saving a key forgets joined boards and restarts the board; saving WiFi details restarts it too. A CYD never joins
   WiFi in normal use (its role), so WiFi details only matter for `WEBMODE` on a C3/S3 `can_sim` or the HELM.
 - Bench-verified: C3 and CYD setup pages reached from a laptop-style client, short passphrase refused, valid one
@@ -1007,3 +1007,22 @@ in this repo were exactly that, and are gone). All of it lives in `fleet_securit
 The secured generation (HELM b36+ / can_sim b27+) cannot talk to the old one (different frame layout, and
 ESP-NOW is off until a key is set). Update All still works to get the boards across, but afterwards **set the same
 passphrase on every board** (serial `KEY ...` or the setup page) before anything joins; confirm the fingerprints match.
+
+### The serial CLI (`serial_cli.h`, identical copies in `engine_display/` and `can_sim/`)
+
+The serial console is a small line editor, so it can be used from a plain terminal (115200 baud; PuTTY, `screen`,
+`minicom`, the Arduino monitor with "Both NL & CR"):
+
+- **Tab** completes the command name; several matches extend to what they share, or list them.
+  **`?`** lists the commands that match what is typed (all of them on an empty line) - only before the first
+  space, so a passphrase may contain a `?`. `MENU` / `HELP` print the same list.
+- Backspace; **Ctrl-U** clears the line; **Ctrl-C** abandons it; **Up / Down** recall the last six commands.
+- After `KEY ` the characters echo as `*`, and a `KEY ...` line is never put in the history.
+- Periodic status lines (`loop alive`, frame counters, engine commands received) are held back for 10 s after
+  the last keypress (`CLI_LOG()` / `cli_quiet()`), so they don't land in the middle of what you are typing.
+- One command table per sketch (`kCli[]`) feeds Tab, `?` and `MENU`; add a command there and in
+  `handle_serial_line()`. Prompts: `HELM> `, `CYD> `, `SIM> `.
+- **Trap**: in `engine_display.ino` the sketch replaces `Serial` with a logging wrapper (`#define Serial
+  g_log_serial`). Any header that prints must be included AFTER that line, or its output goes to the core's
+  original, never-begun Serial object and silently vanishes (this broke both the CLI echo and the CYD's
+  setup-mode messages until the includes were moved).

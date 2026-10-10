@@ -52,6 +52,7 @@
 #include "espnow_bus.h"
 #include "fleet_security.h"
 #include "setup_web.h"
+#include "serial_cli.h"
 #include "wired_bus.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>   /* GitHub release downloads are https */
@@ -734,7 +735,7 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
     if (err == ESP_OK) ok_count++;
     else { fail_count++; last_err = err; }
     if (millis() - last_report_ms >= 5000) {
-        Serial.printf("ESP-NOW: sent %lu bus frames, %lu refused by the radio%s%s\n",
+        CLI_LOG("ESP-NOW: sent %lu bus frames, %lu refused by the radio%s%s\n",
             (unsigned long)ok_count, (unsigned long)fail_count,
             fail_count ? ", last error " : "", fail_count ? esp_err_to_name(last_err) : "");
         ok_count = fail_count = 0;
@@ -1037,36 +1038,36 @@ static void sim_engine_recv_cmd(struct sim_engine_t *s, const twai_message_t *m)
     if (id == MSG_CMD_IGNITION(s->idx)) {
         if ((s->caps & CAP_IGNITION) && source == NODE_ID_HELM) {   /* ignition: HELM authority only */
             s->ign_commanded = (value != 0);
-            Serial.printf("Cmd: engine %d ignition -> %d (source=%d)\n", s->idx, value, source);
+            CLI_LOG("Cmd: engine %d ignition -> %d (source=%d)\n", s->idx, value, source);
         } else {
-            Serial.printf("Cmd: engine %d ignition REJECTED (has_cap=%d source=%d, want HELM=%d)\n",
+            CLI_LOG("Cmd: engine %d ignition REJECTED (has_cap=%d source=%d, want HELM=%d)\n",
                 s->idx, !!(s->caps & CAP_IGNITION), source, NODE_ID_HELM);
         }
     } else if (id == MSG_CMD_GLOW_HELD(s->idx)) {
         if ((s->caps & CAP_GLOW) && (source == NODE_ID_HELM || source == NODE_ID_CYD)) {
             s->glow_held     = true;
             s->glow_last_rx  = millis();
-            Serial.printf("Cmd: engine %d glow held (source=%d)\n", s->idx, source);
+            CLI_LOG("Cmd: engine %d glow held (source=%d)\n", s->idx, source);
         } else {
-            Serial.printf("Cmd: engine %d glow REJECTED (has_cap=%d source=%d)\n",
+            CLI_LOG("Cmd: engine %d glow REJECTED (has_cap=%d source=%d)\n",
                 s->idx, !!(s->caps & CAP_GLOW), source);
         }
     } else if (id == MSG_CMD_START_HELD(s->idx)) {
         if ((s->caps & CAP_START) && (source == NODE_ID_HELM || source == NODE_ID_CYD)) {
             s->start_held    = true;
             s->start_last_rx = millis();
-            Serial.printf("Cmd: engine %d start held (source=%d)\n", s->idx, source);
+            CLI_LOG("Cmd: engine %d start held (source=%d)\n", s->idx, source);
         } else {
-            Serial.printf("Cmd: engine %d start REJECTED (has_cap=%d source=%d)\n",
+            CLI_LOG("Cmd: engine %d start REJECTED (has_cap=%d source=%d)\n",
                 s->idx, !!(s->caps & CAP_START), source);
         }
     } else if (id == MSG_CMD_STOP(s->idx)) {
         if ((s->caps & CAP_STOP) && source == NODE_ID_HELM) {   /* STOP: HELM only, CAP_STOP only */
             s->stop_held    = true;
             s->stop_last_rx = millis();
-            Serial.printf("Cmd: engine %d stop held (source=%d)\n", s->idx, source);
+            CLI_LOG("Cmd: engine %d stop held (source=%d)\n", s->idx, source);
         } else {
-            Serial.printf("Cmd: engine %d stop REJECTED (has_cap=%d source=%d, want HELM=%d)\n",
+            CLI_LOG("Cmd: engine %d stop REJECTED (has_cap=%d source=%d, want HELM=%d)\n",
                 s->idx, !!(s->caps & CAP_STOP), source, NODE_ID_HELM);
         }
     }
@@ -1219,10 +1220,10 @@ static void bus_handle_rx(const twai_message_t *m)
      * ESP-NOW pairing+transport, this board's radio isn't the problem). */
     int cmd_e;
     if (md_is_unicast_command(m->identifier, &cmd_e))
-        Serial.printf("Rx: id=0x%03lX dlc=%d - unicast command for engine %d\n",
+        CLI_LOG("Rx: id=0x%03lX dlc=%d - unicast command for engine %d\n",
             (unsigned long)m->identifier, m->data_length_code, cmd_e);
     else if (m->identifier != MSG_HB_HELM)   /* the 1 Hz heartbeat would be a line a second */
-        Serial.printf("Rx: id=0x%03lX dlc=%d\n", (unsigned long)m->identifier, m->data_length_code);
+        CLI_LOG("Rx: id=0x%03lX dlc=%d\n", (unsigned long)m->identifier, m->data_length_code);
 
     if (m->identifier == MSG_ENROLL_ASSIGN) {
         for (int i = 0; i < MD_MAX_ENGINES; i++)
@@ -1966,20 +1967,29 @@ static void wifi_setup(void)
  * panel's identical feature: never touch WiFi.* directly outside
  * wifi_setup()'s proven boot-time path. */
 
+/* the serial menu: one table feeds Tab completion, the ? list and MENU */
+static const CliCmd kCli[] = {
+    { "MENU",       "",                  "show this list (also HELP or ?)" },
+    { "STATUS",     "",                  "firmware build, ESP-NOW key and link, CAN, WiFi (also PAIRSTATUS)" },
+    { "KEY",        "<passphrase>",      "set the shared ESP-NOW secret (12+ characters, same on every board), then restart" },
+    { "KEYSHOW",    "",                  "is a key set? its fingerprint (same on every board with the same key)" },
+    { "KEYCLEAR",   "",                  "forget the key (ESP-NOW goes off), then restart" },
+    { "WIFI:",      "<ssid>,<password>", "save WiFi details and restart (password may be empty)" },
+    { "WEBMODE",    "",                  "restart into setup mode: a web page to set the key and WiFi (10 minutes)" },
+    { "UPDATE",     "",                  "(the HELM updates this board - use UPDATE on the HELM)" },
+    { "REPAIR",     "",                  "forget HELM and look for it again" },
+    { "CANON",      "",                  "use CAN when it is healthy" },
+    { "CANOFF",     "",                  "never use CAN - ESP-NOW only (needed with no CAN transceiver)" },
+    { "REBOOT",     "",                  "restart" },
+};
+static const int kCliN = sizeof(kCli) / sizeof(kCli[0]);
+#define CLI_PROMPT "SIM> "
+
 static void print_serial_help(void)
 {
-    Serial.println("Serial commands (case-insensitive):");
-    Serial.println("  HELP                    - show this list");
-    Serial.println("  WIFI:<ssid>,<password>  - save WiFi creds and reboot (password may be empty)");
-    Serial.println("  KEY <passphrase>        - set the shared ESP-NOW secret (12+ characters; the same on every board), then restart");
-    Serial.println("  KEY?                    - is a key set? shows its fingerprint (same on every board with the same key)");
-    Serial.println("  KEYCLEAR                - forget the key (ESP-NOW goes off), then restart");
-    Serial.println("  REPAIR                  - forget HELM and look for it again");
-    Serial.println("  PAIRSTATUS / STATUS     - show ESP-NOW link + CAN/transport status");
-    Serial.println("  WEBMODE                 - restart into setup mode: a web page to set the key and WiFi (10 minutes)");
-    Serial.println("  UPDATE                  - not on this board: the HELM updates it (HELM serial UPDATE, or Update All)");
-    Serial.println("  REBOOT                  - restart");
-    Serial.println("  CANON / CANOFF          - enable/disable CAN (bus_send falls back to ESP-NOW when off)");
+    Serial.println("Serial menu - Tab completes a command, ? lists them (case-insensitive):");
+    for (int i = 0; i < kCliN; i++)
+        Serial.printf("  %-11s %-18s %s\n", kCli[i].name, kCli[i].args, kCli[i].help);
 }
 
 /* Shared by the serial WIFI: command and wifi_join_tick() (MSG_WIFI_JOIN,
@@ -2032,7 +2042,7 @@ static void handle_serial_line(char *line)
         ESP.restart();
         return;
     }
-    if (strcasecmp(line, "KEY?") == 0 || strcasecmp(line, "KEY") == 0) {
+    if (strcasecmp(line, "KEYSHOW") == 0 || strcasecmp(line, "KEY?") == 0 || strcasecmp(line, "KEY") == 0) {
         if (g_fsec_have_key) Serial.printf("Serial: key is set, fingerprint %08lX\n", (unsigned long)fsec_fingerprint());
         else Serial.println("Serial: no key set - ESP-NOW is off. Type  KEY <passphrase>");
         return;
@@ -2115,18 +2125,18 @@ static void handle_serial_line(char *line)
 
 static void serial_console_tick(void)
 {
-    static char line[128];
+    static char line[CLI_LINE_MAX];
     static size_t len = 0;
+    static bool greeted = false;
+    if (!greeted && millis() > 3000) {   /* once, after the boot messages */
+        greeted = true;
+        Serial.print("\r\nType ? for the command list; Tab completes.\r\n" CLI_PROMPT);
+    }
     while (Serial.available()) {
-        char c = (char)Serial.read();
-        if (c == '\n' || c == '\r') {
-            if (len > 0) {
-                line[len] = 0;
-                handle_serial_line(line);
-                len = 0;
-            }
-        } else if (len < sizeof(line) - 1) {
-            line[len++] = c;
+        if (cli_feed((char)Serial.read(), kCli, kCliN, CLI_PROMPT, line, sizeof(line), &len)) {
+            if (len > 0) handle_serial_line(line);
+            len = 0;
+            Serial.print(CLI_PROMPT);
         }
     }
 }
@@ -2246,7 +2256,7 @@ void loop()
                 i ? " | " : "alive: ", s->name, s->enabled, s->enrolled,
                 s->idx, (int)s->rpm, s->running);
         }
-        Serial.printf("%s | alarm=%d\n", line, alarmer_should_sound());
+        CLI_LOG("%s | alarm=%d\n", line, alarmer_should_sound());
     }
 
     delay(2);

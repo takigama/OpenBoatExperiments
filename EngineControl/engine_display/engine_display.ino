@@ -72,7 +72,6 @@
 #include "espnow_bus.h"
 #include "wired_bus.h"
 #include "fleet_security.h"
-#include "setup_web.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>   /* manifest and releases are on GitHub (https) */
 #include <HTTPUpdate.h>   /* httpUpdate global singleton - the download+flash convenience wrapper actually used */
@@ -162,6 +161,11 @@ static LoggingSerial g_log_serial(0);   /* UART0 - same peripheral the
     * original object is simply never begin()'d or used once this
     * #define is in effect, so there's no dual-ownership of the UART */
 #define Serial g_log_serial
+
+/* these headers print on Serial, so they must come AFTER the #define above - included earlier they would
+ * write to the core's original (never begun) Serial object and their output would simply vanish */
+#include "setup_web.h"
+#include "serial_cli.h"
 
 using namespace esp_panel::drivers;
 using namespace esp_panel::board;
@@ -5285,7 +5289,7 @@ static void espnow_relay_to_displays(uint32_t id, const uint8_t *data, uint8_t l
     }
     if (millis() - last_report_ms >= 5000) {
         if (ok_count || fail_count)
-            Serial.printf("ESP-NOW: relay to displays - %lu sent, %lu refused by the radio%s%s; radio acked %lu, no ack %lu\n",
+            CLI_LOG("ESP-NOW: relay to displays - %lu sent, %lu refused by the radio%s%s; radio acked %lu, no ack %lu\n",
                 (unsigned long)ok_count, (unsigned long)fail_count,
                 fail_count ? ", last error " : "", fail_count ? esp_err_to_name(last_err) : "",
                 (unsigned long)g_espnow_tx_acked, (unsigned long)g_espnow_tx_noack);
@@ -5463,7 +5467,7 @@ static void cyd_pairing_tick(void)
         uint8_t cur_ch = 0;
         wifi_second_chan_t cur_second = WIFI_SECOND_CHAN_NONE;
         esp_wifi_get_channel(&cur_ch, &cur_second);
-        Serial.printf("ESP-NOW: %lu frames from HELM in the last 5 s (radio on channel %d, hunting=%d)\n",
+        CLI_LOG("ESP-NOW: %lu frames from HELM in the last 5 s (radio on channel %d, hunting=%d)\n",
             (unsigned long)(g_cyd_rx_frames - last_status_frames), (int)cur_ch, (int)g_cyd_hunting);
         last_status_frames = g_cyd_rx_frames;
         last_status_ms = millis();
@@ -5567,7 +5571,7 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
 
     if (is_unicast) {
         if (e >= 0 && e < MD_MAX_ENGINES && engine_slots[e].transport == BUS_TRANSPORT_ESPNOW) {
-            Serial.printf("bus_send: unicast id=0x%03lX engine %d -> ESP-NOW %02X:%02X:%02X:%02X:%02X:%02X\n",
+            CLI_LOG("bus_send: unicast id=0x%03lX engine %d -> ESP-NOW %02X:%02X:%02X:%02X:%02X:%02X\n",
                 (unsigned long)id, e,
                 engine_slots[e].espnow_peer_mac[0], engine_slots[e].espnow_peer_mac[1],
                 engine_slots[e].espnow_peer_mac[2], engine_slots[e].espnow_peer_mac[3],
@@ -5578,12 +5582,12 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
         /* point-to-point, no address needed - "transport==WIRED" alone
          * means there's exactly one possible destination for this frame */
         if (e >= 0 && e < MD_MAX_ENGINES && engine_slots[e].transport == BUS_TRANSPORT_WIRED) {
-            Serial.printf("bus_send: unicast id=0x%03lX engine %d -> WIRED\n", (unsigned long)id, e);
+            CLI_LOG("bus_send: unicast id=0x%03lX engine %d -> WIRED\n", (unsigned long)id, e);
             wired_send_frame(id, data, len);
             return;
         }
         bool will_use_can = !g_can_disabled && can_ok;
-        Serial.printf("bus_send: unicast id=0x%03lX engine %d - transport=%d (not ESPNOW/WIRED), "
+        CLI_LOG("bus_send: unicast id=0x%03lX engine %d - transport=%d (not ESPNOW/WIRED), "
                       "%s (can_ok=%d, g_can_disabled=%d)\n",
             (unsigned long)id, e,
             (e >= 0 && e < MD_MAX_ENGINES) ? engine_slots[e].transport : -1,
@@ -5639,26 +5643,38 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
  * WiFi APIs may only be touched from the one proven place (wifi_setup()
  * in setup()). A clean reboot re-runs that exact path instead. */
 
+/* the serial menu: one table feeds Tab completion, the ? list and MENU */
+static const CliCmd kCli[] = {
+    { "MENU",     "",                  "show this list (also HELP or ?)" },
+    { "STATUS",   "",                  "firmware build, ESP-NOW key and joined boards, WiFi" },
+    { "KEY",      "<passphrase>",      "set the shared ESP-NOW secret (12+ characters, same on every board), then restart" },
+    { "KEYSHOW",  "",                  "is a key set? its fingerprint (same on every board with the same key)" },
+    { "KEYCLEAR", "",                  "forget the key (ESP-NOW goes off), then restart" },
+    { "WIFI:",    "<ssid>,<password>", "save WiFi details and restart (password may be empty)" },
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+    { "WEBMODE",  "",                  "where this display's setup web page is (its normal web page)" },
+    { "UPDATE",   "",                  "check for updates, then update every board that needs it (this display last)" },
+    { "CLEARPEERS", "",                "forget every joined board (they rejoin by themselves)" },
+    { "CANON",    "",                  "enable CAN for the broadcast bucket" },
+    { "CANOFF",   "",                  "disable CAN (ESP-NOW only)" },
+#else
+    { "WEBMODE",  "",                  "restart into setup mode: a web page to set the key and WiFi (10 minutes)" },
+    { "REPAIR",   "",                  "forget HELM and look for it again" },
+#endif
+    { "REBOOT",   "",                  "restart" },
+};
+static const int kCliN = sizeof(kCli) / sizeof(kCli[0]);
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+#define CLI_PROMPT "HELM> "
+#else
+#define CLI_PROMPT "CYD> "
+#endif
+
 static void print_serial_help(void)
 {
-    Serial.println("Serial menu (case-insensitive):");
-    Serial.println("  MENU / HELP             - show this list");
-    Serial.println("  STATUS                  - firmware build, ESP-NOW key and joined boards, WiFi");
-    Serial.println("  KEY <passphrase>        - set the shared ESP-NOW secret (12+ characters; the same on every board), then restart");
-    Serial.println("  KEY?                    - is a key set? shows its fingerprint (same on every board with the same key)");
-    Serial.println("  KEYCLEAR                - forget the key (ESP-NOW goes off), then restart");
-    Serial.println("  WIFI:<ssid>,<password>  - save WiFi details and restart (password may be empty)");
-    Serial.println("  REBOOT                  - restart");
-#if TARGET_BOARD == BOARD_HELM_S3_800x480
-    Serial.println("  WEBMODE                 - (the HELM's own web page is at its IP address when WiFi is connected)");
-    Serial.println("  UPDATE                  - check for updates, then update every board that needs it (this display last)");
-    Serial.println("  CLEARPEERS              - forget every joined board (they rejoin by themselves)");
-    Serial.println("  CANON / CANOFF          - enable/disable CAN for the broadcast bucket");
-#else
-    Serial.println("  REPAIR                  - forget HELM and look for it again");
-    Serial.println("  WEBMODE                 - restart into setup mode: a web page to set the key and WiFi (10 minutes)");
-    Serial.println("  UPDATE                  - not on this board: the HELM updates it");
-#endif
+    Serial.println("Serial menu - Tab completes a command, ? lists them (case-insensitive):");
+    for (int i = 0; i < kCliN; i++)
+        Serial.printf("  %-11s %-18s %s\n", kCli[i].name, kCli[i].args, kCli[i].help);
 }
 
 static void handle_serial_line(char *line)
@@ -5691,7 +5707,7 @@ static void handle_serial_line(char *line)
         ESP.restart();
         return;
     }
-    if (strcasecmp(line, "KEY?") == 0 || strcasecmp(line, "KEY") == 0) {
+    if (strcasecmp(line, "KEYSHOW") == 0 || strcasecmp(line, "KEY?") == 0 || strcasecmp(line, "KEY") == 0) {
         if (g_fsec_have_key) Serial.printf("Serial: key is set, fingerprint %08lX\n", (unsigned long)fsec_fingerprint());
         else Serial.println("Serial: no key set - ESP-NOW is off. Type  KEY <passphrase>");
         return;
@@ -5825,18 +5841,18 @@ static void handle_serial_line(char *line)
 
 static void serial_console_tick(void)
 {
-    static char line[128];
+    static char line[CLI_LINE_MAX];
     static size_t len = 0;
+    static bool greeted = false;
+    if (!greeted && millis() > 3000) {   /* once, after the boot messages */
+        greeted = true;
+        Serial.print("\r\nType ? for the command list; Tab completes.\r\n" CLI_PROMPT);
+    }
     while (Serial.available()) {
-        char c = (char)Serial.read();
-        if (c == '\n' || c == '\r') {
-            if (len > 0) {
-                line[len] = 0;
-                handle_serial_line(line);
-                len = 0;
-            }
-        } else if (len < sizeof(line) - 1) {
-            line[len++] = c;
+        if (cli_feed((char)Serial.read(), kCli, kCliN, CLI_PROMPT, line, sizeof(line), &len)) {
+            if (len > 0) handle_serial_line(line);
+            len = 0;
+            Serial.print(CLI_PROMPT);
         }
     }
 }
@@ -6371,7 +6387,7 @@ void loop()
     static uint32_t last_hb = 0;
     if (millis() - last_hb > 2000) {
         last_hb = millis();
-        Serial.printf("loop alive: internal=%u largest=%u uptime=%lus\n",
+        CLI_LOG("loop alive: internal=%u largest=%u uptime=%lus\n",
                       (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                       (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                       (unsigned long)(millis() / 1000));
