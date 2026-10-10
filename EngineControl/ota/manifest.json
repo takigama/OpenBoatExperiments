@@ -8,9 +8,9 @@
   },
   "can_sim": {
     "c3": {
-      "build": 23,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-c3-b23/can_sim-c3.bin",
-      "md5": "c2451d72dc1c3b175997cfa9a0ba78f9"
+      "build": 24,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-c3-b24/can_sim-c3.bin",
+      "md5": "b3e68a50b35c7d7f108bf039a7970d68"
     },
     "s3zero": {
       "build": 23,
