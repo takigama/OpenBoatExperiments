@@ -3333,9 +3333,10 @@ static void can_setup(void)
     if (twai_driver_install(&g, &t, &f) == ESP_OK && twai_start() == ESP_OK) {
         /* pull RX high (recessive) so a missing transceiver reads as an
          * idle bus instead of noise that storms the error interrupts */
-        gpio_set_pull_mode((gpio_num_t)PIN_CAN_RX, GPIO_PULLUP_ONLY);
+        if (PIN_CAN_RX < 34)   /* GPIO 34-39 are input-only pads with no internal pull-up */
+            gpio_set_pull_mode((gpio_num_t)PIN_CAN_RX, GPIO_PULLUP_ONLY);
         can_ok = true;
-        Serial.println("CAN: started @250k (TX=17, RX=13)");
+        Serial.printf("CAN: started @250k (TX=%d, RX=%d)\n", PIN_CAN_TX, PIN_CAN_RX);
     } else {
         Serial.println("CAN: driver failed to start - running without CAN");
     }

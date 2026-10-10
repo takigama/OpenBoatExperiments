@@ -564,6 +564,13 @@ static lv_disp_t *display_init(LCD *lcd)
     // Alloc draw buffers used by LVGL
     auto lcd_width = lcd->getFrameWidth();
     auto lcd_height = lcd->getFrameHeight();
+    // The frame size is the panel's native size. When the panel is run sideways in hardware
+    // (SWAP_XY, the CYD displays), LVGL's logical resolution is the swapped one.
+    if (lcd->getTransformation().swap_xy) {
+        auto tmp = lcd_width;
+        lcd_width = lcd_height;
+        lcd_height = tmp;
+    }
     int buffer_size = 0;
 
     ESP_UTILS_LOGD("Malloc memory for LVGL buffer");

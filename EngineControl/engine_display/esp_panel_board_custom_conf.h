@@ -45,8 +45,13 @@
  * panels are both physically 240x320 portrait, run landscape via
  * ESP_PANEL_BOARD_LCD_SWAP_XY below).
  */
-#define ESP_PANEL_BOARD_WIDTH               (320)   // Panel width (horizontal, in pixels)
-#define ESP_PANEL_BOARD_HEIGHT              (240)   // Panel height (vertical, in pixels)
+/* NATIVE panel size (portrait, 240x320). The display library bounds-checks every draw
+ * against these with the X/Y limits swapped when SWAP_XY is on (esp_panel_lcd.cpp
+ * drawBitmap), so with SWAP_XY=1 a drawable area of 320x240 needs 240x320 here;
+ * configuring 320x240 made every draw fail ("x_end(320) exceeds display limit(240)").
+ * lvgl_v8_port.cpp swaps these back for LVGL's logical landscape resolution. */
+#define ESP_PANEL_BOARD_WIDTH               (240)   // Panel width (native, in pixels)
+#define ESP_PANEL_BOARD_HEIGHT              (320)   // Panel height (native, in pixels)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////// Please update the following macros to configure the LCD panel /////////////////////////////
@@ -74,7 +79,15 @@
  * - `SPD2010`
  * - `ST7262`, `ST7701`, `ST7703`, `ST7789`, `ST7796`, `ST77903`, `ST77916`, `ST77922`
  */
+/* The ESP32-2432S028R "cyd2usb" (two USB ports) panel is an ST7789 driven BGR with colour inversion
+ * off - the community repo witnessmenow/ESP32-Cheap-Yellow-Display documents it as env:cyd2usb
+ * (-DST7789_DRIVER -DTFT_RGB_ORDER=TFT_BGR -DTFT_INVERSION_OFF, HSPI port). The single-USB boards
+ * use TFT_eSPI's ILI9341_2 init instead. The other CYD variants stay on ILI9341. */
+#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
+#define ESP_PANEL_BOARD_LCD_CONTROLLER      ST7789
+#else
 #define ESP_PANEL_BOARD_LCD_CONTROLLER      ILI9341
+#endif
 
 /**
  * @brief LCD bus type selection
@@ -320,12 +333,19 @@
  */
 #define ESP_PANEL_BOARD_LCD_COLOR_BITS          (ESP_PANEL_LCD_COLOR_BITS_RGB565)
                                                         // ESP_PANEL_LCD_COLOR_BITS_RGB565/RGB666/RGB888
+#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
+#define ESP_PANEL_BOARD_LCD_COLOR_BGR_ORDER     (1)     // 0: RGB, 1: BGR (cyd2usb ST7789 is BGR)
+#else
 #define ESP_PANEL_BOARD_LCD_COLOR_BGR_ORDER     (0)     // 0: RGB, 1: BGR
+#endif
                                                         // NOT VERIFIED for CYD: many ILI9341 CYD panels need
                                                         // this flipped to 1 for correct colors. If colors look
                                                         // like a red/blue swap on first boot, flip this.
+#ifndef CYD_INVERT_TEST
+#define CYD_INVERT_TEST 0
+#endif
 #if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
-#define ESP_PANEL_BOARD_LCD_COLOR_INEVRT_BIT    (1)     // 0/1. The ESP32-2432S028R shows inverted colours
+#define ESP_PANEL_BOARD_LCD_COLOR_INEVRT_BIT    (CYD_INVERT_TEST)     // 0/1. The ESP32-2432S028R shows inverted colours
                                                         // without this (found on the FishFinderProBluetoothCYD
                                                         // build: TFT_INVERSION_ON on the same board)
 #else
@@ -346,7 +366,12 @@
  * coordinates won't line up with what's drawn).
  */
 #define ESP_PANEL_BOARD_LCD_SWAP_XY             (1)     // 0/1
+#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
+#define ESP_PANEL_BOARD_LCD_MIRROR_X            (1)     // 0/1. The cyd2usb ST7789 shows the image mirrored
+                                                        // left-right with 0 (seen on a real unit)
+#else
 #define ESP_PANEL_BOARD_LCD_MIRROR_X            (0)     // 0/1
+#endif
 #define ESP_PANEL_BOARD_LCD_MIRROR_Y            (0)     // 0/1
 #define ESP_PANEL_BOARD_LCD_GAP_X               (0)     // [0, ESP_PANEL_BOARD_WIDTH]
 #define ESP_PANEL_BOARD_LCD_GAP_Y               (0)     // [0, ESP_PANEL_BOARD_HEIGHT]
@@ -488,7 +513,11 @@
  * touch flipped relative to the screen is a very common bring-up bug.
  */
 #define ESP_PANEL_BOARD_TOUCH_SWAP_XY           (1)     // 0/1
+#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
+#define ESP_PANEL_BOARD_TOUCH_MIRROR_X          (1)     // 0/1. Follows ESP_PANEL_BOARD_LCD_MIRROR_X above
+#else
 #define ESP_PANEL_BOARD_TOUCH_MIRROR_X          (0)     // 0/1
+#endif
 #define ESP_PANEL_BOARD_TOUCH_MIRROR_Y          (0)     // 0/1
 
 /**
