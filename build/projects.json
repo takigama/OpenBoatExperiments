@@ -18,7 +18,7 @@
         "ESP32Seatalk": {
             "dir": "Esp32RaymarineSeatalk/PlatformIO/ESP32Seatalk",
             "env": "esp32-c3",
-            "version": 23,
+            "version": 24,
             "ota": {}
         },
         "EngineControl-CYD": {
@@ -31,7 +31,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/can_sim",
             "env": "c3",
-            "version": 28,
+            "version": 29,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "can_sim",
@@ -44,7 +44,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/can_sim",
             "env": "s3zero",
-            "version": 28,
+            "version": 29,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "can_sim",
@@ -57,7 +57,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/engine_display",
             "env": "helm",
-            "version": 37,
+            "version": 38,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "helm",
@@ -67,13 +67,13 @@
         "FishFinderProBluetooth": {
             "dir": "FishFinderProBluetooth/PlatformIO/FishFinderProBluetooth",
             "env": "esp32-c3",
-            "version": 4,
+            "version": 5,
             "ota": {}
         },
         "FishFinderProBluetoothCYD": {
             "dir": "FishFinderProBluetoothCYD/PlatformIO/FishFinderProBluetoothCYD",
             "env": "esp32dev",
-            "version": 11,
+            "version": 12,
             "ota": {}
         },
         "ManOverBoard-DisplayTest": {
