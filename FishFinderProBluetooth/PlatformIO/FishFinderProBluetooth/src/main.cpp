@@ -177,6 +177,10 @@ void emitDecoded(const uint8_t *data) {
 
 void emitFrame(const uint8_t *data, size_t len) {
     s_frameCount++;
+    // One frame is ~420 characters of hex plus the NMEA lines. If the USB serial buffer has no room (USB plugged
+    // in but nothing reading the port) skip this frame's output instead of blocking: this runs on the BLE task,
+    // and a stalled BLE task drops the sonar connection.
+    if (Serial.availableForWrite() < 512) return;
     emitRawHex(data, len);
     emitDecoded(data);
 }
