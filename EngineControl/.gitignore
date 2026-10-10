@@ -1,0 +1,14 @@
+# Reference photos/notes - not part of the firmware or tooling
+anc/
+
+# arduino-cli build output (--export-binaries lands the .bin here too,
+# but the tracked copy lives in ota/ via tools/publish-*.sh)
+engine_display/build/
+can_sim/build/
+
+# Local, per-machine config and staged firmware images (release.sh uploads them to GitHub Releases; the manifest is tracked)
+engine_display/local_config.h
+ota/*.bin
+ota/*/
+.claude/
+**/.claude/settings.local.json

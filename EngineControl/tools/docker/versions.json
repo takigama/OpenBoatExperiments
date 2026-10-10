@@ -1,0 +1,17 @@
+{
+    "base_image": "debian:bookworm-slim",
+    "arduino_cli_version": "v1.5.1",
+    "board_manager_urls": [
+        "https://espressif.github.io/arduino-esp32/package_esp32_index.json"
+    ],
+    "cores": [
+        "esp32:esp32@3.3.10"
+    ],
+    "libraries": [
+        "ArduinoJson@7.4.3",
+        "ESP32_Display_Panel@1.0.4",
+        "ESP32_IO_Expander@1.1.1",
+        "esp-lib-utils@0.2.3",
+        "lvgl@8.4.0"
+    ]
+}

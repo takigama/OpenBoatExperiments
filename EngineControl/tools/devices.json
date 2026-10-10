@@ -1,0 +1,28 @@
+{
+    "helm": {
+        "type": "arduino-cli",
+        "sketch_ino": "engine_display/engine_display.ino",
+        "version_file": "engine_display/engine_display.ino",
+        "version_define": "FW_BUILD",
+        "variants": {
+            "viewe7": {
+                "fqbn": "esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,PSRAM=opi"
+            }
+        }
+    },
+    "can_sim": {
+        "type": "arduino-cli",
+        "sketch_ino": "can_sim/can_sim.ino",
+        "version_file": "can_sim/can_sim.ino",
+        "version_define": "FW_BUILD",
+        "url_max": 118,
+        "variants": {
+            "s3zero": {
+                "fqbn": "esp32:esp32:esp32s3:CDCOnBoot=cdc,PartitionScheme=default"
+            },
+            "c3": {
+                "fqbn": "esp32:esp32:esp32c3:CDCOnBoot=cdc,PartitionScheme=min_spiffs"
+            }
+        }
+    }
+}
