@@ -53,6 +53,7 @@
 #include "wired_bus.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>   /* GitHub release downloads are https */
+#include <HTTPClient.h>
 #include <HTTPUpdate.h>   /* httpUpdate global singleton - download+flash convenience wrapper */
 #include <Update.h>       /* esp_ota_* lower-level API, needed for the app-valid rollback marker */
 #include "esp_ota_ops.h"  /* esp_ota_mark_app_valid_cancel_rollback() */
@@ -115,6 +116,42 @@ static void wifi_tx_cap(void)
 #define PIN_WIRED_TX   1
 #define PIN_WIRED_RX   2
 #endif
+
+/* GitHub release URLs answer with a redirect to a signed URL on another host. Following it inside the
+ * HTTP update library means a second TLS connection set up while the first is still being torn down, and on
+ * the HELM (little contiguous internal RAM left once the UI is up) that failed with "connection refused".
+ * So follow the redirect here by hand, one TLS connection at a time - each is freed before the next opens -
+ * and hand the update library the final URL. Logs each hop with the free internal RAM. */
+static String ota_resolve_url(const String &start_url)
+{
+    String url = start_url;
+    for (int hop = 0; hop < 4; hop++) {
+        if (!url.startsWith("https://")) return url;   /* plain http (a local test server): nothing to follow */
+        WiFiClientSecure c;
+        c.setInsecure();
+        HTTPClient h;
+        h.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+        const char *keys[] = {"Location"};
+        h.collectHeaders(keys, 1);
+        if (!h.begin(c, url)) {
+            Serial.println("OTA: redirect resolve - http.begin() failed");
+            return url;
+        }
+        int code = h.GET();
+        String loc = h.header("Location");
+        Serial.printf("OTA: hop %d -> HTTP %d (internal RAM %u, largest block %u, next url %u chars)\n",
+            hop, code, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)loc.length());
+        h.end();
+        c.stop();
+        if ((code == 301 || code == 302 || code == 303 || code == 307 || code == 308) && loc.length()) {
+            url = loc;
+            continue;
+        }
+        return url;   /* 200, or an error the update call will report itself */
+    }
+    return url;
+}
 
 /* ==================== wifi ====================
  * No screen on this board, so there's no setup wizard/PIN lock like the
@@ -1290,9 +1327,10 @@ static void ota_tick(void)
     WiFiClient       plain_client;
     WiFiClientSecure tls_client;
     tls_client.setInsecure();
-    NetworkClient &client = (strncmp(g_ota_url, "https://", 8) == 0)
+    String real_url = ota_resolve_url(String(g_ota_url));
+    NetworkClient &client = real_url.startsWith("https://")
         ? (NetworkClient &)tls_client : (NetworkClient &)plain_client;
-    httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    httpUpdate.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);   /* ota_resolve_url() already did */
     httpUpdate.rebootOnUpdate(true);   /* headless board, no UI to show a result on either way */
     /* checksum verification (if HELM sent one - see ota_handle_start_
      * chunk()/can_protocol.h's MSG_OTA_START comment): same setMD5sum()
@@ -1301,7 +1339,7 @@ static void ota_tick(void)
      * not failed, if empty. */
     if (g_ota_md5[0]) httpUpdate.setMD5sum(g_ota_md5);
     Serial.printf("OTA: downloading from %s\n", g_ota_url);
-    t_httpUpdate_return ret = httpUpdate.update(client, g_ota_url);
+    t_httpUpdate_return ret = httpUpdate.update(client, real_url);
     Serial.printf("OTA: httpUpdate.update() returned %d (%s)\n",
         (int)ret, httpUpdate.getLastErrorString().c_str());
 

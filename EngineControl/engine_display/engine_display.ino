@@ -2259,6 +2259,7 @@ static void ui_tick(lv_timer_t *t)
     if (btn_update_available) set_hidden(btn_update_available, !update_showing);
     if (btn_update_available_ne) set_hidden(btn_update_available_ne, !update_showing);
     remote_ota_modal_tick();
+    update_all_tick();
 
     /* change-guarded on g_update_check_done_id (set by check_for_update_
      * tick() once a forced check finishes one way or another) rather than
@@ -4242,6 +4243,42 @@ static void check_update_now_cb(lv_event_t *e)
     }
 }
 
+/* GitHub release URLs answer with a redirect to a signed URL on another host. Following it inside the
+ * HTTP update library means a second TLS connection set up while the first is still being torn down, and on
+ * the HELM (little contiguous internal RAM left once the UI is up) that failed with "connection refused".
+ * So follow the redirect here by hand, one TLS connection at a time - each is freed before the next opens -
+ * and hand the update library the final URL. Logs each hop with the free internal RAM. */
+static String ota_resolve_url(const String &start_url)
+{
+    String url = start_url;
+    for (int hop = 0; hop < 4; hop++) {
+        if (!url.startsWith("https://")) return url;   /* plain http (a local test server): nothing to follow */
+        WiFiClientSecure c;
+        c.setInsecure();
+        HTTPClient h;
+        h.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+        const char *keys[] = {"Location"};
+        h.collectHeaders(keys, 1);
+        if (!h.begin(c, url)) {
+            Serial.println("OTA: redirect resolve - http.begin() failed");
+            return url;
+        }
+        int code = h.GET();
+        String loc = h.header("Location");
+        Serial.printf("OTA: hop %d -> HTTP %d (internal RAM %u, largest block %u, next url %u chars)\n",
+            hop, code, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)loc.length());
+        h.end();
+        c.stop();
+        if ((code == 301 || code == 302 || code == 303 || code == 307 || code == 308) && loc.length()) {
+            url = loc;
+            continue;
+        }
+        return url;   /* 200, or an error the update call will report itself */
+    }
+    return url;
+}
+
 /* called from loop(): fetches OTA_MANIFEST_URL once per boot (a few
  * seconds after WiFi settles is fine - the interval check below just
  * naturally lets the first call through immediately) and every
@@ -4439,11 +4476,32 @@ static bool any_engine_active(void)
     return false;
 }
 
+/* "Update All": one button updates every out-of-date board at the same time, then HELM itself last.
+ * g_ua_items tracks each engine that needs an update (an ESP-NOW board that hosts several engines is
+ * sent ONE command but tracked per engine); update_all_tick() watches them come back. */
+#define UA_TIMEOUT_MS (6UL * 60 * 1000)
+typedef struct {
+    int      engine;
+    uint32_t target_build;
+    bool     done;
+    bool     failed;
+} ua_item_t;
+static ua_item_t g_ua_items[MD_MAX_ENGINES];
+static int       g_ua_count = 0;
+static bool      g_ua_active = false;
+static bool      g_ua_helm_after = false;
+static uint32_t  g_ua_started_ms = 0;
+static uint32_t  g_ua_helm_at_ms = 0;   /* when to start HELM's own update, 0 = not scheduled */
+static lv_obj_t *g_ua_label = NULL;
+
 static lv_obj_t *ota_win = NULL;
 
 static void ota_close_cb(lv_event_t *e)
 {
     (void)e;
+    g_ua_active = false;      /* closing the window stops tracking, so nothing touches the deleted label */
+    g_ua_label = NULL;
+    g_ua_helm_at_ms = 0;
     if (ota_win) { lv_obj_del(ota_win); ota_win = NULL; }
     /* harmless no-op if this window wasn't a remote-OTA one - closing
      * always cancels any wait-for-ACK in flight so a stray late ACK/
@@ -4492,7 +4550,8 @@ static void ota_update_available_cb(lv_event_t *e)
         lv_label_set_text(msg,
             "Only update in a secure environment where a failed update "
             "can be addressed calmly - this is not something to do "
-            "underway or in an emergency. Select a device below.");
+            "underway or in an emergency. Update All updates every board "
+            "listed at the same time, then this display last.");
     }
 
     if (!blocked) {
@@ -4503,62 +4562,55 @@ static void ota_update_available_cb(lv_event_t *e)
         lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_pad_row(list, 6, 0);
 
+        /* what Update All will do, one row per board: "name   build X -> Y" */
         if (g_helm_update_available) {
             lv_obj_t *row = lv_obj_create(list);
-            lv_obj_set_size(row, LV_PCT(100), 46);
+            lv_obj_set_size(row, LV_PCT(100), 40);
             lv_obj_set_style_bg_color(row, lv_color_hex(0x16283c), 0);
             lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_t *l = lv_label_create(row);
-            lv_label_set_text_fmt(l, "HELM display - build %lu",
+            lv_label_set_text_fmt(l, "HELM display (last):  build %d -> %lu", FW_BUILD,
                 (unsigned long)g_helm_update_build);
             lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
             lv_obj_align(l, LV_ALIGN_LEFT_MID, 8, 0);
-            lv_obj_t *btn = lv_btn_create(row);
-            lv_obj_set_size(btn, 90, 34);
-            lv_obj_align(btn, LV_ALIGN_RIGHT_MID, -6, 0);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0x4a1c1c), 0);
-            lv_obj_add_event_cb(btn, ota_device_update_cb, LV_EVENT_CLICKED, (void *)(intptr_t)-1);
-            lv_obj_t *btn_l = lv_label_create(btn);
-            lv_label_set_text(btn_l, "Update");
-            lv_obj_set_style_text_color(btn_l, lv_color_hex(0xff9999), 0);
-            lv_obj_center(btn_l);
         }
-
         for (int i = 0; i < MD_MAX_ENGINES; i++) {
             int slot = node_update_slot(i);
             if (slot < 0 || !engines[i].present || engines[i].fw_build == 0 ||
                 engines[i].fw_build >= g_node_update[slot].build)
                 continue;
-
             lv_obj_t *row = lv_obj_create(list);
-            lv_obj_set_size(row, LV_PCT(100), 46);
+            lv_obj_set_size(row, LV_PCT(100), 40);
             lv_obj_set_style_bg_color(row, lv_color_hex(0x16283c), 0);
             lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_t *l = lv_label_create(row);
-            lv_label_set_text_fmt(l, "%s - build %u", engine_display_name(i),
-                (unsigned)engines[i].fw_build);
+            lv_label_set_text_fmt(l, "%s:  build %u -> %lu", engine_display_name(i),
+                (unsigned)engines[i].fw_build, (unsigned long)g_node_update[slot].build);
             lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
             lv_obj_align(l, LV_ALIGN_LEFT_MID, 8, 0);
-            lv_obj_t *btn = lv_btn_create(row);
-            lv_obj_set_size(btn, 90, 34);
-            lv_obj_align(btn, LV_ALIGN_RIGHT_MID, -6, 0);
-            lv_obj_set_style_bg_color(btn, lv_color_hex(0x4a1c1c), 0);
-            lv_obj_add_event_cb(btn, ota_device_update_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-            lv_obj_t *btn_l = lv_label_create(btn);
-            lv_label_set_text(btn_l, "Update");
-            lv_obj_set_style_text_color(btn_l, lv_color_hex(0xff9999), 0);
-            lv_obj_center(btn_l);
         }
     }
 
     lv_obj_t *close = lv_btn_create(ota_win);
-    lv_obj_set_size(close, 420, 50);
-    lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_set_size(close, blocked ? 420 : 200, 50);
+    lv_obj_align(close, blocked ? LV_ALIGN_BOTTOM_MID : LV_ALIGN_BOTTOM_LEFT, blocked ? 0 : 8, -12);
     lv_obj_set_style_bg_color(close, lv_color_hex(0x33475c), 0);
     lv_obj_add_event_cb(close, ota_close_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *close_l = lv_label_create(close);
     lv_label_set_text(close_l, blocked ? "Close" : "Cancel");
     lv_obj_center(close_l);
+
+    if (!blocked) {
+        lv_obj_t *all = lv_btn_create(ota_win);
+        lv_obj_set_size(all, 200, 50);
+        lv_obj_align(all, LV_ALIGN_BOTTOM_RIGHT, -8, -12);
+        lv_obj_set_style_bg_color(all, lv_color_hex(0x4a1c1c), 0);
+        lv_obj_add_event_cb(all, ota_update_all_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *all_l = lv_label_create(all);
+        lv_label_set_text(all_l, "Update All");
+        lv_obj_set_style_text_color(all_l, lv_color_hex(0xff9999), 0);
+        lv_obj_center(all_l);
+    }
 }
 
 /* The actual download+flash. rebootOnUpdate(false) so a successful
@@ -4582,9 +4634,10 @@ static void ota_update_available_cb(lv_event_t *e)
  * directly, so instead: turn the backlight off for the duration (still
  * corrupting internally, just invisible) and back on once
  * httpUpdate.update() returns and flash writes have stopped. */
-static void ota_start_download_cb(lv_event_t *e)
+static void ota_helm_self_update(void)
 {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    g_ua_active = false;
+    g_ua_label = NULL;
     if (ota_win) { lv_obj_del(ota_win); ota_win = NULL; }
 
     lvgl_port_lock(-1);
@@ -4614,9 +4667,10 @@ static void ota_start_download_cb(lv_event_t *e)
     WiFiClient       plain_client;
     WiFiClientSecure tls_client;
     tls_client.setInsecure();
-    NetworkClient &client = (strncmp(g_helm_update_url, "https://", 8) == 0)
+    String real_url = ota_resolve_url(String(g_helm_update_url));
+    NetworkClient &client = real_url.startsWith("https://")
         ? (NetworkClient &)tls_client : (NetworkClient &)plain_client;
-    httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    httpUpdate.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);   /* ota_resolve_url() already did */
     httpUpdate.rebootOnUpdate(false);
     /* checksum verification (if the manifest had one - see check_for_
      * update_tick()): HTTPUpdate's own setMD5sum() makes Update.end()
@@ -4627,7 +4681,7 @@ static void ota_start_download_cb(lv_event_t *e)
      * just without this extra guarantee. */
     if (g_helm_update_md5[0]) httpUpdate.setMD5sum(g_helm_update_md5);
     Serial.printf("OTA: downloading from %s\n", g_helm_update_url);
-    t_httpUpdate_return ret = httpUpdate.update(client, g_helm_update_url);
+    t_httpUpdate_return ret = httpUpdate.update(client, real_url);
 
     if (bl) bl->on();
 
@@ -4667,6 +4721,12 @@ static void ota_start_download_cb(lv_event_t *e)
     lv_label_set_text(close_l, "Close");
     lv_obj_center(close_l);
     lvgl_port_unlock();
+}
+
+static void ota_start_download_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    ota_helm_self_update();
 }
 
 /* ==================== OTA: remote device trigger (Phase 2) ====================
@@ -4875,6 +4935,150 @@ static void ota_wait_longer_remote_cb(lv_event_t *e)
  * list - user_data is -1 for the HELM row, 0..MD_MAX_ENGINES-1 for a
  * remote engine row. Reuses Phase 1's ota_start_download_cb() verbatim
  * for the HELM case (same event, still LV_EVENT_CLICKED). */
+/* The "Update All" button: send every out-of-date board its update command now (all at once - they
+ * each leave the network, join WiFi, download and restart on their own), then show progress until each
+ * is back on the new build, and finally update HELM itself. */
+static void ota_update_all_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (ota_win) { lv_obj_del(ota_win); ota_win = NULL; }
+
+    lvgl_port_lock(-1);
+    ota_win = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(ota_win, 460, 340);
+    lv_obj_center(ota_win);
+    lv_obj_set_style_bg_color(ota_win, lv_color_hex(0x102438), 0);
+    lv_obj_set_style_border_color(ota_win, lv_color_hex(0x33475c), 0);
+    lv_obj_clear_flag(ota_win, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(ota_win);
+    lv_label_set_text(title, "Updating");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
+
+    g_ua_label = lv_label_create(ota_win);
+    lv_obj_set_width(g_ua_label, 420);
+    lv_label_set_long_mode(g_ua_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_color(g_ua_label, lv_color_hex(0xcccccc), 0);
+    lv_obj_align(g_ua_label, LV_ALIGN_TOP_LEFT, 8, 50);
+
+    lv_obj_t *close = lv_btn_create(ota_win);
+    lv_obj_set_size(close, 420, 50);
+    lv_obj_align(close, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_obj_set_style_bg_color(close, lv_color_hex(0x33475c), 0);
+    lv_obj_add_event_cb(close, ota_close_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *close_l = lv_label_create(close);
+    lv_label_set_text(close_l, "Close (updates carry on)");
+    lv_obj_center(close_l);
+
+    g_ua_count = 0;
+    g_ua_active = false;
+    g_ua_helm_after = g_helm_update_available;
+    g_ua_helm_at_ms = 0;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        lv_label_set_text(g_ua_label,
+            "HELM has no active WiFi connection right now - cannot hand the network details to the other "
+            "boards or download anything.");
+        lvgl_port_unlock();
+        return;
+    }
+
+    String ssid = prefs_ok ? prefs.getString("ssid", "") : String("");
+    String pass = prefs_ok ? prefs.getString("pass", "") : String("");
+    uint8_t sent_mac[MD_MAX_ENGINES][6];
+    int sent_n = 0;
+    for (int i = 0; i < MD_MAX_ENGINES; i++) {
+        int slot = node_update_slot(i);
+        if (slot < 0 || !engines[i].present || engines[i].fw_build == 0 ||
+            engines[i].fw_build >= g_node_update[slot].build)
+            continue;
+        const node_update_t *nu = &g_node_update[slot];
+        g_ua_items[g_ua_count++] = { i, nu->build, false, false };
+
+        /* one command per physical radio: several engines on one ESP-NOW board are one board */
+        bool duplicate = false;
+        if (engine_slots[i].transport == BUS_TRANSPORT_ESPNOW) {
+            for (int k = 0; k < sent_n; k++)
+                if (md_mac_eq(sent_mac[k], engine_slots[i].espnow_peer_mac)) duplicate = true;
+            if (!duplicate) memcpy(sent_mac[sent_n++], engine_slots[i].espnow_peer_mac, 6);
+        }
+        if (!duplicate) {
+            ota_send_start(i, ssid.c_str(), pass.c_str(), nu->url, nu->md5);
+            Serial.printf("OTA: update all - command sent to engine %d (target build %lu)\n",
+                i, (unsigned long)nu->build);
+        }
+    }
+
+    g_ua_started_ms = millis();
+    g_ua_active = true;
+    if (g_ua_count == 0) g_ua_helm_at_ms = millis() + 1500;   /* only HELM itself to do */
+    lvgl_port_unlock();
+}
+
+/* every ui_tick(): watch the boards come back on their new build, show progress, then do HELM last */
+static void update_all_tick(void)
+{
+    if (!g_ua_active || !g_ua_label) return;
+    uint32_t now = millis();
+
+    bool unresolved = false, any_failed = false;
+    for (int k = 0; k < g_ua_count; k++) {
+        ua_item_t &it = g_ua_items[k];
+        if (!it.done && !it.failed) {
+            if (engines[it.engine].present && engines[it.engine].fw_build >= it.target_build)
+                it.done = true;
+            else if (now - g_ua_started_ms > UA_TIMEOUT_MS)
+                it.failed = true;
+        }
+        if (!it.done && !it.failed) unresolved = true;
+        if (it.failed) any_failed = true;
+    }
+
+    if (!unresolved && g_ua_helm_at_ms == 0) {
+        if (any_failed) {
+            g_ua_active = false;   /* leave HELM alone - something needs looking at first */
+        } else if (g_ua_helm_after) {
+            g_ua_helm_at_ms = now + 3000;
+        } else {
+            g_ua_active = false;
+        }
+    }
+
+    char buf[400];
+    int n = 0;
+    for (int k = 0; k < g_ua_count; k++) {
+        ua_item_t &it = g_ua_items[k];
+        n += snprintf(buf + n, sizeof(buf) - n, "%s: %s\n", engine_display_name(it.engine),
+            it.done ? "updated" : it.failed ? "NO RESPONSE" : "updating...");
+    }
+    if (g_ua_helm_after) {
+        n += snprintf(buf + n, sizeof(buf) - n, "HELM display: %s\n",
+            g_ua_helm_at_ms ? "updating now..." : "waiting for the boards");
+    }
+    if (!unresolved && any_failed)
+        n += snprintf(buf + n, sizeof(buf) - n,
+            "\nSome boards did not come back. The HELM display was NOT updated - check them first.");
+    else if (!unresolved && !g_ua_helm_after && g_ua_count)
+        n += snprintf(buf + n, sizeof(buf) - n, "\nAll boards updated.");
+    else if (g_ua_active)
+        n += snprintf(buf + n, sizeof(buf) - n, "\nThis takes a minute or two. Do not power anything off.");
+
+    static char last[400];
+    if (strcmp(buf, last) != 0) {
+        strncpy(last, buf, sizeof(last) - 1);
+        last[sizeof(last) - 1] = 0;
+        lv_label_set_text(g_ua_label, buf);
+        lv_refr_now(NULL);
+    }
+
+    if (g_ua_active && g_ua_helm_at_ms && now >= g_ua_helm_at_ms) {
+        g_ua_helm_at_ms = 0;
+        ota_helm_self_update();   /* ends in a restart on success; a failure shows its own result screen */
+    }
+}
+
 static void ota_device_update_cb(lv_event_t *e)
 {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
