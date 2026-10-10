@@ -59,7 +59,11 @@ bool joinSaved() {
     // fine - confirmed via isolation testing (scans/RSSI always good,
     // association/AP-broadcast both fail at default power, both work
     // reliably capped here). Not a dead radio, just can't run at max power.
-    WiFi.setTxPower(WIFI_POWER_8_5dBm);
+    // Measured later on the EngineControl C3 (receiver 30 cm away, power
+    // stepped in software): 19.5 dBm - the default - never transmits, 17 dBm
+    // and below always do, and the signal stops rising above 17. 15 dBm keeps
+    // a margin below that cliff (this was 8.5 dBm, which also works).
+    WiFi.setTxPower(WIFI_POWER_15dBm);
 
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED) {
@@ -79,7 +83,7 @@ void startAp() {
     WiFi.mode(WIFI_AP);
     delay(100);  // let the mode switch settle before softAP() - same reasoning as the STA-side fix
     bool ok = WiFi.softAP(s_apSsid.c_str());
-    WiFi.setTxPower(WIFI_POWER_8_5dBm);  // see the matching comment in joinSaved() - same fix, same reason
+    WiFi.setTxPower(WIFI_POWER_15dBm);  // see the matching comment in joinSaved() - same fix, same reason
     DebugLog::logf("wifi: softAP() returned %s, mode=%d", ok ? "true" : "false", (int)WiFi.getMode());
     DebugLog::logf("wifi: AP mode - SSID \"%s\", IP %s", s_apSsid.c_str(),
                     WiFi.softAPIP().toString().c_str());
