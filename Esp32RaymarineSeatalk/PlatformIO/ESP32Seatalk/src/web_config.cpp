@@ -1,25 +1,26 @@
 #include "web_config.h"
 
-#include <Update.h>
 #include <WebServer.h>
 #include <WiFi.h>
 
-#include "debug_log.h"
+#include <Tobe.h>
+#include <TobeLog.h>
+#include <TobeWeb.h>
+#include <TobeWifi.h>
+
 #include "demo_mode.h"
 #include "mqtt_manager.h"
-#include "ota_manager.h"
 #include "route_config.h"
+#include "rx_log.h"
 #include "seatalk_bus.h"
 #include "seatalk_decode.h"
 #include "signalk_manager.h"
-#include "wifi_manager.h"
 
 namespace WebConfig {
 
 namespace {
 
 WebServer server(80);
-OtaManager::UpdateInfo s_lastCheck;  // result of the last /ota/check, consumed by /ota/apply
 bool s_navCycling = false;           // see sendNavTestValues()/tick()
 uint32_t s_lastNavSend = 0;
 
@@ -62,89 +63,10 @@ const RouteRow kRouteRows[] = {
 };
 constexpr int kRouteRowCount = sizeof(kRouteRows) / sizeof(kRouteRows[0]);
 
-String htmlEscape(const String &s) {
-    String out = s;
-    out.replace("&", "&amp;");
-    out.replace("<", "&lt;");
-    out.replace(">", "&gt;");
-    out.replace("\"", "&quot;");
-    return out;
-}
+// The page frame (dark theme, "TOBE ESP32Seatalk" heading) and escaping are TobeWeb's.
+String htmlEscape(const String &s) { return tobe::web::escape(s); }
 
-// Dark mode, permanently - no light/dark switch, just always black. One
-// <style> block here rather than touching every inline style scattered
-// across the section-building functions below: those keep controlling
-// layout (widths/padding/spacing), this overrides colors globally so the
-// two don't fight each other.
-constexpr const char *kDarkStyle =
-    "<style>"
-    "body{background:#000;color:#e6e6e6}"
-    "a{color:#6ab0ff}"
-    "input,select,textarea{background:#1a1a1a;color:#e6e6e6;border:1px solid #444}"
-    "button{background:#1e1e1e;color:#e6e6e6;border:1px solid #555}"
-    "button:hover{background:#2a2a2a}"
-    "hr{border-color:#333}"
-    "table{border-color:#333}"
-    "h1,h2,h3,h4{color:#fff}"
-    "</style>";
-
-String pageWrap(const String &title, const String &body) {
-    String html = "<!DOCTYPE html><html><head><meta charset='utf-8'>";
-    html += "<meta name='viewport' content='width=device-width, initial-scale=1'>";
-    html += "<title>" + title + "</title>";
-    html += kDarkStyle;
-    html += "</head><body style='font-family:sans-serif;max-width:480px;margin:2em auto;padding:0 1em'>";
-    html += "<h2>ESP32Seatalk</h2>";
-    html += body;
-    html += "</body></html>";
-    return html;
-}
-
-String wifiJoinForm() {
-    // Synchronous scan - blocks a couple seconds, acceptable for a page
-    // that's loaded once during setup rather than polled.
-    int n = WiFi.scanNetworks();
-    String options;
-    for (int i = 0; i < n; i++) {
-        options += "<option value='" + htmlEscape(WiFi.SSID(i)) + "'>" + htmlEscape(WiFi.SSID(i)) +
-                   " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
-    }
-    WiFi.scanDelete();
-
-    String body = "<p>In setup mode - connected to <b>" + WifiManager::apSsid() +
-                  "</b>. Pick a network to join:</p>";
-    body += "<form method='POST' action='/wifi/save'>";
-    body += "<select name='ssid' style='width:100%;padding:.5em;margin:.3em 0'>" + options + "</select>";
-    body += "<input name='pass' type='password' placeholder='Password' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
-    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.5em'>Join &amp; restart</button>";
-    body += "</form>";
-    return body;
-}
-
-String otaSection() {
-    String body = "<hr><h3>Firmware</h3><p>Running build " + String(FW_BUILD) + "</p>";
-    if (s_lastCheck.available) {
-        body += "<p>Update available: build " + String(s_lastCheck.build) + "</p>";
-        body += "<a href='/ota/apply'><button style='width:100%;padding:.6em'>Update now</button></a>";
-    } else {
-        body += "<a href='/ota/check'><button style='width:100%;padding:.6em'>Check for updates (github)</button></a>";
-    }
-    // Direct local upload, alongside the GitHub-manifest path above, not
-    // instead of it - GitHub Releases stays the real distribution
-    // mechanism (and the only one once this is out of dev and unattended
-    // on a boat), this is purely a fast path for iterating during
-    // development without a publish+CDN-cache round trip each time. No
-    // MD5 check on this path - it's a direct, deliberate local upload
-    // over the LAN, not a fetch from the open internet, so the same
-    // integrity concern the GitHub path (see ota_manager.cpp) exists for
-    // doesn't really apply here.
-    body += "<h4 style='margin-top:1em'>Manual update</h4>";
-    body += "<form method='POST' action='/ota/upload' enctype='multipart/form-data'>";
-    body += "<input type='file' name='firmware' accept='.bin' style='width:100%'>";
-    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Perform local update</button>";
-    body += "</form>";
-    return body;
-}
+String pageWrap(const String &title, const String &body) { return tobe::web::page(title, body); }
 
 String mqttSection() {
     String body = "<hr><h3>MQTT</h3>";
@@ -256,18 +178,106 @@ String demoSection() {
     return body;
 }
 
+// ---- received-messages page ------------------------------------------------------------------------------------
+// /messages shows what each bus has delivered (see rx_log.h): newest first, refreshed every 2 s, filterable by bus.
+//   /messages                 everything, newest 200
+//   /messages?src=can         one bus: seatalk | can | mqtt | signalk
+//   /messages?n=400           show more (up to RxLog::kPerSource per bus)
+//   /messages?pause=1         stop the automatic refresh (to read it, or copy from it)
+//   /messages.txt             the same as plain text (curl, a log file)
+// The page is streamed in chunks, so it does not need the whole table in memory at once.
+uint8_t messagesSourceMask() {
+    String want = server.arg("src");
+    for (int i = 0; i < RxLog::kSourceCount; i++) {
+        if (want.equalsIgnoreCase(RxLog::sourceName((RxLog::Source)i))) return (uint8_t)(1 << i);
+    }
+    return (uint8_t)((1 << RxLog::kSourceCount) - 1);
+}
+
+void streamMessages(bool plain) {
+    const uint8_t mask = messagesSourceMask();
+    int limit = server.hasArg("n") ? server.arg("n").toInt() : 200;
+    if (limit < 1) limit = 1;
+    if (limit > (int)(RxLog::kPerSource * RxLog::kSourceCount)) limit = RxLog::kPerSource * RxLog::kSourceCount;
+
+    server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+    server.send(200, plain ? "text/plain; charset=utf-8" : "text/html", "");
+
+    RxLog::Entry e;
+    uint32_t before = UINT32_MAX;
+    int shown = 0;
+
+    if (plain) {
+        char line[RxLog::kTextMax + 40];
+        while (shown < limit && RxLog::findOlder(mask, before, &e)) {
+            before = e.seq;
+            snprintf(line, sizeof(line), "%lu.%03lu %-7s %s\n", (unsigned long)(e.ms / 1000), (unsigned long)(e.ms % 1000),
+                     RxLog::sourceName(e.src), e.text);
+            server.sendContent(line);
+            shown++;
+        }
+        server.sendContent("");
+        return;
+    }
+
+    const bool pause = server.hasArg("pause");
+    // The links keep the current choice of bus; "n" is kept too.
+    String srcArg = server.arg("src");
+    String keep = (srcArg.length() ? "src=" + srcArg + "&" : String()) + (server.hasArg("n") ? "n=" + server.arg("n") + "&" : String());
+
+    String head = tobe::web::pageHead("Received messages", pause ? String() : String("<meta http-equiv='refresh' content='2'>"));
+    head += "<p>";
+    head += "<a href='/messages'>All</a>";
+    for (int i = 0; i < RxLog::kSourceCount; i++) {
+        const char *name = RxLog::sourceName((RxLog::Source)i);
+        head += String(" &middot; <a href='/messages?src=") + name + "'>" + name + "</a>";
+    }
+    head += String(" &middot; ") + (pause ? "<a href='/messages?" + keep + "'>Resume</a>" : "<a href='/messages?" + keep + "pause=1'>Pause</a>");
+    head += " &middot; <a href='/messages.txt?" + keep + "'>text</a> &middot; <a href='/'>back</a></p>";
+    head += "<p><small>Since boot:";
+    for (int i = 0; i < RxLog::kSourceCount; i++) {
+        head += String(i ? "," : "") + " " + RxLog::sourceName((RxLog::Source)i) + " " + String((unsigned long)RxLog::total((RxLog::Source)i));
+    }
+    head += ". Newest first; each bus keeps its last " + String((unsigned)RxLog::kPerSource) + ". Times are seconds since boot.</small></p>";
+    head += "<table style='font-family:monospace;font-size:.85em;width:100%'><tr><th>time<th>bus<th>message</tr>";
+    server.sendContent(head);
+
+    String chunk;
+    chunk.reserve(1800);
+    while (shown < limit && RxLog::findOlder(mask, before, &e)) {
+        before = e.seq;
+        char t[24];
+        snprintf(t, sizeof(t), "%lu.%03lu", (unsigned long)(e.ms / 1000), (unsigned long)(e.ms % 1000));
+        chunk += String("<tr><td>") + t + "<td>" + RxLog::sourceName(e.src) + "<td>" + htmlEscape(String(e.text)) + "</tr>";
+        shown++;
+        if (chunk.length() > 1500) {
+            server.sendContent(chunk);
+            chunk = "";
+        }
+    }
+    chunk += "</table>";
+    if (shown == 0) chunk += "<p>Nothing received yet.</p>";
+    chunk += tobe::web::pageTail();
+    server.sendContent(chunk);
+    server.sendContent("");
+}
+
+void handleMessages() { streamMessages(false); }
+void handleMessagesText() { streamMessages(true); }
+
 void handleRoot() {
     String body;
-    if (WifiManager::currentMode() == WifiManager::Mode::AP) {
-        body = wifiJoinForm();
+    if (tobe::wifi::mode() == tobe::wifi::Mode::AP) {
+        body = "<p>Setup network <b>" + tobe::wifi::apSsid() + "</b>. Join a WiFi network below to get the rest.</p>";
+        body += tobe::web::systemSection();
     } else {
         body = "<p>Joined WiFi. IP: <b>" + WiFi.localIP().toString() + "</b></p>";
-        body += otaSection();
+        body += "<p><a href='/messages'><button style='width:100%;padding:.6em'>Received messages (live)</button></a></p>";
         body += mqttSection();
         body += signalkSection();
         body += routeSection();
     }
-    if (WifiManager::currentMode() == WifiManager::Mode::STA) {
+    if (tobe::wifi::mode() == tobe::wifi::Mode::STA) {
         body += "<hr><h3>Test/Debug SeaTalk</h3>";
         body += "<p><a href='/seatalk/test-lamp'><button style='width:100%;padding:.6em'>"
                 "Test: cycle instrument lamp</button></a></p>";
@@ -280,16 +290,11 @@ void handleRoot() {
         }
         body += demoSection();
     }
-    // No USB once this is plugged into a real SeaTalk bus (it shares 3.3V
-    // with the bus itself) - this page is the only diagnostic surface
-    // that'll exist in the field, so the log link belongs on every page,
-    // not just once things go wrong.
-    body += "<hr><p><a href='/log'>View debug log</a></p>";
-    server.send(200, "text/html", pageWrap("ESP32Seatalk setup", body));
-}
-
-void handleLog() {
-    server.send(200, "text/plain; charset=utf-8", DebugLog::recentLines());
+    // No USB once this is plugged into a real SeaTalk bus (it shares 3.3V with the bus itself) - this page is
+    // the only diagnostic surface that'll exist in the field, so firmware update, WiFi, the log and restart
+    // (TobeWeb's system section) belong on the page in STA mode too, not just once things go wrong.
+    if (tobe::wifi::mode() == tobe::wifi::Mode::STA) body += tobe::web::systemSection();
+    server.send(200, "text/html", pageWrap("Status", body));
 }
 
 // Quick physical-confirmation trigger for testing TX against a real
@@ -305,7 +310,7 @@ void handleTestLamp() {
     for (uint8_t level : levels) {
         uint8_t data[] = {0x00, level};
         SeatalkBus::send(0x30, data, sizeof(data));
-        DebugLog::logf("seatalk: sent lamp level 0x%02X", level);
+        tobe::logf("seatalk: sent lamp level 0x%02X", level);
         delay(1200);
     }
 }
@@ -338,7 +343,7 @@ void sendNavTestValues() {
     uint8_t depth[] = {0x02, 0x00, 0x9B, 0x00};
     SeatalkBus::send(0x00, depth, sizeof(depth));
 
-    DebugLog::logf("seatalk: sent nav test cycle (wind 45.0deg/12.5kn, speed 6.5kn, depth 15.5ft)");
+    tobe::logf("seatalk: sent nav test cycle (wind 45.0deg/12.5kn, speed 6.5kn, depth 15.5ft)");
 }
 
 void handleTestNavDataStart() {
@@ -417,95 +422,24 @@ void handleRouteSave() {
     server.send(303);
 }
 
-void handleWifiSave() {
-    if (!server.hasArg("ssid") || server.arg("ssid").isEmpty()) {
-        server.send(400, "text/plain", "missing ssid");
-        return;
-    }
-    String ssid = server.arg("ssid");
-    String pass = server.hasArg("pass") ? server.arg("pass") : "";
-    server.send(200, "text/html",
-                pageWrap("Restarting...", "<p>Saved. Restarting to join <b>" + htmlEscape(ssid) + "</b>...</p>"));
-    WifiManager::saveCredentialsAndReboot(ssid, pass);  // does not return
-}
-
-void handleOtaCheck() {
-    s_lastCheck = OtaManager::checkForUpdate();
-    server.sendHeader("Location", "/");
-    server.send(303);
-}
-
-void handleOtaApply() {
-    if (!s_lastCheck.available) {
-        server.sendHeader("Location", "/");
-        server.send(303);
-        return;
-    }
-    server.send(200, "text/html", pageWrap("Updating...", "<p>Downloading and flashing build " +
-                                                                String(s_lastCheck.build) +
-                                                                "... device will restart on success.</p>"));
-    OtaManager::applyUpdate(s_lastCheck);  // reboots on success; on failure, falls through
-    s_lastCheck = OtaManager::UpdateInfo{};
-}
-
-// Runs once the whole upload request has been received - just reports
-// what handleOtaUploadChunk() below already did and reboots on success.
-void handleOtaUploadDone() {
-    if (Update.hasError()) {
-        server.send(200, "text/html",
-                     pageWrap("Upload failed", "<p>Nothing was changed - still running build " +
-                                                    String(FW_BUILD) + ".</p>"));
-        return;
-    }
-    server.send(200, "text/html", pageWrap("Upload OK", "<p>Flashed OK, restarting...</p>"));
-    delay(500);
-    ESP.restart();
-}
-
-// Streams in as the upload arrives - WebServer's two-callback upload
-// pattern (see begin()'s server.on() call below): this one fires
-// repeatedly as chunks come in, handleOtaUploadDone() above fires once
-// after the full request completes.
-void handleOtaUploadChunk() {
-    HTTPUpload &upload = server.upload();
-    if (upload.status == UPLOAD_FILE_START) {
-        DebugLog::logf("ota: direct upload starting: %s", upload.filename.c_str());
-        if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-            DebugLog::logf("ota: Update.begin() failed: %s", Update.errorString());
-        }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-            DebugLog::logf("ota: Update.write() failed: %s", Update.errorString());
-        }
-    } else if (upload.status == UPLOAD_FILE_END) {
-        if (Update.end(true)) {
-            DebugLog::logf("ota: direct upload OK, %u bytes, restarting", upload.totalSize);
-        } else {
-            DebugLog::logf("ota: Update.end() failed: %s", Update.errorString());
-        }
-    }
-}
-
 }  // namespace
 
 void begin() {
     server.on("/", HTTP_GET, handleRoot);
-    server.on("/wifi/save", HTTP_POST, handleWifiSave);
+    server.on("/messages", HTTP_GET, handleMessages);
+    server.on("/messages.txt", HTTP_GET, handleMessagesText);
     server.on("/mqtt/save", HTTP_POST, handleMqttSave);
     server.on("/signalk/save", HTTP_POST, handleSignalkSave);
     server.on("/route/save", HTTP_POST, handleRouteSave);
-    server.on("/ota/check", HTTP_GET, handleOtaCheck);
-    server.on("/ota/apply", HTTP_GET, handleOtaApply);
-    server.on("/ota/upload", HTTP_POST, handleOtaUploadDone, handleOtaUploadChunk);
-    server.on("/log", HTTP_GET, handleLog);
     server.on("/seatalk/test-lamp", HTTP_GET, handleTestLamp);
     server.on("/seatalk/test-nav-data/start", HTTP_GET, handleTestNavDataStart);
     server.on("/seatalk/test-nav-data/stop", HTTP_GET, handleTestNavDataStop);
     server.on("/demo/start-cycling", HTTP_POST, handleDemoStartCycling);
     server.on("/demo/start-manual", HTTP_POST, handleDemoStartManual);
     server.on("/demo/stop", HTTP_GET, handleDemoStop);
+    tobe::web::attach(server);
     server.begin();
-    DebugLog::logf("web: config server listening on port 80");
+    tobe::logf("web: config server listening on port 80");
 }
 
 void handleClient() { server.handleClient(); }

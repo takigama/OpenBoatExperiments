@@ -2,7 +2,7 @@
 
 #include <math.h>
 
-#include "debug_log.h"
+#include <TobeLog.h>
 #include "seatalk_encode.h"
 
 namespace DemoMode {
@@ -128,7 +128,7 @@ void startCycling() {
     s_mode = Mode::Cycling;
     s_secondsElapsed = 0;
     s_lastTick = 0;
-    DebugLog::logf("demo: started (cycling)");
+    tobe::logf("demo: started (cycling)");
 }
 
 void setManualValue(Object obj, double v1, double v2) {
@@ -149,12 +149,12 @@ void setManualValue(Object obj, double v1, double v2) {
 void startManual() {
     s_mode = Mode::Manual;
     s_lastTick = 0;
-    DebugLog::logf("demo: started (manual)");
+    tobe::logf("demo: started (manual)");
 }
 
 void stop() {
     s_mode = Mode::Off;
-    DebugLog::logf("demo: stopped");
+    tobe::logf("demo: stopped");
 }
 
 bool isEnabled(Object obj) { return s_enabled[(int)obj]; }

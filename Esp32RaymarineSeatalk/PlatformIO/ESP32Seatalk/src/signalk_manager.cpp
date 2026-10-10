@@ -5,7 +5,9 @@
 #include <WebSocketsClient.h>
 #include <WiFi.h>
 
-#include "debug_log.h"
+#include <TobeLog.h>
+
+#include "rx_log.h"
 #include "mqtt_manager.h"
 #include "route_config.h"
 
@@ -52,7 +54,8 @@ void relayValue(SeatalkDecode::Type type, double value) {
     SeatalkDecode::Event ev;
     ev.type = type;
     ev.value = value;
-    DebugLog::logf("signalk: rx type=%d value=%.3f", (int)type, value);
+    tobe::logf("signalk: rx type=%d value=%.3f", (int)type, value);
+    RxLog::addEvent(RxLog::Source::SignalK, ev);
     RouteConfig::relay(RouteConfig::Bus::SignalK, ev);
 }
 
@@ -61,7 +64,8 @@ void relayHeadingAndRudder() {
     ev.type = SeatalkDecode::Type::HeadingAndRudder;
     ev.value = s_rxHeading;
     ev.value2 = s_rxRudder;
-    DebugLog::logf("signalk: rx heading=%.3f rudder=%.3f", s_rxHeading, s_rxRudder);
+    tobe::logf("signalk: rx heading=%.3f rudder=%.3f", s_rxHeading, s_rxRudder);
+    RxLog::addEvent(RxLog::Source::SignalK, ev);
     RouteConfig::relay(RouteConfig::Bus::SignalK, ev);
 }
 
@@ -99,7 +103,8 @@ void handleDelta(uint8_t *payload, size_t length) {
                     ev.year = year;
                     ev.month = month;
                     ev.day = day;
-                    DebugLog::logf("signalk: rx date = %s", dateStr);
+                    tobe::logf("signalk: rx date = %s", dateStr);
+                    RxLog::addEvent(RxLog::Source::SignalK, ev);
                     RouteConfig::relay(RouteConfig::Bus::SignalK, ev);
                 }
                 continue;
@@ -130,11 +135,11 @@ void onWsEvent(WStype_t type, uint8_t *payload, size_t length) {
     switch (type) {
         case WStype_CONNECTED:
             s_connected = true;
-            DebugLog::logf("signalk: connected to %s:%u", s_host.c_str(), s_port);
+            tobe::logf("signalk: connected to %s:%u", s_host.c_str(), s_port);
             break;
         case WStype_DISCONNECTED:
             s_connected = false;
-            DebugLog::logf("signalk: disconnected");
+            tobe::logf("signalk: disconnected");
             break;
         case WStype_TEXT:
             MqttManager::publishRawBus("signalk", payload, length);
@@ -257,7 +262,7 @@ void saveConfig(const String &host, uint16_t port) {
     s_port = port;
     s_connected = false;
     applyConfig();
-    DebugLog::logf("signalk: config saved (%s:%u)", s_host.c_str(), s_port);
+    tobe::logf("signalk: config saved (%s:%u)", s_host.c_str(), s_port);
 }
 
 String configHost() { return s_host; }

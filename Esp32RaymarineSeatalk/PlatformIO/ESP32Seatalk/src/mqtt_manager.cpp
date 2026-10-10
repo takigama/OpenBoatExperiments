@@ -4,7 +4,9 @@
 #include <PubSubClient.h>
 #include <WiFi.h>
 
-#include "debug_log.h"
+#include <TobeLog.h>
+
+#include "rx_log.h"
 #include "n2k_manager.h"
 #include "route_config.h"
 #include "signalk_manager.h"
@@ -114,7 +116,8 @@ void publishValue(const String &subPath, const String &payload) {
 void handleRawSend(const String &rawSource, const String &payloadStr) {
     uint8_t buf[256];
     size_t n = hexDecode(payloadStr, buf, sizeof(buf));
-    DebugLog::logf("mqtt: rx raw/%s/send (%u bytes)", rawSource.c_str(), (unsigned)n);
+    tobe::logf("mqtt: rx raw/%s/send (%u bytes)", rawSource.c_str(), (unsigned)n);
+    RxLog::add(RxLog::Source::Mqtt, "raw/%s/send (%u bytes)", rawSource.c_str(), (unsigned)n);
 
     if (rawSource == "seatalk") {
         if (n < 1) return;  // need at least a command byte
@@ -162,7 +165,8 @@ void handleMessage(char *topic, uint8_t *payload, unsigned int length) {
             ev.type = SeatalkDecode::Type::HeadingAndRudder;
             ev.value = s_rxHeading;
             ev.value2 = s_rxRudder;
-            DebugLog::logf("mqtt: rx %s = %.3f", topic, value);
+            tobe::logf("mqtt: rx %s = %.3f", topic, value);
+            RxLog::addEvent(RxLog::Source::Mqtt, ev, topic);
             RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
         }
         return;
@@ -175,7 +179,8 @@ void handleMessage(char *topic, uint8_t *payload, unsigned int length) {
             ev.type = SeatalkDecode::Type::HeadingAndRudder;
             ev.value = s_rxHeading;
             ev.value2 = s_rxRudder;
-            DebugLog::logf("mqtt: rx %s = %.3f", topic, value);
+            tobe::logf("mqtt: rx %s = %.3f", topic, value);
+            RxLog::addEvent(RxLog::Source::Mqtt, ev, topic);
             RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
         }
         return;
@@ -188,7 +193,8 @@ void handleMessage(char *topic, uint8_t *payload, unsigned int length) {
             ev.year = year;
             ev.month = month;
             ev.day = day;
-            DebugLog::logf("mqtt: rx %s = %s", topic, payloadStr.c_str());
+            tobe::logf("mqtt: rx %s = %s", topic, payloadStr.c_str());
+            RxLog::addEvent(RxLog::Source::Mqtt, ev, topic);
             RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
         }
         return;
@@ -202,7 +208,8 @@ void handleMessage(char *topic, uint8_t *payload, unsigned int length) {
     SeatalkDecode::Event ev;
     ev.type = type;
     ev.value = value;
-    DebugLog::logf("mqtt: rx %s = %.3f", topic, value);
+    tobe::logf("mqtt: rx %s = %.3f", topic, value);
+    RxLog::addEvent(RxLog::Source::Mqtt, ev, topic);
     RouteConfig::relay(RouteConfig::Bus::Mqtt, ev);
 }
 
@@ -226,11 +233,11 @@ void tick() {
 
     String clientId = "esp32seatalk-" + String((uint32_t)ESP.getEfuseMac(), HEX);
     if (s_client.connect(clientId.c_str())) {
-        DebugLog::logf("mqtt: connected to %s:%u", s_host.c_str(), s_port);
+        tobe::logf("mqtt: connected to %s:%u", s_host.c_str(), s_port);
         s_client.subscribe(setTopicFilter().c_str());
         s_client.subscribe(rawSendTopicFilter().c_str());
     } else {
-        DebugLog::logf("mqtt: connect failed, state=%d", s_client.state());
+        tobe::logf("mqtt: connect failed, state=%d", s_client.state());
     }
 }
 
@@ -248,7 +255,7 @@ void saveConfig(const String &host, uint16_t port, const String &baseTopic) {
     s_baseTopic = baseTopic.isEmpty() ? "esp32seatalk" : baseTopic;
     s_client.disconnect();
     applyConfig();
-    DebugLog::logf("mqtt: config saved (%s:%u, base \"%s\")", s_host.c_str(), s_port, s_baseTopic.c_str());
+    tobe::logf("mqtt: config saved (%s:%u, base \"%s\")", s_host.c_str(), s_port, s_baseTopic.c_str());
 }
 
 String configHost() { return s_host; }

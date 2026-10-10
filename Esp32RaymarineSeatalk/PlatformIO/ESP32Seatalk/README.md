@@ -23,22 +23,24 @@ transceiver module, whose CANH/CANL then go out to connector J3.
 
 ## Building and flashing
 
-Everything is built inside a pinned Docker image (`Dockerfile`) rather than
-relying on a host toolchain:
+Everything is built inside the repository's one pinned Docker image rather than relying on a host
+toolchain - from the repository root:
 
 ```bash
-docker build -t esp32seatalk-build .
-docker run --rm -v "$(pwd):/work" esp32seatalk-build pio run
+build/build.sh ESP32Seatalk      # -> build/firmware/TOBE-ESP32Seatalk-v<N>.bin
 ```
+
+(see [`build/README.md`](../../../build/README.md); the web pages, WiFi, OTA, log and the serial command
+line are the shared TOBE libraries in [`lib/`](../../../lib/README.md)).
 
 Flashing has two paths:
 
 - **GitHub-hosted OTA** (canonical, used once the board is deployed):
   `ota/manifest.json` in this repo carries `{build, url, md5}` for the
-  current release. The device checks it against its own `FW_BUILD`
-  (`platformio.ini`) on boot and via the web UI's "Check for updates
+  current release (written by `build/release.sh`). The device checks it against its own `FW_BUILD`
+  (its `version` in `build/projects.json`) on boot and via the web UI's "Check for updates
   (github)" button, downloads over HTTPS (`setInsecure()` - see
-  `ota_manager.h` for why), and verifies the MD5 before flashing.
+  `lib/TobeOta/src/TobeOta.h` for why), and verifies the MD5 before flashing.
 - **Direct upload** (fast iteration): the web UI's Firmware section has a
   "Manual update" file-upload form ("Perform local update") that POSTs a
   `.bin` straight to `/ota/upload` - no MD5 check needed, since it's a
@@ -59,16 +61,18 @@ Everything lives at `/` on the board's IP:
 | Path | Purpose |
 |---|---|
 | `/` | Main config page - all sections below |
-| `/wifi/save` (POST) | Save WiFi credentials, reboot to join |
+| `/messages` | **Received messages, live**: what SeaTalk, CAN (NMEA2000), MQTT and SignalK have delivered, newest first, refreshed every 2 s. Each bus keeps its own last 120 (a busy CAN bus can't push the SeaTalk lines out). `?src=seatalk\|can\|mqtt\|signalk` filters to one bus, `?n=400` shows more, `?pause=1` stops the refresh. SeaTalk lines show the decoded value and the raw datagram; CAN lines show each PGN with its source address and first data bytes, plus a decoded line when we understand it |
+| `/messages.txt` | The same as plain text (same `src` / `n` options) - for `curl` or saving to a file |
+| `/sys/wifi` (POST) | Save WiFi credentials, reboot to join |
 | `/mqtt/save` (POST) | Save MQTT broker host/port/base topic |
 | `/signalk/save` (POST) | Save SignalK server host/port |
 | `/route/save` (POST) | Save the routing matrix |
-| `/ota/check`, `/ota/apply` | GitHub-manifest OTA check/apply |
-| `/ota/upload` (POST, multipart) | Direct firmware upload |
+| `/sys/ota/check`, `/sys/ota/apply` | GitHub-manifest OTA check/apply |
+| `/sys/upload` (POST, multipart) | Direct firmware upload |
 | `/demo/start-cycling`, `/demo/start-manual`, `/demo/stop` (POST/GET) | Demo mode |
 | `/seatalk/test-lamp` | Cycles the lamp command (0x30) on/off - visible physical confirmation on a real instrument |
 | `/seatalk/test-nav-data/start`, `/.../stop` | Continuous 1Hz synthetic wind/speed/depth send, for validating TX against real instruments |
-| `/log` | Plain-text tail of the debug log ring buffer - the only diagnostic surface once the board is on a real SeaTalk bus (USB shares 3.3V with the bus, can't have both connected) |
+| `/sys/log` | Plain-text tail of the debug log ring buffer - the only diagnostic surface once the board is on a real SeaTalk bus (USB shares 3.3V with the bus, can't have both connected) |
 
 **Demo mode** (`demo_mode.h`) has two mutually-exclusive modes, sharing one
 per-object enable checkbox set:

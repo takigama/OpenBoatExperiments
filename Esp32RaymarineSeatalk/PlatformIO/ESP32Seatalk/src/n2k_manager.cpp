@@ -4,7 +4,9 @@
 #include <NMEA2000.h>
 #include <string.h>
 
-#include "debug_log.h"
+#include <TobeLog.h>
+
+#include "rx_log.h"
 #include "mqtt_manager.h"
 #include "n2k_twai_driver.h"
 #include "route_config.h"
@@ -60,7 +62,8 @@ int32_t daysSince1970(int y, int m, int d) {
 // the user's enabled Can->SeaTalk for this object type - never back onto
 // CAN itself (would just echo a device's own PGN back at it).
 void relay(const SeatalkDecode::Event &ev) {
-    DebugLog::logf("n2k: rx type=%d value=%.3f value2=%.3f", (int)ev.type, ev.value, ev.value2);
+    tobe::logf("n2k: rx type=%d value=%.3f value2=%.3f", (int)ev.type, ev.value, ev.value2);
+    RxLog::addEvent(RxLog::Source::Can, ev, "decoded");
     RouteConfig::relay(RouteConfig::Bus::Can, ev);
 }
 
@@ -89,6 +92,11 @@ void publishRawCan(const tN2kMsg &N2kMsg) {
 
 void handleN2kMsg(const tN2kMsg &N2kMsg) {
     publishRawCan(N2kMsg);
+    {
+        char h[40];
+        RxLog::hex(N2kMsg.Data, N2kMsg.DataLen, 8, h, sizeof(h));
+        RxLog::add(RxLog::Source::Can, "PGN %lu from %u [%s]", (unsigned long)N2kMsg.PGN, (unsigned)N2kMsg.Source, h);
+    }
     unsigned char sid;
     switch (N2kMsg.PGN) {
         case 128259UL: {  // Speed (water referenced)
@@ -250,7 +258,7 @@ void begin() {
     s_n2k.SetMsgHandler(handleN2kMsg);
     s_n2k.Open();
     s_open = true;
-    DebugLog::logf("n2k: CAN bus opened on TX=GPIO%d RX=GPIO%d (unverified - no N2K bus available to test against)",
+    tobe::logf("n2k: CAN bus opened on TX=GPIO%d RX=GPIO%d (unverified - no N2K bus available to test against)",
                     (int)kCanTxPin, (int)kCanRxPin);
 }
 
