@@ -8,44 +8,41 @@ boards + 1 "alarmer" unit (speaker/buzzer, reacts to alarm flags, honors
 second physical node, instead of only the HELM's own local
 (software-only) fake-engine debug page.
 
-This is a sibling Arduino sketch to `../engine_display`, not part of it -
-separate folder, separate `.ino`, compiles/flashes independently.
+This is a sibling project to `../engine_display`, not part of it - separate folder, separate sketch
+(`src/can_sim.ino`), its own `platformio.ini`, builds independently.
 
 ## Build / flash
 
-- Arduino IDE (or arduino-cli), board **ESP32S3 Dev Module**
-- Board: Waveshare **ESP32-S3-Zero** (ESP32-S3FH4R2 - 4MB flash, 2MB
-  **quad** PSRAM - NOT the octal PSRAM the HELM board's N16R8 uses, so
-  none of `engine_display`'s PSRAM/bounce-buffer constraints apply here)
-- Flash size: 4MB. PSRAM: not used by this sketch - leave disabled.
-- **Partition Scheme: "Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS)"**
-  - explicitly pinned, not left on whatever the Arduino IDE happens to
-  default to. This is the one 4MB scheme with a **2x1.25MB `ota_0`/
-  `ota_1` pair**, which is what makes this board OTA-capable at all (see
-  "OTA updates" below) - other 4MB schemes (e.g. "No OTA (2MB APP/2MB
-  SPIFFS)") have only one app partition and silently break `Update.h`.
-  Was previously left unpinned/implicit; confirm this is actually
-  selected in Tools -> Partition Scheme before flashing, don't assume.
-- **USB CDC On Boot: ENABLED** - this board uses the ESP32-S3's native
-  USB (unlike the HELM board, which goes over a CH340 UART bridge and
-  needs this DISABLED). Getting this backwards means no Serial output.
-- Libraries: TWAI driver, WiFi, WebServer, Preferences, HTTPClient,
-  HTTPUpdate, Update - all bundled with the ESP32 Arduino core, nothing
-  extra to install. **ArduinoJson is NOT a dependency here** - unlike
-  HELM, `can_sim` never parses the manifest itself, only receives an
-  already-resolved URL from HELM over `MSG_OTA_START` (see below). No
-  LVGL, no display panel library - there's no screen on this board at all.
+From the repository root (see `../../build/README.md`):
+
+```
+build/build.sh EngineControl-CanSim-C3         # ESP32-C3         -> build/firmware/TOBE-EngineControl-CanSim-C3-v<N>.bin
+build/build.sh EngineControl-CanSim-S3Zero     # ESP32-S3-Zero    -> build/firmware/TOBE-EngineControl-CanSim-S3Zero-v<N>.bin
+```
+
+PlatformIO + the Arduino framework (arduino-esp32 3.3), two environments in `platformio.ini`: `c3` and `s3zero`.
+The build number, the firmware name and the OTA manifest entry come from `build/projects.json`, not the sketch.
+
+- **ESP32-S3-Zero** (Waveshare, ESP32-S3FH4R2 - 4MB flash, 2MB **quad** PSRAM - NOT the octal PSRAM the HELM board's
+  N16R8 uses, so none of `engine_display`'s PSRAM/bounce-buffer constraints apply here). 4MB flash, PSRAM unused.
+  **Partition scheme `default.csv`** ("Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS)"): the one 4MB scheme with a
+  **2x1.25MB `ota_0`/`ota_1` pair**, which is what makes this board OTA-capable at all (see "OTA updates" below) -
+  other 4MB schemes have only one app partition and silently break `Update.h`. The image is ~85% of a slot.
+  **USB CDC On Boot: ENABLED** - this board uses the ESP32-S3's native USB (set in the `s3zero` environment).
+- **ESP32-C3**: 1.9MB slots (`min_spiffs`), image ~61%; USB serial through the chip's native USB; WiFi transmit power
+  is capped at 15 dBm by `TobeWifi` (see `engine_display/CLAUDE.md`).
+- Libraries: the TOBE libraries in `../../lib/` (command line, setup page, OTA, WiFi, the ESP-NOW secret) and what
+  ships with the core (TWAI, WiFi, WebServer, Preferences). ArduinoJson comes in through `TobeOta`, but `can_sim`
+  never parses the manifest itself - it only receives an already-resolved URL from HELM over `MSG_OTA_START`.
+  No LVGL, no display panel library - there's no screen on this board at all.
 
 ## Files
 
-- `can_sim.ino` — the whole sketch (framework stage - see below)
-- `can_protocol.h` — **copy** of `../engine_display/can_protocol.h`. Arduino
-  sketches can't share files across folders, so this is duplicated by
-  hand. Keep both copies byte-identical; diff them if unsure which
-  changed last. A comment at the top of each copy points at the other.
-- `espnow_pairing.h` — **copy** of `../engine_display/espnow_pairing.h`,
-  same duplication discipline. ESP-NOW pairing constants/message struct -
-  see "ESP-NOW pairing" below.
+- `src/can_sim.ino` — the whole sketch (framework stage - see below)
+- `../common/can_protocol.h` — the bus protocol, **shared** with `engine_display` (one copy; it used to be duplicated
+  by hand). `../common/wired_bus.h` likewise.
+- `lib/TobeFleet/` (`espnow_pairing.h`, `espnow_bus.h`, `fleet_security.h`, `TobeFleetUi.h`) — ESP-NOW constants /
+  frame layout / the shared secret; see "ESP-NOW pairing" below.
 
 ## Pins (ESP32-S3-Zero)
 
@@ -374,7 +371,7 @@ reports its own `FW_BUILD` (packed into `ANNOUNCE`'s `[5..6]` bytes,
 `sim_engine_send_announce()`) and its hardware (`HW_ID`, byte `[7]` -
 HELM uses it to pick this board's image out of the manifest; a new chip
 or board needs its own `HW_*` id, see `can_protocol.h`, and a variant in
-`../tools/devices.json`) and reacts when HELM decides an update is
+`build/projects.json`) and reacts when HELM decides an update is
 due and pushes one down. See `../engine_display/CLAUDE.md`'s "OTA
 updates" section (Phase 2) for HELM's side of this - this section covers
 only what happens here.

@@ -53,7 +53,16 @@
  */
 
 #include "board_select.h"
+/* Everything printed with Serial.* in this file goes through tobe::console (CR LF line ends, and a copy kept for
+ * the web log at /serial). The define must come before any code that prints. */
+#define TOBE_REDIRECT_SERIAL
 #include <Arduino.h>
+#include <Tobe.h>
+#include <TobeLog.h>
+#include <TobeCli.h>
+#include <TobeOta.h>
+#include <TobeWeb.h>
+#include <TobeWifi.h>
 #include <WiFi.h>
 #include "esp_wifi.h"   /* esp_wifi_set_channel() - pins the radio's channel
                           * without an actual STA join/AP broadcast, see
@@ -72,116 +81,11 @@
 #include "espnow_bus.h"
 #include "wired_bus.h"
 #include "fleet_security.h"
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>   /* manifest and releases are on GitHub (https) */
-#include <HTTPUpdate.h>   /* httpUpdate global singleton - the download+flash convenience wrapper actually used */
-#include <Update.h>       /* esp_ota_* lower-level API HTTPUpdate sits on top of - needed for the app-valid rollback marker */
-#include <ArduinoJson.h>   /* new dependency - see CLAUDE.md's "Libraries" line.
-                             * OTA-only (HELM); harmless if pulled into a CYD
-                             * build too since nothing instantiates a
-                             * JsonDocument outside the #if TARGET_BOARD ==
-                             * BOARD_HELM_S3_800x480 OTA code below. */
-#include "esp_ota_ops.h"   /* esp_ota_mark_app_valid_cancel_rollback() */
+#include "TobeFleetUi.h"   /* KEY / KEYSHOW / KEYCLEAR and the setup page's key section */
+#include <ArduinoJson.h>   /* the OTA manifest is read here (HELM only) */
 
-/* ==================== web-viewable serial log ====================
- * This board runs headless on the boat most of the time - no USB cable
- * attached to diagnose it with. Mirrors everything the rest of this
- * file sends to Serial into a small ring buffer, served at /serial, so
- * the debug page can show it remotely (added specifically to chase an
- * ESP-NOW pairing problem with no physical serial access to HELM).
- *
- * Mechanism: subclass HardwareSerial and override its two virtual
- * write() methods - every Print/Stream convenience call (println,
- * printf, print...) ultimately funnels through one of these two, so
- * capturing there transparently covers every existing Serial.xxx(...)
- * call site in this file with no other code changes. #define Serial to
- * an instance of it right after the includes so every later usage picks
- * it up automatically. This only affects THIS translation unit (the
- * .ino plus its directly #include'd headers, e.g. can_protocol.h) -
- * vendored library .cpp files (lvgl_v8_port.cpp etc.) are separately
- * compiled and never see this #define, so their own internal Serial
- * usage, if any, is completely untouched. Kept modest in size
- * (4KB) given this board's internal-SRAM scarcity (see the hard
- * constraints section of CLAUDE.md) - the handler below needs a second,
- * equally-sized static scratch buffer to linearize the ring, so this is
- * an 8KB addition total.
- *
- * CONCURRENCY: espnow_on_recv() (an ESP-NOW driver callback - a genuinely
- * different FreeRTOS task/core than loop(), not just a different
- * function) also calls Serial.print*() for its own diagnostic logging,
- * so writes into this ring buffer can happen from a different core than
- * handle_serial_log()'s read (called from loop()'s server.handleClient()).
- * Without synchronization that's a real, not theoretical, race - a torn
- * read of g_serial_log_pos/g_serial_log_wrap can make handle_serial_log()'s
- * unsigned tail-length subtraction underflow into a huge value and
- * memcpy() far past the end of its buffer, corrupting adjacent memory
- * and taking the whole WebServer down (confirmed on real hardware: build
- * 15 crashed HELM's debug page after this feature started getting
- * polled). g_serial_log_mux (a lightweight ESP32 spinlock, not a full
- * RTOS mutex - cheap enough to take on every single byte written)
- * protects every access to the ring buffer's state, in both the writer
- * below and handle_serial_log()'s reader. */
-#define SERIAL_LOG_BUF_SIZE 4096
-static char           g_serial_log_buf[SERIAL_LOG_BUF_SIZE];
-static size_t         g_serial_log_pos  = 0;      /* next write position (ring) */
-static bool           g_serial_log_wrap = false;  /* has the ring wrapped at least once */
-static portMUX_TYPE   g_serial_log_mux  = portMUX_INITIALIZER_UNLOCKED;
-
-class LoggingSerial : public HardwareSerial {
-public:
-    LoggingSerial(int uart_nr) : HardwareSerial(uart_nr) {}
-    /* Most of this firmware ends its lines with a bare "\n". A terminal that does not add the carriage
-     * return itself (picocom by default) then shows a staircase, so on the wire every bare LF becomes CR LF.
-     * The copy kept for the web log stays as written. */
-    uint8_t last_ = 0;
-    size_t write(uint8_t c) override {
-        portENTER_CRITICAL(&g_serial_log_mux);
-        g_serial_log_buf[g_serial_log_pos++] = c;
-        if (g_serial_log_pos >= SERIAL_LOG_BUF_SIZE) {
-            g_serial_log_pos = 0;
-            g_serial_log_wrap = true;
-        }
-        portEXIT_CRITICAL(&g_serial_log_mux);
-        if (c == '\n' && last_ != '\r') HardwareSerial::write((uint8_t)'\r');
-        last_ = c;
-        return HardwareSerial::write(c);
-    }
-    size_t write(const uint8_t *buf, size_t sz) override {
-        /* one lock acquisition for the whole run, not one per byte -
-         * printf-style output can be dozens of bytes at once */
-        portENTER_CRITICAL(&g_serial_log_mux);
-        for (size_t i = 0; i < sz; i++) {
-            g_serial_log_buf[g_serial_log_pos++] = buf[i];
-            if (g_serial_log_pos >= SERIAL_LOG_BUF_SIZE) {
-                g_serial_log_pos = 0;
-                g_serial_log_wrap = true;
-            }
-        }
-        portEXIT_CRITICAL(&g_serial_log_mux);
-        size_t start = 0;
-        for (size_t i = 0; i < sz; i++) {
-            if (buf[i] == '\n' && last_ != '\r') {
-                if (i > start) HardwareSerial::write(buf + start, i - start);
-                HardwareSerial::write((uint8_t)'\r');
-                start = i;
-            }
-            last_ = buf[i];
-        }
-        if (sz > start) HardwareSerial::write(buf + start, sz - start);
-        return sz;
-    }
-};
-
-static LoggingSerial g_log_serial(0);   /* UART0 - same peripheral the
-    * core's own global Serial object would otherwise bind to; that
-    * original object is simply never begin()'d or used once this
-    * #define is in effect, so there's no dual-ownership of the UART */
-#define Serial g_log_serial
-
-/* these headers print on Serial, so they must come AFTER the #define above - included earlier they would
- * write to the core's original (never begun) Serial object and their output would simply vanish */
-#include "setup_web.h"
-#include "serial_cli.h"
+/* periodic status prints hold off while someone is typing a command */
+#define CLI_LOG(...) TOBE_CLI_LOG(__VA_ARGS__)
 
 using namespace esp_panel::drivers;
 using namespace esp_panel::board;
@@ -193,30 +97,31 @@ using namespace esp_panel::board;
  * there) and never call getBacklight() on it. */
 static Board *g_board = NULL;
 
-/* OTA: bump by hand every release. Monotonic build number, not semver -
- * the manifest comparison is just `remote_build > FW_BUILD`, no version
- * string parsing/ordering needed. See check_for_update_tick(). */
-#define FW_BUILD 37
+/* PlatformIO's sketch converter cannot generate a prototype for a function that returns a pointer type, so this
+ * one is declared by hand (it is used before its definition) */
+static lv_obj_t *setup_screen_base(const char *title_text);
 
-/* OTA manifest: ota/manifest.json in the OpenBoat repo on GitHub, written by
- * tools/release.sh. One entry per device, then one per hardware variant:
+/* OTA: FW_BUILD (a monotonic build number, not semver - the comparison is just `remote_build > FW_BUILD`) and the
+ * manifest location come from the build (build/projects.json). The manifest is EngineControl/ota/manifest.json
+ * in the OpenBoat repo on GitHub, written by build/release.sh. One entry per device, then one per hardware
+ * variant:
  *   {"helm":    {"viewe7": {"build":N,"url":"...","md5":"..."}},
  *    "can_sim": {"s3zero": {"build":N,"url":"...","md5":"..."}, ...}}
- * The images are GitHub Release assets. To test against a manifest of your own
- * (e.g. a local web server), put `#define OTA_MANIFEST_URL "..."` in a
- * git-ignored local_config.h next to this sketch (see local_config.example.h). */
+ * The images are GitHub Release assets. To test against a manifest of your own (e.g. a local web server), put
+ * `#define OTA_MANIFEST_URL "..."` in a git-ignored local_config.h next to this sketch (see
+ * local_config.example.h). */
 #if defined(__has_include)
 #  if __has_include("local_config.h")
 #    include "local_config.h"
 #  endif
 #endif
-#ifndef OTA_MANIFEST_URL
-#define OTA_MANIFEST_URL "https://raw.githubusercontent.com/takigama/OpenBoatExperiments/master/EngineControl/ota/manifest.json"
-#endif
 
-/* this firmware's own key in the manifest's "helm" entry (HELM board only;
- * the CYD targets do no OTA) */
+/* this firmware's own variant in the manifest's "helm" entry (HELM board only; the CYD builds do no OTA) */
+#ifdef TOBE_OTA_VARIANT
+#define HELM_HW_KEY TOBE_OTA_VARIANT
+#else
 #define HELM_HW_KEY "viewe7"
+#endif
 
 /* heap forensics: internal SRAM is the scarce resource (WiFi, WebServer
  * and LVGL widget structs can ONLY live there - PSRAM can't help them) */
@@ -4266,43 +4171,7 @@ static void check_update_now_cb(lv_event_t *e)
     }
 }
 
-/* GitHub release URLs answer with a redirect to a signed URL on another host. Following it inside the
- * HTTP update library means a second TLS connection set up while the first is still being torn down, and on
- * the HELM (little contiguous internal RAM left once the UI is up) that failed with "connection refused".
- * So follow the redirect here by hand, one TLS connection at a time - each is freed before the next opens -
- * and hand the update library the final URL. Logs each hop with the free internal RAM. */
-static String ota_resolve_url(const String &start_url)
-{
-    String url = start_url;
-    for (int hop = 0; hop < 4; hop++) {
-        if (!url.startsWith("https://")) return url;   /* plain http (a local test server): nothing to follow */
-        WiFiClientSecure c;
-        c.setInsecure();
-        HTTPClient h;
-        h.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-        const char *keys[] = {"Location"};
-        h.collectHeaders(keys, 1);
-        if (!h.begin(c, url)) {
-            Serial.println("OTA: redirect resolve - http.begin() failed");
-            return url;
-        }
-        int code = h.GET();
-        String loc = h.header("Location");
-        Serial.printf("OTA: hop %d -> HTTP %d (internal RAM %u, largest block %u, next url %u chars)\n",
-            hop, code, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)loc.length());
-        h.end();
-        c.stop();
-        if ((code == 301 || code == 302 || code == 303 || code == 307 || code == 308) && loc.length()) {
-            url = loc;
-            continue;
-        }
-        return url;   /* 200, or an error the update call will report itself */
-    }
-    return url;
-}
-
-/* called from loop(): fetches OTA_MANIFEST_URL once per boot (a few
+/* called from loop(): fetches the OTA manifest once per boot (a few
  * seconds after WiFi settles is fine - the interval check below just
  * naturally lets the first call through immediately) and every
  * UPDATE_CHECK_INTERVAL_MS after that. Deliberately skipped whenever a
@@ -4370,49 +4239,25 @@ static void check_for_update_tick(void)
     last_check_ms = now;
     g_force_update_check = false;
 
-    HTTPClient http;
-    WiFiClient       plain_client;
-    WiFiClientSecure tls_client;
-    tls_client.setInsecure();   /* chain not verified - see ota_start_download_cb() */
-    NetworkClient &client = (strncmp(OTA_MANIFEST_URL, "https://", 8) == 0)
-        ? (NetworkClient &)tls_client : (NetworkClient &)plain_client;
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    if (!http.begin(client, OTA_MANIFEST_URL)) {
-        Serial.println("OTA: manifest http.begin() failed");
-        g_last_check_result = UPDATE_CHECK_RESULT_FETCH_FAILED;
-        if (forced) g_update_check_done_id = req_id;
-        return;
-    }
-    int code = http.GET();
-    if (code != HTTP_CODE_OK) {
-        Serial.printf("OTA: manifest fetch failed, HTTP %d\n", code);
-        http.end();
-        g_last_check_result = UPDATE_CHECK_RESULT_FETCH_FAILED;
-        if (forced) g_update_check_done_id = req_id;
-        return;
-    }
-    String body = http.getString();
-    http.end();
-
     JsonDocument doc;   /* ArduinoJson 7.x unified API - no manual sizing */
-    DeserializationError jerr = deserializeJson(doc, body);
-    if (jerr) {
-        Serial.printf("OTA: manifest JSON parse failed: %s\n", jerr.c_str());
+    String fetch_err;
+    if (!tobe::ota::fetchManifest(doc, &fetch_err)) {
+        Serial.printf("OTA: manifest fetch failed: %s\n", fetch_err.c_str());
         g_last_check_result = UPDATE_CHECK_RESULT_FETCH_FAILED;
         if (forced) g_update_check_done_id = req_id;
         return;
     }
 
-    JsonObject helm = doc["helm"][HELM_HW_KEY];
-    if (helm.isNull()) {
+    tobe::ota::Entry helm = tobe::ota::lookup(doc, "helm", HELM_HW_KEY);
+    if (!helm.valid) {
         Serial.println("OTA: manifest has no \"helm\" entry for this hardware (" HELM_HW_KEY ")");
         g_last_check_result = UPDATE_CHECK_RESULT_FETCH_FAILED;
         if (forced) g_update_check_done_id = req_id;
         return;
     }
-    uint32_t remote_build = helm["build"] | 0;
-    const char *url = helm["url"] | "";
-    const char *md5 = helm["md5"] | "";
+    uint32_t remote_build = helm.build;
+    const char *url = helm.url.c_str();
+    const char *md5 = helm.md5.c_str();
 
     if (remote_build > FW_BUILD && url[0]) {
         g_helm_update_available = true;
@@ -4686,28 +4531,14 @@ static void ota_helm_self_update(void)
         * Board::getBacklight()'s own doc comment */
     if (bl) bl->off();
 
-    /* https (GitHub releases) needs a TLS client, plain http must not use
-     * one. The certificate chain is not verified - same trade as the other
-     * OpenBoat firmwares; the md5 below guards against a corrupted download.
-     * GitHub redirects the asset URL to its download host, so follow it. */
-    WiFiClient       plain_client;
-    WiFiClientSecure tls_client;
-    tls_client.setInsecure();
-    String real_url = ota_resolve_url(String(g_helm_update_url));
-    NetworkClient &client = real_url.startsWith("https://")
-        ? (NetworkClient &)tls_client : (NetworkClient &)plain_client;
-    httpUpdate.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);   /* ota_resolve_url() already did */
-    httpUpdate.rebootOnUpdate(false);
-    /* checksum verification (if the manifest had one - see check_for_
-     * update_tick()): HTTPUpdate's own setMD5sum() makes Update.end()
-     * compare the actually-written image against this before accepting
-     * it, failing the update outright on a mismatch rather than flashing
-     * a corrupted/tampered download. Skipped, not failed, if empty -
-     * an older or hand-edited manifest without a checksum still updates,
-     * just without this extra guarantee. */
-    if (g_helm_update_md5[0]) httpUpdate.setMD5sum(g_helm_update_md5);
+    /* Download, check the MD5, flash (TobeOta: https or plain http, GitHub's redirect followed one connection at
+     * a time because this board has little contiguous internal RAM left once the UI is up). The result is shown
+     * on screen first, so TobeOta must not restart by itself. */
     Serial.printf("OTA: downloading from %s\n", g_helm_update_url);
-    t_httpUpdate_return ret = httpUpdate.update(client, real_url);
+    tobe::ota::ApplyOptions aopts;
+    aopts.reboot = false;
+    bool ota_ok = tobe::ota::apply(String(g_helm_update_url), String(g_helm_update_md5), aopts);
+    String ota_err = tobe::ota::lastError();
 
     if (bl) bl->on();
 
@@ -4717,7 +4548,7 @@ static void ota_helm_self_update(void)
     lv_label_set_long_mode(result, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(result, LV_TEXT_ALIGN_CENTER, 0);
 
-    if (ret == HTTP_UPDATE_OK) {
+    if (ota_ok) {
         lv_label_set_text(result, "Update downloaded successfully.\nRestarting now...");
         lv_obj_center(result);
         lvgl_port_unlock();
@@ -4727,15 +4558,9 @@ static void ota_helm_self_update(void)
         return;   /* never reached */
     }
 
-    if (ret == HTTP_UPDATE_NO_UPDATES) {
-        lv_label_set_text_fmt(result, "No update found at that URL.\n%s",
-            httpUpdate.getLastErrorString().c_str());
-        Serial.printf("OTA: HTTP_UPDATE_NO_UPDATES - %s\n", httpUpdate.getLastErrorString().c_str());
-    } else {
-        lv_label_set_text_fmt(result, "Update failed: %s\nNothing was changed - still running build %d.",
-            httpUpdate.getLastErrorString().c_str(), FW_BUILD);
-        Serial.printf("OTA: HTTP_UPDATE_FAILED - %s\n", httpUpdate.getLastErrorString().c_str());
-    }
+    lv_label_set_text_fmt(result, "Update failed: %s\nNothing was changed - still running build %d.",
+        ota_err.c_str(), FW_BUILD);
+    Serial.printf("OTA: update failed - %s\n", ota_err.c_str());
     lv_obj_center(result);
 
     lv_obj_t *close = lv_btn_create(ota_win);
@@ -5528,12 +5353,7 @@ static void cyd_pairing_tick(void)
 }
 
 /* serial WEBMODE: the CYD restarts into a mode that serves the setup page (ESP-NOW key + WiFi details) and
- * says where to find it on its own screen - see setup_web.h */
-static void cyd_webmode_key_changed(void)
-{
-    if (prefs_ok) prefs.putBool("paired", false);   /* any old link used the old key */
-}
-
+ * says where to find it on its own screen - TobeWeb's setup mode, with TobeFleet's key section added */
 static void cyd_webmode_show(const char *where)
 {
     lvgl_port_lock(-1);
@@ -5546,7 +5366,7 @@ static void cyd_webmode_show(const char *where)
     lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(l, 296);
     lv_label_set_text_fmt(l, "SETUP MODE\n\nOpen %s\n\nSet the ESP-NOW key and WiFi there. Ends by itself in %d minutes.",
-        where, SW_MODE_MINUTES);
+        where, 10);
     lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
     lv_obj_center(l);
     lv_refr_now(NULL);
@@ -5555,8 +5375,11 @@ static void cyd_webmode_show(const char *where)
 
 static void cyd_webmode_run(void)
 {
-    SetupWebCtx ctx = { &prefs, prefs_ok, "CYD display", FW_BUILD, cyd_webmode_key_changed };
-    sw_run_setup_mode(ctx, NULL, cyd_webmode_show);   /* never returns */
+    tobe::web::SetupOptions opt;
+    opt.extraHtml = fleet_ui_web_html;
+    opt.extraRoutes = fleet_ui_web_routes;
+    opt.onReady = cyd_webmode_show;
+    tobe::web::runSetupMode(opt);   /* never returns */
 }
 #endif /* TARGET_BOARD != BOARD_HELM_S3_800x480 */
 
@@ -5647,231 +5470,104 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
 #endif
 }
 
-/* ==================== serial console (WiFi creds, any time) ====================
- * Bench convenience: set WiFi creds without touching the touchscreen -
- * handy when the panel isn't in reach, or the on-screen keyboard is
- * being fussy. Send over the CH340 serial port at any time (not just
- * during first-boot setup):
- *   WIFI:<ssid>,<password>\n     (password may be empty for open APs)
- * Only ever writes NVS + calls ESP.restart() - deliberately never
- * touches WiFi.* or any LVGL object from here: this runs on the Arduino
- * loop task, not the LVGL task, and CLAUDE.md's hard-won rule is that
- * WiFi APIs may only be touched from the one proven place (wifi_setup()
- * in setup()). A clean reboot re-runs that exact path instead. */
-
-/* the serial menu: one table feeds Tab completion, the ? list and MENU */
-static const CliCmd kCli[] = {
-    { "MENU",     "",                  "show this list (also HELP or ?)" },
-    { "STATUS",   "",                  "firmware build, ESP-NOW key and joined boards, WiFi" },
-    { "KEY",      "<passphrase>",      "set the shared ESP-NOW secret (12+ characters, same on every board), then restart" },
-    { "KEYSHOW",  "",                  "is a key set? its fingerprint (same on every board with the same key)" },
-    { "KEYCLEAR", "",                  "forget the key (ESP-NOW goes off), then restart" },
-    { "WIFI:",    "<ssid>,<password>", "save WiFi details and restart (password may be empty)" },
-#if TARGET_BOARD == BOARD_HELM_S3_800x480
-    { "WEBMODE",  "",                  "where this display's setup web page is (its normal web page)" },
-    { "UPDATE",   "",                  "check for updates, then update every board that needs it (this display last)" },
-    { "CLEARPEERS", "",                "forget every joined board (they rejoin by themselves)" },
-    { "CANON",    "",                  "enable CAN for the broadcast bucket" },
-    { "CANOFF",   "",                  "disable CAN (ESP-NOW only)" },
-#else
-    { "WEBMODE",  "",                  "restart into setup mode: a web page to set the key and WiFi (10 minutes)" },
-    { "REPAIR",   "",                  "forget HELM and look for it again" },
-#endif
-    { "REBOOT",   "",                  "restart" },
-};
-static const int kCliN = sizeof(kCli) / sizeof(kCli[0]);
+/* the command line (TobeCli). MENU STATUS WIFI WIFISHOW WIFICLEAR LOG REBOOT are standard; KEY KEYSHOW KEYCLEAR
+ * come from TobeFleet (fleet_ui_begin); WEBMODE and UPDATE are standard too but replaced on the HELM, which
+ * has its own. These are the display's own. Only ever writes NVS + restarts for anything that touches WiFi -
+ * deliberately never touches WiFi.* or any LVGL object from here: this runs on the Arduino loop task, not the
+ * LVGL task, and CLAUDE.md's hard-won rule is that WiFi APIs may only be touched from the one proven place
+ * (wifi_setup() in setup()). A clean reboot re-runs that exact path instead. */
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
 #define CLI_PROMPT "HELM> "
 #else
 #define CLI_PROMPT "CYD> "
 #endif
 
-static void print_serial_help(void)
+/* the key was changed or cleared: whoever joined under the old key is of no use */
+static void cli_key_changed(void)
 {
-    Serial.println("Serial menu - Tab completes a command, ? lists them (case-insensitive):");
-    for (int i = 0; i < kCliN; i++)
-        Serial.printf("  %-11s %-18s %s\n", kCli[i].name, kCli[i].args, kCli[i].help);
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+    espnow_pairing_clear_all();
+#else
+    if (prefs_ok) prefs.putBool("paired", false);
+#endif
 }
 
-static void handle_serial_line(char *line)
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+static void cmd_webmode(const char *)
 {
-    if (strcasecmp(line, "HELP") == 0 || strcasecmp(line, "MENU") == 0 || strcmp(line, "?") == 0) {
-        print_serial_help();
-        return;
-    }
-    if (strncasecmp(line, "KEY ", 4) == 0) {
-        const char *phrase = line + 4;
-        while (*phrase == ' ') phrase++;
-        if (strlen(phrase) < FSEC_MIN_PASSPHRASE) {
-            Serial.printf("Serial: the passphrase must be at least %d characters\n", FSEC_MIN_PASSPHRASE);
-            return;
-        }
-        Serial.println("Serial: working out the key (a second or two)...");
-        if (!fsec_set_passphrase(prefs, prefs_ok, phrase)) {
-            Serial.println("Serial: could not save the key (flash unavailable)");
-            return;
-        }
-#if TARGET_BOARD == BOARD_HELM_S3_800x480
-        espnow_pairing_clear_all();   /* boards joined under the old key are of no use */
-#else
-        if (prefs_ok) prefs.putBool("paired", false);
-#endif
-        Serial.printf("Serial: key saved, fingerprint %08lX (it must read the same on every board) - restarting\n",
-            (unsigned long)fsec_fingerprint());
-        Serial.flush();
-        delay(300);
-        ESP.restart();
-        return;
-    }
-    if (strcasecmp(line, "KEYSHOW") == 0 || strcasecmp(line, "KEY?") == 0 || strcasecmp(line, "KEY") == 0) {
-        if (g_fsec_have_key) Serial.printf("Serial: key is set, fingerprint %08lX\n", (unsigned long)fsec_fingerprint());
-        else Serial.println("Serial: no key set - ESP-NOW is off. Type  KEY <passphrase>");
-        return;
-    }
-    if (strcasecmp(line, "KEYCLEAR") == 0) {
-        fsec_clear(prefs, prefs_ok);
-#if TARGET_BOARD == BOARD_HELM_S3_800x480
-        espnow_pairing_clear_all();
-#else
-        if (prefs_ok) prefs.putBool("paired", false);
-#endif
-        Serial.println("Serial: key cleared - restarting with ESP-NOW off");
-        Serial.flush();
-        delay(300);
-        ESP.restart();
-        return;
-    }
-#if TARGET_BOARD != BOARD_HELM_S3_800x480
-    if (strcasecmp(line, "WEBMODE") == 0) {
-        if (prefs_ok) prefs.putBool("webmode", true);
-        Serial.println("Serial: restarting into setup mode");
-        Serial.flush();
-        delay(300);
-        ESP.restart();
-        return;
-    }
-#else
-    if (strcasecmp(line, "WEBMODE") == 0) {
-        Serial.println(WiFi.status() == WL_CONNECTED
-            ? "Serial: this display's setup page is its normal web page - open http://<its IP>/ (see STATUS)"
-            : "Serial: connect it to WiFi first (WIFI:<ssid>,<password>); its web page is then at its IP address");
-        return;
-    }
-#endif
-    if (strcasecmp(line, "REBOOT") == 0) {
-        Serial.println("Serial: restarting");
-        Serial.flush();
-        delay(200);
-        ESP.restart();
-        return;
-    }
-    if (strcasecmp(line, "STATUS") == 0) {
-        Serial.printf("Firmware build %d, uptime %lus\n", FW_BUILD, (unsigned long)(millis() / 1000));
-        Serial.printf("ESP-NOW key: %s", g_fsec_have_key ? "set" : "NOT SET");
-        if (g_fsec_have_key) Serial.printf(", fingerprint %08lX", (unsigned long)fsec_fingerprint());
-        Serial.println();
-#if TARGET_BOARD == BOARD_HELM_S3_800x480
-        Serial.printf("Joined boards: %d\n", espnow_peer_count());
-        for (int i = 0; i < ESPNOW_MAX_PAIRED; i++) {
-            if (!espnow_peers[i].has_mac) continue;
-            Serial.printf("  %02X:%02X:%02X:%02X:%02X:%02X  type %d\n",
-                espnow_peers[i].mac[0], espnow_peers[i].mac[1], espnow_peers[i].mac[2],
-                espnow_peers[i].mac[3], espnow_peers[i].mac[4], espnow_peers[i].mac[5], espnow_peers[i].node_type);
-        }
-        Serial.printf("WiFi: %s", WiFi.status() == WL_CONNECTED ? "connected, " : "not connected");
-        if (WiFi.status() == WL_CONNECTED) Serial.printf("%s, channel %d", WiFi.localIP().toString().c_str(), (int)WiFi.channel());
-        Serial.println();
-        Serial.printf("CAN: %s\n", g_can_disabled ? "disabled by setting" : (can_ok ? "running" : "not healthy"));
-#else
-        Serial.printf("Link to HELM: %s\n", g_cyd_paired ? "joined" : "not joined");
-#endif
-        return;
-    }
-#if TARGET_BOARD != BOARD_HELM_S3_800x480
-    if (strcasecmp(line, "REPAIR") == 0) {
-        cyd_espnow_forget_helm();
-        Serial.println("ESP-NOW: forgot HELM, looking for it again");
-        return;
-    }
-#endif
-#if TARGET_BOARD == BOARD_HELM_S3_800x480
-    if (strcasecmp(line, "CLEARPEERS") == 0 || strcasecmp(line, "CLEARPAIRS") == 0) {
-        espnow_pairing_clear_all();
-        return;
-    }
-    if (strcasecmp(line, "UPDATE") == 0) {
-        if (WiFi.status() != WL_CONNECTED) {
-            Serial.println("Serial: no WiFi connection - set it with WIFI:<ssid>,<password>");
-            return;
-        }
-        g_force_update_check = true;
-        g_update_check_request_id++;
-        g_serial_update_wait_id = g_update_check_request_id;
-        Serial.println("Serial: checking for updates...");
-        return;
-    }
-    if (strcasecmp(line, "CANON") == 0 || strcasecmp(line, "CANOFF") == 0) {
-        g_can_disabled = (strcasecmp(line, "CANOFF") == 0);
-        if (prefs_ok) prefs.putBool("can_dis", g_can_disabled);
-        Serial.printf("Serial: CAN %s (bus_send will now use %s for the broadcast bucket)\n",
-            g_can_disabled ? "disabled" : "enabled",
-            g_can_disabled ? "ESP-NOW only" : "CAN when available");
-        return;
-    }
-#endif
-
-    if (strncasecmp(line, "WIFI:", 5) != 0) {
-        Serial.println("Serial: unrecognized command. Type HELP for the list.");
-        return;
-    }
-    if (g_display_role == DISPLAY_ROLE_SECONDARY) {
-        Serial.println("Serial: this is a secondary display - it never joins WiFi, ignored");
-        return;
-    }
-    char *rest = line + 5;
-    char *comma = strchr(rest, ',');
-    const char *ssid, *pass;
-    if (comma) {
-        *comma = 0;
-        ssid = rest;
-        pass = comma + 1;
-    } else {
-        ssid = rest;
-        pass = "";
-    }
-    if (!ssid[0]) {
-        Serial.println("Serial: empty SSID, ignored");
-        return;
-    }
-    if (!prefs_ok) {
-        Serial.println("Serial: NVS unavailable, can't save WiFi creds");
-        return;
-    }
-    prefs.putString("ssid", ssid);
-    prefs.putString("pass", pass);
-    Serial.printf("Serial: saved WiFi ssid=\"%s\" - restarting to connect...\n", ssid);
-    Serial.flush();
-    delay(200);
-    ESP.restart();
+    Serial.println(WiFi.status() == WL_CONNECTED
+        ? "this display's setup page is its normal web page - open http://<its IP>/system (see STATUS)"
+        : "connect it to WiFi first (WIFI <ssid> <password>); its web page is then at its IP address");
 }
 
-static void serial_console_tick(void)
+static void cmd_update(const char *)
 {
-    static char line[CLI_LINE_MAX];
-    static size_t len = 0;
-    static bool greeted = false;
-    if (!greeted && millis() > 3000) {   /* once, after the boot messages */
-        greeted = true;
-        Serial.print("\r\nType ? for the command list; Tab completes.\r\n" CLI_PROMPT);
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("no WiFi connection - set it with  WIFI <ssid> <password>");
+        return;
     }
-    while (Serial.available()) {
-        if (cli_feed((char)Serial.read(), kCli, kCliN, CLI_PROMPT, line, sizeof(line), &len)) {
-            if (len > 0) handle_serial_line(line);
-            len = 0;
-            Serial.print(CLI_PROMPT);
-        }
-    }
+    g_force_update_check = true;
+    g_update_check_request_id++;
+    g_serial_update_wait_id = g_update_check_request_id;
+    Serial.println("checking for updates...");
 }
+
+static void cmd_clearpeers(const char *) { espnow_pairing_clear_all(); }
+
+static void cmd_canon(const char *)
+{
+    g_can_disabled = false;
+    if (prefs_ok) prefs.putBool("can_dis", g_can_disabled);
+    Serial.println("CAN enabled (bus_send will use CAN when available)");
+}
+
+static void cmd_canoff(const char *)
+{
+    g_can_disabled = true;
+    if (prefs_ok) prefs.putBool("can_dis", g_can_disabled);
+    Serial.println("CAN disabled (bus_send will use ESP-NOW only for the broadcast bucket)");
+}
+#else
+static void cmd_repair(const char *)
+{
+    cyd_espnow_forget_helm();
+    Serial.println("ESP-NOW: forgot HELM, looking for it again");
+}
+#endif
+
+/* the display-specific lines of STATUS (TobeCli prints build, chip, memory and WiFi first) */
+static void cli_status_hook(void)
+{
+    Serial.printf("  ESP-NOW key: %s", g_fsec_have_key ? "set" : "NOT SET");
+    if (g_fsec_have_key) Serial.printf(", fingerprint %08lX", (unsigned long)fsec_fingerprint());
+    Serial.println();
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+    Serial.printf("  joined boards: %d\n", espnow_peer_count());
+    for (int i = 0; i < ESPNOW_MAX_PAIRED; i++) {
+        if (!espnow_peers[i].has_mac) continue;
+        Serial.printf("    %02X:%02X:%02X:%02X:%02X:%02X  type %d\n",
+            espnow_peers[i].mac[0], espnow_peers[i].mac[1], espnow_peers[i].mac[2],
+            espnow_peers[i].mac[3], espnow_peers[i].mac[4], espnow_peers[i].mac[5], espnow_peers[i].node_type);
+    }
+    if (WiFi.status() == WL_CONNECTED) Serial.printf("  WiFi channel %d\n", (int)WiFi.channel());
+    Serial.printf("  CAN: %s\n", g_can_disabled ? "disabled by setting" : (can_ok ? "running" : "not healthy"));
+#else
+    Serial.printf("  link to HELM: %s\n", g_cyd_paired ? "joined" : "not joined");
+#endif
+}
+
+static const tobe::CliCommand kCli[] = {
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+    { "WEBMODE",    "", "where this display's setup web page is (its normal web page)",                         cmd_webmode, 0 },
+    { "UPDATE",     "", "check for updates, then update every board that needs it (this display last)",       cmd_update, 0 },
+    { "CLEARPEERS", "", "forget every joined board (they rejoin by themselves)",                               cmd_clearpeers, 0 },
+    { "CLEARPAIRS", "", "same as CLEARPEERS",                                                                  cmd_clearpeers, tobe::CLI_HIDDEN },
+    { "CANON",      "", "enable CAN for the broadcast bucket",                                                 cmd_canon, 0 },
+    { "CANOFF",     "", "disable CAN (ESP-NOW only)",                                                          cmd_canoff, 0 },
+#else
+    { "REPAIR",     "", "forget HELM and look for it again",                                                   cmd_repair, 0 },
+#endif
+};
 
 /* ==================== WiFi debug server ==================== */
 
@@ -5950,7 +5646,7 @@ selecting anything basically impossible.</em>
 <textarea id="seriallog" readonly style="background:#000;color:#0f0;padding:8px;width:100%;height:240px;font-size:0.8em;border:1px solid #33475c;box-sizing:border-box;resize:vertical"></textarea>
 <script>
 var serialPaused = false;
-function serialPoll(){
+ function serialPoll(){
   if (serialPaused) return;
   fetch('/serial').then(function(r){ return r.text(); }).then(function(t){
     var el = document.getElementById('seriallog');
@@ -5967,7 +5663,7 @@ setInterval(serialPoll, 1000);
 serialPoll();
 </script>
 <script>
-function espPoll(){
+ function espPoll(){
   fetch('/espstatus').then(function(r){ return r.json(); }).then(function(j){
     var s = (j.key_set ? 'key set' : 'NO KEY - ESP-NOW is off') + ', ' + j.peers + ' board' + (j.peers==1?'':'s') + ' joined';
     document.getElementById('espstat').textContent = s;
@@ -5990,7 +5686,7 @@ document.getElementById('wifiJoinAllBtn').addEventListener('click', function(){
 </script>
 <script>
 var busy=false, dirty=false;
-function push(){
+ function push(){
   busy=true; dirty=false;
   fetch('/set?rpm='+document.getElementById('rpm').value
     +'&temp='+document.getElementById('temp').value
@@ -6009,7 +5705,7 @@ function push(){
   .catch(function(){})
   .finally(function(){ busy=false; if(dirty) push(); });
 }
-function send(){
+ function send(){
   document.getElementById('vr').textContent=document.getElementById('rpm').value;
   document.getElementById('vt').textContent=document.getElementById('temp').value;
   document.getElementById('vp').textContent=document.getElementById('oil').value;
@@ -6032,31 +5728,11 @@ static void handle_root(void)
     server.send_P(200, "text/html", DEBUG_PAGE);
 }
 
-/* linearizes g_serial_log_buf's ring into chronological order and serves
- * it as plain text - see the LoggingSerial class up near the top of the
- * file for how the ring gets filled. Static scratch buffer (not a stack
- * array - SERIAL_LOG_BUF_SIZE+1 is too big to put on this task's stack,
- * same reasoning as other big one-shot buffers elsewhere in this file);
- * safe because WebServer handles one request at a time. Reads the ring
- * under g_serial_log_mux, same as every write does - see that variable's
- * comment for why an unsynchronized read here previously corrupted
- * memory and took the whole server down. */
+/* the recent console output (TobeLog's ring) as plain text - the debug page links to it */
 static void handle_serial_log(void)
 {
-    static char out[SERIAL_LOG_BUF_SIZE + 1];
-    size_t n;
-    portENTER_CRITICAL(&g_serial_log_mux);
-    if (g_serial_log_wrap) {
-        size_t tail = SERIAL_LOG_BUF_SIZE - g_serial_log_pos;
-        memcpy(out, g_serial_log_buf + g_serial_log_pos, tail);
-        memcpy(out + tail, g_serial_log_buf, g_serial_log_pos);
-        n = SERIAL_LOG_BUF_SIZE;
-    } else {
-        memcpy(out, g_serial_log_buf, g_serial_log_pos);
-        n = g_serial_log_pos;
-    }
-    portEXIT_CRITICAL(&g_serial_log_mux);
-    out[n] = 0;
+    static char out[TOBE_LOG_SIZE + 1];   /* static: too big for this task's stack; WebServer handles one request at a time */
+    tobe::logCopy(out, sizeof(out));
     server.send(200, "text/plain", out);
 }
 
@@ -6250,10 +5926,11 @@ static void wifi_setup(void)
     server.on("/serial", handle_serial_log);
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
     server.on("/espstatus", handle_espnow_status);
-    {
-        SetupWebCtx ctx = { &prefs, prefs_ok, "HELM display", FW_BUILD, espnow_pairing_clear_all_cb };
-        sw_register(server, ctx, false);   /* /key, /wifi and /reboot; "/" stays the debug page */
-    }
+    fleet_ui_web_routes(server);   /* POST /key; "/" stays the debug page */
+    tobe::web::attach(server);     /* /sys/...: WiFi, firmware update, log, restart */
+    server.on("/system", []() {    /* the TOBE page: the same sections as setup mode */
+        server.send(200, "text/html", tobe::web::page("System", fleet_ui_web_html() + tobe::web::systemSection()));
+    });
     server.on("/espclear", handle_espnow_clear);
     server.on("/wifijoinall", handle_wifi_join_all);
 #endif
@@ -6353,11 +6030,20 @@ void setup()
     lvgl_port_unlock();
     heap_report("ui");
 
-#if TARGET_BOARD != BOARD_HELM_S3_800x480
-    if (prefs_ok && prefs.getBool("webmode", false)) {   /* serial WEBMODE asked for the setup page */
-        prefs.putBool("webmode", false);
-        cyd_webmode_run();
+    {
+        tobe::wifi::Config wcfg;
+        wcfg.nvsNamespace = "md2030";   /* where this display has always kept ssid / pass / flags */
+        wcfg.apFallback = false;        /* the HELM's own wifi_setup() decides what the radio does */
+        tobe::wifi::configure(wcfg);
+        tobe::cli.begin(CLI_PROMPT, kCli, sizeof(kCli) / sizeof(kCli[0]));
+        tobe::cli.setStatusHook(cli_status_hook);
+        fleet_ui_begin(&prefs, &prefs_ok, cli_key_changed);   /* KEY / KEYSHOW / KEYCLEAR */
+#ifdef OTA_MANIFEST_URL
+        tobe::ota::setManifestUrl(OTA_MANIFEST_URL);          /* local_config.h: a manifest of your own */
+#endif
     }
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+    if (tobe::web::setupRequested()) cyd_webmode_run();   /* serial WEBMODE asked for the setup page */
 #endif
 
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
@@ -6391,7 +6077,7 @@ void setup()
      * reasonable "this image actually works" bar - a genuinely broken
      * update won't reach this line at all, and falls back on its own.
      * Harmless no-op on a table without rollback enabled. */
-    esp_ota_mark_app_valid_cancel_rollback();
+    tobe::ota::markValid();
 
     Serial.println("setup() complete");
 }
@@ -6419,7 +6105,7 @@ void loop()
 #else
     cyd_pairing_tick();
 #endif
-    serial_console_tick();
+    tobe::cli.tick();
     fake_engines_tick();
     can_poll();
     engine_ageout_tick();

@@ -45,45 +45,47 @@ matching `ESP_PANEL_BOARD_TOUCH_*` transform flags together in
 
 ## Build / flash
 
-**HELM:**
-- Arduino IDE (or arduino-cli), board **ESP32S3 Dev Module**
-- 16MB flash, partition "16M Flash (3MB APP/9.9MB FATFS)", **OPI PSRAM**
-- **USB CDC On Boot: DISABLED** (serial goes to the CH340 port)
-- **Erase All Flash Before Sketch Upload: DISABLED** (NVS holds wifi creds
-  and engine selection)
-- arduino-cli compile check:
-  `arduino-cli compile --fqbn esp32:esp32:esp32s3 .` (add the board options
-  above via --board-options if configured)
+Everything is built with the repository's one build script, inside Docker - from the repository root:
 
-**CYD (any variant):**
-- Arduino IDE (or arduino-cli), board **ESP32 Dev Module** (plain ESP32,
-  not S3 - a different chip family from HELM)
-- No PSRAM option (plain ESP32 has none)
-- No "USB CDC On Boot" option - CYD serial always goes over an onboard
-  CH340/CP2102 USB-UART bridge, not native USB, so there's no equivalent
-  of the S3's stale-reload/manual-reset quirk documented for `can_sim`
-- 4MB flash, **partition scheme "Huge APP (3MB No OTA/1MB SPIFFS)"** -
-  same reason HELM needs its own non-default 16M scheme: this sketch's
-  WiFi/WebServer/ESP32_Display_Panel footprint doesn't fit the default
-  4MB/1.2MB-APP partition even after HELM-only UI code (icon assets, arc
-  gauge, wizard, PIN lock - all gated behind `#if TARGET_BOARD ==
-  BOARD_HELM_S3_800x480` in `engine_display.ino`) is compiled out of a
-  CYD build. Verified: all 3 CYD variants compile to ~1.40MB (44% of the
-  3MB app partition) with this scheme; the default scheme's 1.2MB APP
-  partition is NOT enough (~1.40MB needed) - `arduino-cli` will fail with
-  "text section exceeds available space" if you pick the default instead.
-- arduino-cli compile check:
-  `arduino-cli compile --fqbn esp32:esp32:esp32:FlashSize=4M,PartitionScheme=huge_app,PSRAM=disabled .`
+```
+build/build.sh EngineControl-Helm      # -> build/firmware/TOBE-EngineControl-Helm-v<N>.bin
+build/build.sh EngineControl-CYD       # -> build/firmware/TOBE-EngineControl-CYD-v<N>.bin
+```
 
-**Both:**
-- Libraries: ESP32_Display_Panel 1.x, LVGL **8.4.0** (v8 API, NOT v9),
-  **ArduinoJson 7.x** (HELM-only OTA manifest parsing - see "OTA
-  updates" below; harmless to have installed for a CYD build even though
-  nothing in a CYD build actually uses it, OTA is HELM-only for now)
-- lv_conf.h needs: LV_COLOR_DEPTH 16, LV_FONT_MONTSERRAT_28 = 1,
-  LV_FONT_MONTSERRAT_48 = 1 (shared by all targets, no per-board changes)
+(see `../../build/README.md`; `engine_display/platformio.ini` has the two environments, `helm` and `cyd`.) It is
+PlatformIO with the Arduino framework (arduino-esp32 3.3 on ESP-IDF 5.5, pinned in `build/common.ini`). The sketch
+and its panel / LVGL configuration headers are in `engine_display/src/`; the CAN protocol shared with `can_sim` is
+in `../common/`; the serial command line, setup web page, OTA and ESP-NOW secret are the TOBE libraries in
+`../../lib/` (shared with every project, nothing duplicated by hand any more).
+
+**HELM** (`helm` environment)
+- ESP32-S3 (Viewe 7in, N16R8): 16MB flash, partition "16M Flash (3MB APP/9.9MB FATFS)" (`app3M_fat9M_16MB`),
+  **OPI PSRAM**, **USB CDC On Boot: DISABLED** (serial goes to the CH340 port)
+- Flashing: the `.bin` is the application (flash it at 0x10000; **do not erase all flash** - NVS holds the wifi creds
+  and engine selection); the `-factory.bin` is for a blank board (flash at 0x0, erases settings). A board that was
+  ever updated over the air boots the OTHER slot, so after serial-flashing also erase `otadata` (0xe000, 0x2000).
+
+**CYD** (any variant; the `cyd` environment, `-DTARGET_BOARD=2`)
+- plain ESP32 (not S3 - a different chip family from HELM), no PSRAM, 4MB flash, CH340 USB-UART bridge (so there is
+  no "USB CDC On Boot" quirk)
+- **partition scheme "Huge APP"** (3MB app / 1MB SPIFFS, no OTA): this sketch's WiFi/WebServer/ESP32_Display_Panel
+  footprint doesn't fit the default 4MB/1.2MB-APP partition even after the HELM-only UI code (icon assets, arc
+  gauge, wizard, PIN lock - all gated behind `#if TARGET_BOARD == BOARD_HELM_S3_800x480`) is compiled out. The CYD
+  build is ~1.4MB (45% of the 3MB partition). A CYD is flashed by USB, never by OTA.
+
+**Both**
+- Libraries (pinned in `engine_display/platformio.ini`): ESP32_Display_Panel 1.0.4, LVGL **8.4.0** (v8 API, NOT v9),
+  ArduinoJson 7.4.3 (the OTA manifest, HELM only)
+- `lv_conf.h` (in `src/`) needs: LV_COLOR_DEPTH 16, LV_FONT_MONTSERRAT_28 = 1, LV_FONT_MONTSERRAT_48 = 1 (shared by
+  all targets, no per-board changes)
+- the build number (`FW_BUILD`), the firmware name and the OTA manifest entry are NOT in the sketch: they come from
+  `build/projects.json` (`EngineControl-Helm`, `EngineControl-CYD`)
 
 ## Files (tabs)
+
+Paths are relative to `engine_display/src/` unless they say otherwise. `../common/can_protocol.h` and
+`../common/wired_bus.h` (shared with `can_sim`) are in `EngineControl/common/`; `espnow_pairing.h`, `espnow_bus.h`,
+`fleet_security.h` and `TobeFleetUi.h` are in the shared library `lib/TobeFleet/`.
 
 - `engine_display.ino` — main sketch (current feature level: "step 2"),
   builds for whichever `TARGET_BOARD` is picked
@@ -258,9 +260,9 @@ IDE's own menu label literally says "No OTA"), unlike HELM's
 `app3M_fat9M_16MB` scheme, which already has the `ota_0`/`ota_1` pair
 `Update.h` needs with no partition-table change.
 
-- **Version scheme**: `FW_BUILD` (top of `engine_display.ino`) is a
-  plain monotonic integer, bumped by hand every release - not semver.
-  Comparison is just `remote_build > FW_BUILD`.
+- **Version scheme**: `FW_BUILD` is a plain monotonic integer - not semver. It is the `version` of the firmware in
+  `build/projects.json`, bumped by `build/release.sh`, and reaches the sketch as a compile definition (never write
+  it in the sketch). Comparison is just `remote_build > FW_BUILD`.
 - **Manifest**: JSON at `OTA_MANIFEST_URL`, one entry per device type and
   then one per **hardware variant** -
   `{"helm":{"viewe7":{"build":N,"url":"...","md5":"..."}},
@@ -269,8 +271,8 @@ IDE's own menu label literally says "No OTA"), unlike HELM's
   reports in `ANNOUNCE[7]` (`md_hw_key()` in `can_protocol.h` turns the id
   into the key; id 0 = a first-generation board that reports nothing,
   treated as `s3zero`). Different boards therefore get different images.
-  The images are GitHub Release assets; `tools/release.sh` builds, uploads
-  and writes the manifest (see `../tools/README.md`). `md5` is a 32-hex-
+  The images are GitHub Release assets named `TOBE-<firmware>-v<N>.bin`; `build/release.sh` builds, uploads
+  and writes the manifest (see `../../build/README.md`). `md5` is a 32-hex-
   char checksum of that entry's `.bin` - optional (an older or hand-edited
   manifest without one just skips verification, doesn't fail) but always
   present from the publish script. Parsed with **ArduinoJson
@@ -741,9 +743,8 @@ but not encrypted with the right key gets silently dropped by the radio.
   ESP-NOW to inherit. Tracked as a follow-up, not done here. CYD (and
   `can_sim`/HELM with CAN enabled) still just gets plain CAN traffic,
   unaffected by any of this.
-- `espnow_pairing.h` and `espnow_bus.h` are duplicated by hand into
-  `can_sim/` (same "keep byte-identical" discipline as `can_protocol.h` -
-  see that file's header comment).
+- `espnow_pairing.h` and `espnow_bus.h` live in `lib/TobeFleet/` (one copy, shared with `can_sim`), as do
+  `fleet_security.h` and `TobeFleetUi.h`.
 
 ### Bus transport routing
 
@@ -806,8 +807,7 @@ A third transport, alongside CAN and ESP-NOW, for when HELM and one
 engine driver (currently just `can_sim`) are physically right next to
 each other and running 3 wires is simpler than fitting a CAN transceiver
 or relying on radio - e.g. a bench setup, or a future CTRL board mounted
-right behind the panel. `wired_bus.h` (duplicated by hand into `can_sim/`,
-same discipline as `can_protocol.h`/`espnow_bus.h`) is the full design
+right behind the panel. `wired_bus.h` (`EngineControl/common/`, shared with `can_sim`) is the full design
 writeup; this is the HELM-specific half of it.
 
 - **Wiring**: HELM `PIN_WIRED_TX` (GPIO 10) -> other board's wired RX,
@@ -871,20 +871,14 @@ writeup; this is the HELM-specific half of it.
   With no fake enabled the panel correctly sits on NO ENGINE DETECTED.
 - **Serial Log panel** on the debug page (`/serial`, `handle_serial_log()`)
   mirrors this board's own serial console over HTTP - added because it
-  runs headless on the boat, no USB cable to watch it with. `LoggingSerial`
-  (top of `engine_display.ino`, right after the includes) subclasses
-  `HardwareSerial` and overrides its two virtual `write()` methods to
-  append into a 4KB ring buffer before forwarding to the real UART;
-  `#define Serial g_log_serial` right after the class makes every
-  existing `Serial.xxx(...)` call site in this file pick it up
-  automatically, no other code changes needed. Scoped to this
-  translation unit only (this `.ino` + its directly-`#include`d headers)
-  - vendored library `.cpp` files (`lvgl_v8_port.cpp` etc.) are compiled
-  separately and never see the `#define`. 8KB static total (4KB ring +
-  a same-size scratch buffer in the handler to linearize it) - modest
-  against this board's SRAM scarcity, but worth remembering it's there
-  if headroom ever gets tight again (see the internal-SRAM hard
-  constraint above). The panel polls `/serial` every second into a
+  runs headless on the boat, no USB cable to watch it with. `tobe::console` (library `TobeCore`, `TobeLog.h`)
+  wraps the serial port: it ends every line with CR LF, and keeps the last `TOBE_LOG_SIZE` (4KB) bytes in a ring
+  buffer (guarded by a spinlock - the ESP-NOW receive callback prints from another core). `#define
+  TOBE_REDIRECT_SERIAL` at the top of the sketch makes every existing `Serial.xxx(...)` call site in the file use
+  it, no other code changes needed. Scoped to this translation unit only - vendored library `.cpp` files
+  (`lvgl_v8_port.cpp` etc.) are compiled separately and never see the `#define`. 4KB ring plus a same-size static
+  scratch buffer in the handler to linearize it: modest against this board's SRAM scarcity, but worth remembering
+  it's there if headroom ever gets tight again (see the internal-SRAM hard constraint above). The panel polls `/serial` every second into a
   `readonly` `<textarea>` (not a `<pre>`, specifically so selecting text
   works the way it does in a normal text box) - **Pause** stops the poll
   entirely (`serialPaused` in the page's own JS) rather than just
@@ -988,19 +982,21 @@ in this repo were exactly that, and are gone). All of it lives in `fleet_securit
 - **Serial-flashing a board that was ever updated over the air**: it boots from the OTHER program slot, so
   flashing slot 0 does nothing - also erase `otadata` (0xe000, 0x2000), as `tech_flash_hc.sh` does.
 
-### Setup page / WEBMODE (`setup_web.h`, identical copies in `engine_display/` and `can_sim/`)
+### Setup page / WEBMODE (library `TobeWeb`, with `TobeFleetUi.h` adding the key section)
 
-- A small web page to set the ESP-NOW passphrase and (optionally) WiFi details. On the HELM it is part of the
-  normal web page (it is on your WiFi): `POST /key`, `/wifi`, `/reboot`, and a key form under "ESP-NOW".
+- A small web page to set the ESP-NOW passphrase and (optionally) WiFi details, and to update the firmware. On the
+  HELM it is part of the normal web page (it is on your WiFi): `POST /key`, the TOBE system routes `/sys/...`, and
+  a combined page at `/system`.
 - On a C3 or CYD, serial **`WEBMODE`** restarts the board into setup mode for 10 minutes (then it restarts
-  normally): it joins the WiFi it has saved, if any, otherwise starts its own **open** network `EC-xxxx` (the
-  last two address bytes; page at `http://192.168.4.1/`). The CYD also shows where to connect on its screen.
-  The open network is a deliberate choice for convenience - anyone in range during those minutes could set a key;
-  keep setup mode short and compare fingerprints afterwards (`KEYSHOW`).
+  normally): it joins the WiFi it has saved, if any, otherwise starts its own **open** network
+  `TOBE-<firmware>-xxxx` (the last two address bytes; page at `http://192.168.4.1/`). The CYD also shows where to
+  connect on its screen. The open network is a deliberate choice for convenience - anyone in range during those
+  minutes could set a key; keep setup mode short and compare fingerprints afterwards (`KEYSHOW`).
 - Saving a key forgets joined boards and restarts the board; saving WiFi details restarts it too. A CYD never joins
   WiFi in normal use (its role), so WiFi details only matter for `WEBMODE` on a C3/S3 `can_sim` or the HELM.
-- Bench-verified: C3 and CYD setup pages reached from a laptop-style client, short passphrase refused, valid one
-  saved, board rejoined the HELM by itself. Note the CYD's serial log goes quiet while it is in setup mode.
+- Bench-verified (before the move to the shared libraries): C3 and CYD setup pages reached from a laptop-style
+  client, short passphrase refused, valid one saved, board rejoined the HELM by itself. The CYD's serial log goes
+  quiet while it is in setup mode.
 
 ### Migrating from the pairing-window generation
 
@@ -1008,26 +1004,28 @@ The secured generation (HELM b36+ / can_sim b27+) cannot talk to the old one (di
 ESP-NOW is off until a key is set). Update All still works to get the boards across, but afterwards **set the same
 passphrase on every board** (serial `KEY ...` or the setup page) before anything joins; confirm the fingerprints match.
 
-### The serial CLI (`serial_cli.h`, identical copies in `engine_display/` and `can_sim/`)
+### The serial CLI (library `TobeCli`)
 
 The serial console is a small line editor, so it can be used from a plain terminal (115200 baud; PuTTY, `screen`,
-`minicom`, the Arduino monitor with "Both NL & CR"):
+`minicom`, `picocom`, the Arduino monitor with "Both NL & CR"):
 
 - **Tab** completes the command name; several matches extend to what they share, or list them.
   **`?`** lists the commands that match what is typed (all of them on an empty line) - only before the first
   space, so a passphrase may contain a `?`. `MENU` / `HELP` print the same list.
 - Backspace; **Ctrl-U** clears the line; **Ctrl-C** abandons it; **Up / Down** recall the last six commands.
-- After `KEY ` the characters echo as `*`, and a `KEY ...` line is never put in the history.
+- After `KEY ` the characters echo as `*` (a command flagged `CLI_SECRET`), and such a line is never put in the history.
 - Periodic status lines (`loop alive`, frame counters, engine commands received) are held back for 10 s after
-  the last keypress (`CLI_LOG()` / `cli_quiet()`), so they don't land in the middle of what you are typing.
-- One command table per sketch (`kCli[]`) feeds Tab, `?` and `MENU`; add a command there and in
-  `handle_serial_line()`. Prompts: `HELM> `, `CYD> `, `SIM> `.
-- **Trap**: in `engine_display.ino` the sketch replaces `Serial` with a logging wrapper (`#define Serial
-  g_log_serial`). Any header that prints must be included AFTER that line, or its output goes to the core's
-  original, never-begun Serial object and silently vanishes (this broke both the CLI echo and the CYD's
-  setup-mode messages until the includes were moved).
+  the last keypress (`CLI_LOG()` = `TOBE_CLI_LOG()`), so they don't land in the middle of what you are typing.
+- The commands every TOBE firmware has come from the library (`MENU STATUS WIFI WIFISHOW WIFICLEAR WEBMODE
+  UPDATE LOG REBOOT`; `WIFI:<ssid>,<password>` is still accepted); `KEY KEYSHOW KEYCLEAR` come from `TobeFleetUi.h`;
+  the display's own are the `kCli[]` table in the sketch (`CLEARPEERS CANON CANOFF` on the HELM, `REPAIR` on the
+  CYD), and a command of the same name replaces a standard one (the HELM's `UPDATE` runs Update All, its `WEBMODE`
+  only says where its page is). Prompts: `HELM> `, `CYD> `, `SIM> `.
+- **Trap (gone)**: the old per-sketch `#define Serial` wrapper made any header that printed depend on include order.
+  The libraries now call `tobe::console` directly, so order no longer matters for them; only the sketch's own
+  `Serial.xxx` calls rely on `TOBE_REDIRECT_SERIAL`.
 
 **Line endings**: most output in this firmware ends lines with a bare `\n`, which a terminal that does not add the
-carriage return itself (picocom's default: `omap` empty) shows as a staircase. On the wire every bare LF is now sent as
-CR LF: `LoggingSerial` does it on the HELM/CYD (the copy kept for the web log is untouched) and `CrlfSerial` in
-`can_sim.ino` wraps whatever `Serial` the chip has. Measured on the HELM and the C3: 0 bare LF in the output.
+carriage return itself (picocom's default: `omap` empty) shows as a staircase. `tobe::console` sends every bare LF as
+CR LF on the wire (the copy kept for the web log is untouched). Measured on the HELM and the C3 before the move: 0 bare
+LF in the output.

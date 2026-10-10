@@ -26,19 +26,26 @@
  * idle and just-over-redline instead of sitting still), and a live
  * rpm/temp/oil/hours readout for both. No screen also means WiFi creds
  * are configured over serial - "WIFI:<ssid>,<password>" at any time (see
- * handle_serial_line) - since that's the only input this board has.
+ * the serial command line, TobeCli) - since that's the only input this board has.
  *
  * Board: ESP32-S3-Zero (Waveshare, ESP32-S3FH4R2 - 4MB flash, 2MB quad
  * PSRAM, NOT the octal PSRAM the HELM board uses). See CLAUDE.md in this
  * folder for board settings and pin choices.
  *
- * REQUIRES can_protocol.h in this same folder, copied by hand from
- * ../engine_display/can_protocol.h (the canonical copy) - Arduino sketches
- * can't share files across folders. Keep them in sync; see the note at
- * the top of that file.
+ * Shares ../common/can_protocol.h (the bus protocol) with the display firmware, and the TOBE libraries in
+ * ../../lib (serial command line, web setup page, OTA, WiFi, the ESP-NOW secret) with every other project.
  */
 
+/* Everything printed with Serial.* below goes through tobe::console (CR LF line ends, and a copy kept for the
+ * web log). Must come before any code that prints. */
+#define TOBE_REDIRECT_SERIAL
 #include <Arduino.h>
+#include <Tobe.h>
+#include <TobeLog.h>
+#include <TobeCli.h>
+#include <TobeOta.h>
+#include <TobeWeb.h>
+#include <TobeWifi.h>
 #include <WiFi.h>
 #include "esp_wifi.h"   /* esp_wifi_set_channel() - pins the radio's channel
                           * without an actual STA join/AP broadcast, see
@@ -51,59 +58,14 @@
 #include "espnow_pairing.h"
 #include "espnow_bus.h"
 #include "fleet_security.h"
-
-/* Most output here ends its lines with a bare "\n". A terminal that does not add the carriage return itself
- * (picocom by default) then shows a staircase, so everything printed goes through this thin wrapper, which
- * turns each bare LF into CR LF on the way out. (`Serial` is a different class on the C3 and the S3, hence
- * the deduced type.) The headers that print are included AFTER the #define below so they use it too. */
-static auto &g_real_serial = Serial;
-class CrlfSerial : public Stream {
-public:
-    void begin(unsigned long baud) { g_real_serial.begin(baud); }
-    int available() override { return g_real_serial.available(); }
-    int read() override { return g_real_serial.read(); }
-    int peek() override { return g_real_serial.peek(); }
-    void flush() override { g_real_serial.flush(); }
-    size_t write(uint8_t c) override {
-        if (c == '\n' && last_ != '\r') g_real_serial.write((uint8_t)'\r');
-        last_ = c;
-        return g_real_serial.write(c);
-    }
-    size_t write(const uint8_t *buf, size_t n) override {
-        size_t start = 0;
-        for (size_t i = 0; i < n; i++) {
-            if (buf[i] == '\n' && last_ != '\r') {
-                if (i > start) g_real_serial.write(buf + start, i - start);
-                g_real_serial.write((uint8_t)'\r');
-                start = i;
-            }
-            last_ = buf[i];
-        }
-        if (n > start) g_real_serial.write(buf + start, n - start);
-        return n;
-    }
-    using Print::write;
-private:
-    uint8_t last_ = 0;
-};
-static CrlfSerial g_crlf_serial;
-#define Serial g_crlf_serial
-
-#include "setup_web.h"
-#include "serial_cli.h"
+#include "TobeFleetUi.h"
 #include "wired_bus.h"
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>   /* GitHub release downloads are https */
-#include <HTTPClient.h>
-#include <HTTPUpdate.h>   /* httpUpdate global singleton - download+flash convenience wrapper */
-#include <Update.h>       /* esp_ota_* lower-level API, needed for the app-valid rollback marker */
-#include "esp_ota_ops.h"  /* esp_ota_mark_app_valid_cancel_rollback() */
 
-/* OTA: bump by hand every release - see engine_display.ino's identical
- * FW_BUILD for the full reasoning (monotonic build number, not semver).
- * Reported in this board's own ANNOUNCE (sim_engine_send_announce()) so
- * HELM's device list knows whether it's out of date. */
-#define FW_BUILD 28
+/* periodic status prints hold off while someone is typing a command */
+#define CLI_LOG(...) TOBE_CLI_LOG(__VA_ARGS__)
+
+/* FW_BUILD (this board's build number, reported in its own ANNOUNCE so HELM's device list knows whether it is
+ * out of date) comes from the build: build/projects.json. */
 
 /* which hardware this image is built for (reported in ANNOUNCE[7], so HELM
  * offers this board the matching firmware from the OTA manifest) */
@@ -115,20 +77,11 @@ static CrlfSerial g_crlf_serial;
 #error "can_sim: no HW_ID for this chip - add one in can_protocol.h (HW_*, md_hw_key()) and here, plus a variant in tools/devices.json"
 #endif
 
-/* This user's ESP32-C3 modules cannot transmit at the default (maximum, 19.5 dBm)
- * power: the radio goes completely silent - no beacons, no association, no
- * ESP-NOW - while receiving still works (also found on the FishFinderProBluetooth
- * C3, see its wifi_manager.cpp, which uses 8.5). Measured on this board with a
- * receiver 30 cm away, stepping the power in software: 19.5 dBm never transmits;
- * 19 and 18.5 work when approached from below but not after starting at 19.5;
- * 17 dBm and below always work, and the received level stops rising above 17.
- * 15 dBm keeps a safe margin below that cliff and about twice the range of 8.5.
- * Call after every WiFi.mode(). The S3 boards are unaffected. */
+/* The ESP32-C3 transmit-power cap (these modules cannot transmit at the default) lives in TobeWifi
+ * (tobe::wifi::applyTxCap(), 15 dBm on the C3, no change on the S3). Call after every WiFi.mode(). */
 static void wifi_tx_cap(void)
 {
-#if CONFIG_IDF_TARGET_ESP32C3
-    WiFi.setTxPower(WIFI_POWER_15dBm);
-#endif
+    tobe::wifi::applyTxCap();
 }
 
 #if CONFIG_IDF_TARGET_ESP32C3
@@ -157,42 +110,6 @@ static void wifi_tx_cap(void)
 #define PIN_WIRED_TX   1
 #define PIN_WIRED_RX   2
 #endif
-
-/* GitHub release URLs answer with a redirect to a signed URL on another host. Following it inside the
- * HTTP update library means a second TLS connection set up while the first is still being torn down, and on
- * the HELM (little contiguous internal RAM left once the UI is up) that failed with "connection refused".
- * So follow the redirect here by hand, one TLS connection at a time - each is freed before the next opens -
- * and hand the update library the final URL. Logs each hop with the free internal RAM. */
-static String ota_resolve_url(const String &start_url)
-{
-    String url = start_url;
-    for (int hop = 0; hop < 4; hop++) {
-        if (!url.startsWith("https://")) return url;   /* plain http (a local test server): nothing to follow */
-        WiFiClientSecure c;
-        c.setInsecure();
-        HTTPClient h;
-        h.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
-        const char *keys[] = {"Location"};
-        h.collectHeaders(keys, 1);
-        if (!h.begin(c, url)) {
-            Serial.println("OTA: redirect resolve - http.begin() failed");
-            return url;
-        }
-        int code = h.GET();
-        String loc = h.header("Location");
-        Serial.printf("OTA: hop %d -> HTTP %d (internal RAM %u, largest block %u, next url %u chars)\n",
-            hop, code, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL), (unsigned)loc.length());
-        h.end();
-        c.stop();
-        if ((code == 301 || code == 302 || code == 303 || code == 307 || code == 308) && loc.length()) {
-            url = loc;
-            continue;
-        }
-        return url;   /* 200, or an error the update call will report itself */
-    }
-    return url;
-}
 
 /* ==================== wifi ====================
  * No screen on this board, so there's no setup wizard/PIN lock like the
@@ -1333,32 +1250,14 @@ static void ota_tick(void)
         return;
     }
 
-    /* https:// (GitHub releases) needs a TLS client; plain http:// (a
-     * local test server) must NOT use one. Certificate chain is not
-     * verified - same trade as the other OpenBoat firmwares, the MD5
-     * below guards against a corrupted download. GitHub answers with a
-     * redirect to its download host, so follow it. */
-    WiFiClient       plain_client;
-    WiFiClientSecure tls_client;
-    tls_client.setInsecure();
-    String real_url = ota_resolve_url(String(g_ota_url));
-    NetworkClient &client = real_url.startsWith("https://")
-        ? (NetworkClient &)tls_client : (NetworkClient &)plain_client;
-    httpUpdate.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);   /* ota_resolve_url() already did */
-    httpUpdate.rebootOnUpdate(true);   /* headless board, no UI to show a result on either way */
-    /* checksum verification (if HELM sent one - see ota_handle_start_
-     * chunk()/can_protocol.h's MSG_OTA_START comment): same setMD5sum()
-     * mechanism as engine_display.ino's self-update, makes Update.end()
-     * reject a corrupted/tampered image instead of flashing it. Skipped,
-     * not failed, if empty. */
-    if (g_ota_md5[0]) httpUpdate.setMD5sum(g_ota_md5);
+    /* download, check the MD5 HELM sent, flash, restart (TobeOta: https or plain http, GitHub's redirect followed
+     * one connection at a time). A headless board has no UI to show a result on either way. */
     Serial.printf("OTA: downloading from %s\n", g_ota_url);
-    t_httpUpdate_return ret = httpUpdate.update(client, real_url);
-    Serial.printf("OTA: httpUpdate.update() returned %d (%s)\n",
-        (int)ret, httpUpdate.getLastErrorString().c_str());
+    tobe::ota::ApplyOptions opts;
+    if (!tobe::ota::apply(String(g_ota_url), String(g_ota_md5), opts))
+        Serial.printf("OTA: failed - %s\n", tobe::ota::lastError().c_str());
 
-    /* only reach here if it wasn't OK (success already rebooted via
-     * rebootOnUpdate(true)) - restart anyway to cleanly resume normal
+    /* only reach here if it failed (success already restarted) - restart anyway to cleanly resume normal
      * ESP-NOW/CAN operation rather than staying in a half-joined state */
     delay(500);
     ESP.restart();
@@ -1708,7 +1607,7 @@ static const char PAGE_TAIL[] PROGMEM = R"HTML(
 <script>
 var CAPS = ['rpm','temp','oil','talm','palm','glow','start','ign','hrs','aud','stop','chg','wtr'];
 
-function pushGlobal(){
+ function pushGlobal(){
   /* checkbox is "CAN Enabled" (positive sense) - wire format is still
      candis=1 meaning disabled, so invert at this boundary */
   fetch('/setg?candis='+(document.getElementById('canen').checked?0:1)).catch(function(){});
@@ -1718,7 +1617,7 @@ document.getElementById('repairbtn').addEventListener('click', function(){
   fetch('/setg?repair=1').catch(function(){});
 });
 
-function push(i){
+ function push(i){
   var q = 'i='+i+'&en='+(document.getElementById('en'+i).checked?1:0)
         +'&nm='+encodeURIComponent(document.getElementById('nm'+i).value)
         +'&md='+document.getElementById('md'+i).value
@@ -1744,7 +1643,7 @@ for (var wi = 0; wi < 4; wi++) (function(i){
 
 var inited = [false,false,false,false];
 var globalInited = false;
-function poll(){
+ function poll(){
   fetch('/status').then(function(r){ return r.json(); }).then(function(j){
     if (!globalInited) {
       document.getElementById('canen').checked = !j.can_disabled;
@@ -2005,184 +1904,80 @@ static void wifi_setup(void)
  * panel's identical feature: never touch WiFi.* directly outside
  * wifi_setup()'s proven boot-time path. */
 
-/* the serial menu: one table feeds Tab completion, the ? list and MENU */
-static const CliCmd kCli[] = {
-    { "MENU",       "",                  "show this list (also HELP or ?)" },
-    { "STATUS",     "",                  "firmware build, ESP-NOW key and link, CAN, WiFi (also PAIRSTATUS)" },
-    { "KEY",        "<passphrase>",      "set the shared ESP-NOW secret (12+ characters, same on every board), then restart" },
-    { "KEYSHOW",    "",                  "is a key set? its fingerprint (same on every board with the same key)" },
-    { "KEYCLEAR",   "",                  "forget the key (ESP-NOW goes off), then restart" },
-    { "WIFI:",      "<ssid>,<password>", "save WiFi details and restart (password may be empty)" },
-    { "WEBMODE",    "",                  "restart into setup mode: a web page to set the key and WiFi (10 minutes)" },
-    { "UPDATE",     "",                  "(the HELM updates this board - use UPDATE on the HELM)" },
-    { "REPAIR",     "",                  "forget HELM and look for it again" },
-    { "CANON",      "",                  "use CAN when it is healthy" },
-    { "CANOFF",     "",                  "never use CAN - ESP-NOW only (needed with no CAN transceiver)" },
-    { "REBOOT",     "",                  "restart" },
-};
-static const int kCliN = sizeof(kCli) / sizeof(kCli[0]);
+/* ==================== serial command line (TobeCli) ====================
+ * MENU STATUS WIFI WIFISHOW WIFICLEAR WEBMODE LOG REBOOT come from TobeCli, KEY KEYSHOW KEYCLEAR from TobeFleet;
+ * these are can_sim's own. UPDATE is replaced: this board is updated by the HELM. */
+
 #define CLI_PROMPT "SIM> "
 
-static void print_serial_help(void)
+static void cmd_update(const char *)
 {
-    Serial.println("Serial menu - Tab completes a command, ? lists them (case-insensitive):");
-    for (int i = 0; i < kCliN; i++)
-        Serial.printf("  %-11s %-18s %s\n", kCli[i].name, kCli[i].args, kCli[i].help);
+    Serial.println("this board is updated by the HELM - use UPDATE on the HELM's serial menu, or Update All on its screen");
 }
 
-/* Shared by the serial WIFI: command and wifi_join_tick() (MSG_WIFI_JOIN,
- * see can_protocol.h) - saves creds to NVS and reboots to connect, so the
- * join survives future reboots rather than being a one-off connection.
- * Only ever writes NVS + calls ESP.restart() - never touches WiFi.*
- * directly outside wifi_setup()'s proven boot-time path, same discipline
- * as everywhere else WiFi credentials get set on this board. */
+static void cmd_repair(const char *)
+{
+    espnow_forget_helm();
+    Serial.println("ESP-NOW: forgot HELM, looking for it again");
+}
+
+static void cmd_canon(const char *)
+{
+    g_can_disabled = false;
+    if (prefs_ok) prefs.putBool("can_dis", g_can_disabled);
+    Serial.printf("CAN enabled (bus_send will now use %s)\n", can_ok ? "CAN" : "ESP-NOW");
+}
+
+static void cmd_canoff(const char *)
+{
+    g_can_disabled = true;
+    if (prefs_ok) prefs.putBool("can_dis", g_can_disabled);
+    Serial.println("CAN disabled (bus_send will now use ESP-NOW)");
+}
+
+/* the board-specific lines of STATUS (TobeCli prints build, chip, memory and WiFi first) */
+static void cli_status_hook(void)
+{
+    Serial.printf("  ESP-NOW key %s\n", g_fsec_have_key ? "set" : "NOT SET");
+    Serial.printf("  ESP-NOW: %s, CAN %s (%s) - bus_send uses %s, WiFi %s\n",
+        g_paired ? "paired with HELM" : "not paired",
+        g_can_disabled ? "disabled" : "enabled",
+        can_ok ? "healthy" : "not healthy",
+        (!g_can_disabled && can_ok) ? "CAN" : "ESP-NOW",
+        g_wifi_joined ? "joined (owns channel)" : "not joined (channel-hunting)");
+    if (g_paired)
+        Serial.printf("  HELM MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+            g_helm_mac[0], g_helm_mac[1], g_helm_mac[2],
+            g_helm_mac[3], g_helm_mac[4], g_helm_mac[5]);
+    if (!g_wifi_joined)
+        Serial.printf("  channel: %d (%s)\n", g_channel,
+            g_hunting ? "hunting" : "confirmed");
+}
+
+static const tobe::CliCommand kCli[] = {
+    { "UPDATE",  "", "(the HELM updates this board - use UPDATE on the HELM)",                    cmd_update, 0 },
+    { "REPAIR",  "", "forget HELM and look for it again",                                          cmd_repair, 0 },
+    { "CANON",   "", "use CAN when it is healthy",                                                 cmd_canon, 0 },
+    { "CANOFF",  "", "never use CAN - ESP-NOW only (needed with no CAN transceiver)",              cmd_canoff, 0 },
+};
+
+/* Shared by MSG_WIFI_JOIN (see can_protocol.h): saves creds to NVS and reboots to connect, so the join survives
+ * future reboots rather than being a one-off connection. Only ever writes NVS + restarts - never touches WiFi.*
+ * directly outside wifi_setup()'s proven boot-time path. */
 static void save_wifi_and_reboot(const char *ssid, const char *pass)
 {
     if (!ssid[0]) {
         Serial.println("WiFi: empty SSID, ignored");
         return;
     }
-    if (!prefs_ok) {
-        Serial.println("WiFi: NVS unavailable, can't save WiFi creds");
-        return;
-    }
-    prefs.putString("ssid", ssid);
-    prefs.putString("pass", pass);
-    Serial.printf("WiFi: saved ssid=\"%s\" - restarting to connect...\n", ssid);
-    Serial.flush();
-    delay(200);
-    ESP.restart();
-}
-
-static void handle_serial_line(char *line)
-{
-    if (strcasecmp(line, "HELP") == 0 || strcasecmp(line, "MENU") == 0 || strcmp(line, "?") == 0) {
-        print_serial_help();
-        return;
-    }
-    if (strncasecmp(line, "KEY ", 4) == 0) {
-        const char *phrase = line + 4;
-        while (*phrase == ' ') phrase++;
-        if (strlen(phrase) < FSEC_MIN_PASSPHRASE) {
-            Serial.printf("Serial: the passphrase must be at least %d characters\n", FSEC_MIN_PASSPHRASE);
-            return;
-        }
-        Serial.println("Serial: working out the key (a second or two)...");
-        if (!fsec_set_passphrase(prefs, prefs_ok, phrase)) {
-            Serial.println("Serial: could not save the key (flash unavailable)");
-            return;
-        }
-        if (prefs_ok) prefs.putBool("paired", false);   /* any old link used the old key */
-        Serial.printf("Serial: key saved, fingerprint %08lX (it must read the same on every board) - restarting\n",
-            (unsigned long)fsec_fingerprint());
-        Serial.flush();
-        delay(300);
-        ESP.restart();
-        return;
-    }
-    if (strcasecmp(line, "KEYSHOW") == 0 || strcasecmp(line, "KEY?") == 0 || strcasecmp(line, "KEY") == 0) {
-        if (g_fsec_have_key) Serial.printf("Serial: key is set, fingerprint %08lX\n", (unsigned long)fsec_fingerprint());
-        else Serial.println("Serial: no key set - ESP-NOW is off. Type  KEY <passphrase>");
-        return;
-    }
-    if (strcasecmp(line, "KEYCLEAR") == 0) {
-        fsec_clear(prefs, prefs_ok);
-        if (prefs_ok) prefs.putBool("paired", false);
-        Serial.println("Serial: key cleared - restarting with ESP-NOW off");
-        Serial.flush();
-        delay(300);
-        ESP.restart();
-        return;
-    }
-    if (strcasecmp(line, "WEBMODE") == 0) {
-        if (prefs_ok) prefs.putBool("webmode", true);
-        Serial.println("Serial: restarting into setup mode");
-        Serial.flush();
-        delay(300);
-        ESP.restart();
-        return;
-    }
-    if (strcasecmp(line, "UPDATE") == 0) {
-        Serial.println("Serial: this board is updated by the HELM - use UPDATE on the HELM's serial menu, or Update All on its screen");
-        return;
-    }
-    if (strcasecmp(line, "REBOOT") == 0) {
-        Serial.println("Serial: restarting");
-        Serial.flush();
-        delay(200);
-        ESP.restart();
-        return;
-    }
-    if (strcasecmp(line, "REPAIR") == 0) {
-        espnow_forget_helm();
-        Serial.println("ESP-NOW: forgot HELM, looking for it again");
-        return;
-    }
-    if (strcasecmp(line, "PAIRSTATUS") == 0 || strcasecmp(line, "STATUS") == 0) {
-        Serial.printf("Firmware build %d, ESP-NOW key %s\n", FW_BUILD, g_fsec_have_key ? "set" : "NOT SET");
-        Serial.printf("ESP-NOW: %s, CAN %s (%s) - bus_send uses %s, WiFi %s\n",
-            g_paired ? "paired with HELM" : "not paired",
-            g_can_disabled ? "disabled" : "enabled",
-            can_ok ? "healthy" : "not healthy",
-            (!g_can_disabled && can_ok) ? "CAN" : "ESP-NOW",
-            g_wifi_joined ? "joined (owns channel)" : "not joined (channel-hunting)");
-        if (g_paired)
-            Serial.printf("  HELM MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-                g_helm_mac[0], g_helm_mac[1], g_helm_mac[2],
-                g_helm_mac[3], g_helm_mac[4], g_helm_mac[5]);
-        if (!g_wifi_joined)
-            Serial.printf("  channel: %d (%s)\n", g_channel,
-                g_hunting ? "hunting" : "confirmed");
-        return;
-    }
-    if (strcasecmp(line, "CANON") == 0 || strcasecmp(line, "CANOFF") == 0) {
-        g_can_disabled = (strcasecmp(line, "CANOFF") == 0);
-        if (prefs_ok) prefs.putBool("can_dis", g_can_disabled);
-        Serial.printf("Serial: CAN %s (bus_send will now use %s)\n",
-            g_can_disabled ? "disabled" : "enabled",
-            (!g_can_disabled && can_ok) ? "CAN" : "ESP-NOW");
-        return;
-    }
-    if (strncasecmp(line, "WIFI:", 5) != 0) {
-        Serial.println("Serial: unrecognized command. Type HELP for the list.");
-        return;
-    }
-    char *rest = line + 5;
-    char *comma = strchr(rest, ',');
-    const char *ssid, *pass;
-    if (comma) {
-        *comma = 0;
-        ssid = rest;
-        pass = comma + 1;
-    } else {
-        ssid = rest;
-        pass = "";
-    }
-    save_wifi_and_reboot(ssid, pass);
-}
-
-static void serial_console_tick(void)
-{
-    static char line[CLI_LINE_MAX];
-    static size_t len = 0;
-    static bool greeted = false;
-    if (!greeted && millis() > 3000) {   /* once, after the boot messages */
-        greeted = true;
-        Serial.print("\r\nType ? for the command list; Tab completes.\r\n" CLI_PROMPT);
-    }
-    while (Serial.available()) {
-        if (cli_feed((char)Serial.read(), kCli, kCliN, CLI_PROMPT, line, sizeof(line), &len)) {
-            if (len > 0) handle_serial_line(line);
-            len = 0;
-            Serial.print(CLI_PROMPT);
-        }
-    }
+    tobe::wifi::saveAndReboot(ssid, pass);
 }
 
 /* ==================== arduino entry points ==================== */
 
 /* ==================== setup mode (serial WEBMODE) ====================
- * Restarts into a mode that serves the setup page (ESP-NOW key + WiFi details) for a few minutes - see setup_web.h. */
+ * Restarts into a mode that serves the setup page (WiFi details, firmware update, ESP-NOW key) for a few minutes -
+ * TobeWeb's setup mode, with TobeFleet's key section added. */
 static void webmode_key_changed(void)
 {
     if (prefs_ok) prefs.putBool("paired", false);   /* any old link used the old key */
@@ -2190,8 +1985,11 @@ static void webmode_key_changed(void)
 
 static void webmode_run(void)
 {
-    SetupWebCtx ctx = { &prefs, prefs_ok, "can_sim board", FW_BUILD, webmode_key_changed };
-    sw_run_setup_mode(ctx, wifi_tx_cap, NULL);   /* never returns */
+    tobe::web::SetupOptions opt;
+    opt.extraHtml = fleet_ui_web_html;
+    opt.extraRoutes = fleet_ui_web_routes;
+    opt.onRadioUp = wifi_tx_cap;
+    tobe::web::runSetupMode(opt);   /* never returns */
 }
 
 void setup()
@@ -2208,10 +2006,15 @@ void setup()
     prefs_ok = prefs.begin("cansim", false);
     if (!prefs_ok) Serial.println("NVS: prefs.begin failed - WiFi creds won't persist");
     fsec_begin(prefs, prefs_ok);   /* the shared ESP-NOW secret, if one was set */
-    if (prefs_ok && prefs.getBool("webmode", false)) {   /* serial WEBMODE asked for the setup page */
-        prefs.putBool("webmode", false);
-        webmode_run();
-    }
+
+    tobe::wifi::Config wcfg;
+    wcfg.nvsNamespace = "cansim";   /* where this board has always kept ssid / pass / flags */
+    wcfg.apFallback = false;        /* this board stays off WiFi unless it has credentials */
+    tobe::wifi::configure(wcfg);
+    tobe::cli.begin(CLI_PROMPT, kCli, sizeof(kCli) / sizeof(kCli[0]));
+    tobe::cli.setStatusHook(cli_status_hook);
+    fleet_ui_begin(&prefs, &prefs_ok, webmode_key_changed);   /* KEY / KEYSHOW / KEYCLEAR */
+    if (tobe::web::setupRequested()) webmode_run();   /* serial WEBMODE asked for the setup page */
     if (prefs_ok) {
         g_can_disabled = prefs.getBool("can_dis", false);
         g_paired       = prefs.getBool("paired", false);
@@ -2256,7 +2059,7 @@ void setup()
      * and gets auto-rolled-back if never marked valid before the next
      * reboot. Requires this board's PartitionScheme to actually have the
      * ota_0/ota_1 pair - see can_sim/CLAUDE.md's OTA section. */
-    esp_ota_mark_app_valid_cancel_rollback();
+    tobe::ota::markValid();
 
     Serial.println("setup() complete");
 }
@@ -2269,7 +2072,7 @@ void loop()
     last_tick = now;
 
     server.handleClient();
-    serial_console_tick();
+    tobe::cli.tick();
     pairing_requester_tick();
     can_poll();
     wired_bus_tick();

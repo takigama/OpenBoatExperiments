@@ -7,7 +7,7 @@ engine_display/build/
 can_sim/build/
 
 # Local, per-machine config and staged firmware images (release.sh uploads them to GitHub Releases; the manifest is tracked)
-engine_display/local_config.h
+engine_display/src/local_config.h
 ota/*.bin
 ota/*/
 .claude/
