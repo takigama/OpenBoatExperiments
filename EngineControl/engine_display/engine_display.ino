@@ -72,6 +72,7 @@
 #include "espnow_bus.h"
 #include "wired_bus.h"
 #include "fleet_security.h"
+#include "setup_web.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>   /* manifest and releases are on GitHub (https) */
 #include <HTTPUpdate.h>   /* httpUpdate global singleton - the download+flash convenience wrapper actually used */
@@ -5505,6 +5506,38 @@ static void cyd_pairing_tick(void)
     esp_now_send(ESPNOW_BROADCAST_MAC, (uint8_t *)&hello, sizeof(hello));
     Serial.printf("ESP-NOW: HELLO on channel %d\n", g_cyd_channel);
 }
+
+/* serial WEBMODE: the CYD restarts into a mode that serves the setup page (ESP-NOW key + WiFi details) and
+ * says where to find it on its own screen - see setup_web.h */
+static void cyd_webmode_key_changed(void)
+{
+    if (prefs_ok) prefs.putBool("paired", false);   /* any old link used the old key */
+}
+
+static void cyd_webmode_show(const char *where)
+{
+    lvgl_port_lock(-1);
+    lv_obj_t *bg = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(bg, 320, 240);
+    lv_obj_set_style_bg_color(bg, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_border_width(bg, 0, 0);
+    lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *l = lv_label_create(bg);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(l, 296);
+    lv_label_set_text_fmt(l, "SETUP MODE\n\nOpen %s\n\nSet the ESP-NOW key and WiFi there. Ends by itself in %d minutes.",
+        where, SW_MODE_MINUTES);
+    lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
+    lv_obj_center(l);
+    lv_refr_now(NULL);
+    lvgl_port_unlock();
+}
+
+static void cyd_webmode_run(void)
+{
+    SetupWebCtx ctx = { &prefs, prefs_ok, "CYD display", FW_BUILD, cyd_webmode_key_changed };
+    sw_run_setup_mode(ctx, NULL, cyd_webmode_show);   /* never returns */
+}
 #endif /* TARGET_BOARD != BOARD_HELM_S3_800x480 */
 
 /* ==================== bus_send(): transport-routing wrapper ====================
@@ -5617,11 +5650,14 @@ static void print_serial_help(void)
     Serial.println("  WIFI:<ssid>,<password>  - save WiFi details and restart (password may be empty)");
     Serial.println("  REBOOT                  - restart");
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
+    Serial.println("  WEBMODE                 - (the HELM's own web page is at its IP address when WiFi is connected)");
     Serial.println("  UPDATE                  - check for updates, then update every board that needs it (this display last)");
     Serial.println("  CLEARPEERS              - forget every joined board (they rejoin by themselves)");
     Serial.println("  CANON / CANOFF          - enable/disable CAN for the broadcast bucket");
 #else
     Serial.println("  REPAIR                  - forget HELM and look for it again");
+    Serial.println("  WEBMODE                 - restart into setup mode: a web page to set the key and WiFi (10 minutes)");
+    Serial.println("  UPDATE                  - not on this board: the HELM updates it");
 #endif
 }
 
@@ -5673,6 +5709,23 @@ static void handle_serial_line(char *line)
         ESP.restart();
         return;
     }
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+    if (strcasecmp(line, "WEBMODE") == 0) {
+        if (prefs_ok) prefs.putBool("webmode", true);
+        Serial.println("Serial: restarting into setup mode");
+        Serial.flush();
+        delay(300);
+        ESP.restart();
+        return;
+    }
+#else
+    if (strcasecmp(line, "WEBMODE") == 0) {
+        Serial.println(WiFi.status() == WL_CONNECTED
+            ? "Serial: this display's setup page is its normal web page - open http://<its IP>/ (see STATUS)"
+            : "Serial: connect it to WiFi first (WIFI:<ssid>,<password>); its web page is then at its IP address");
+        return;
+    }
+#endif
     if (strcasecmp(line, "REBOOT") == 0) {
         Serial.println("Serial: restarting");
         Serial.flush();
@@ -5832,13 +5885,15 @@ filters on.</em>
   <input type="checkbox" id="g2"> ignition on</div>
 <div class="al"><input type="checkbox" id="f3"> E3: Nanni Diesel
   <input type="checkbox" id="g3"> ignition on</div>
-<h2>ESP-NOW Pairing</h2>
-<em>Infrastructure only - a paired peer is just a trusted MAC, no engine
-traffic routes over ESP-NOW yet.</em>
+<h2>ESP-NOW</h2>
+<em>There is no pairing window. A board joins by itself, at any time, if it holds the same secret
+passphrase as this display. The secret is kept only in each board's own flash.</em>
 <div class="al">Status: <span id="espstat">--</span></div>
+<form method="POST" action="/key" class="al">Passphrase (12 or more characters, the same on every board)<br>
+<input type="password" name="phrase" autocomplete="off" style="width:100%;background:#142838;color:#eee;border:1px solid #33475c;padding:6px">
+<button type="submit">Save key and restart</button></form>
 <div class="al">
-<button type="button" id="espPairBtn">Enter Pairing Mode</button>
-<button type="button" id="espClearBtn">Clear ESP-NOW Pairings</button>
+<button type="button" id="espClearBtn">Forget joined boards</button>
 </div>
 <h2>Remote WiFi Join</h2>
 <em>Hands every currently-present engine's board HELM's own saved WiFi
@@ -5882,15 +5937,10 @@ serialPoll();
 <script>
 function espPoll(){
   fetch('/espstatus').then(function(r){ return r.json(); }).then(function(j){
-    var s = j.peers + ' peer' + (j.peers==1?'':'s') + ' paired';
-    if (j.pairing_mode) s += ' - pairing OPEN (' + Math.ceil(j.remaining_ms/1000) + 's left)';
-    else s += ' - pairing closed';
+    var s = (j.key_set ? 'key set' : 'NO KEY - ESP-NOW is off') + ', ' + j.peers + ' board' + (j.peers==1?'':'s') + ' joined';
     document.getElementById('espstat').textContent = s;
   }).catch(function(){});
 }
-document.getElementById('espPairBtn').addEventListener('click', function(){
-  fetch('/esppair').then(espPoll).catch(function(){});
-});
 document.getElementById('espClearBtn').addEventListener('click', function(){
   fetch('/espclear').then(espPoll).catch(function(){});
 });
@@ -6009,6 +6059,12 @@ static void handle_set(void)
 }
 
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
+/* a new key makes every joined board's link useless - forget them, they rejoin under the new key */
+static void espnow_pairing_clear_all_cb(void)
+{
+    espnow_pairing_clear_all();
+}
+
 static void handle_espnow_status(void)
 {
     char buf[120];
@@ -6162,6 +6218,10 @@ static void wifi_setup(void)
     server.on("/serial", handle_serial_log);
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
     server.on("/espstatus", handle_espnow_status);
+    {
+        SetupWebCtx ctx = { &prefs, prefs_ok, "HELM display", FW_BUILD, espnow_pairing_clear_all_cb };
+        sw_register(server, ctx, false);   /* /key, /wifi and /reboot; "/" stays the debug page */
+    }
     server.on("/espclear", handle_espnow_clear);
     server.on("/wifijoinall", handle_wifi_join_all);
 #endif
@@ -6260,6 +6320,13 @@ void setup()
 #endif
     lvgl_port_unlock();
     heap_report("ui");
+
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+    if (prefs_ok && prefs.getBool("webmode", false)) {   /* serial WEBMODE asked for the setup page */
+        prefs.putBool("webmode", false);
+        cyd_webmode_run();
+    }
+#endif
 
 #if TARGET_BOARD == BOARD_HELM_S3_800x480
     if (!g_can_disabled) can_setup();

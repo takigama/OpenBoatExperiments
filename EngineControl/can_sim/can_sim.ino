@@ -51,6 +51,7 @@
 #include "espnow_pairing.h"
 #include "espnow_bus.h"
 #include "fleet_security.h"
+#include "setup_web.h"
 #include "wired_bus.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>   /* GitHub release downloads are https */
@@ -1975,6 +1976,8 @@ static void print_serial_help(void)
     Serial.println("  KEYCLEAR                - forget the key (ESP-NOW goes off), then restart");
     Serial.println("  REPAIR                  - forget HELM and look for it again");
     Serial.println("  PAIRSTATUS / STATUS     - show ESP-NOW link + CAN/transport status");
+    Serial.println("  WEBMODE                 - restart into setup mode: a web page to set the key and WiFi (10 minutes)");
+    Serial.println("  UPDATE                  - not on this board: the HELM updates it (HELM serial UPDATE, or Update All)");
     Serial.println("  REBOOT                  - restart");
     Serial.println("  CANON / CANOFF          - enable/disable CAN (bus_send falls back to ESP-NOW when off)");
 }
@@ -2041,6 +2044,18 @@ static void handle_serial_line(char *line)
         Serial.flush();
         delay(300);
         ESP.restart();
+        return;
+    }
+    if (strcasecmp(line, "WEBMODE") == 0) {
+        if (prefs_ok) prefs.putBool("webmode", true);
+        Serial.println("Serial: restarting into setup mode");
+        Serial.flush();
+        delay(300);
+        ESP.restart();
+        return;
+    }
+    if (strcasecmp(line, "UPDATE") == 0) {
+        Serial.println("Serial: this board is updated by the HELM - use UPDATE on the HELM's serial menu, or Update All on its screen");
         return;
     }
     if (strcasecmp(line, "REBOOT") == 0) {
@@ -2118,6 +2133,19 @@ static void serial_console_tick(void)
 
 /* ==================== arduino entry points ==================== */
 
+/* ==================== setup mode (serial WEBMODE) ====================
+ * Restarts into a mode that serves the setup page (ESP-NOW key + WiFi details) for a few minutes - see setup_web.h. */
+static void webmode_key_changed(void)
+{
+    if (prefs_ok) prefs.putBool("paired", false);   /* any old link used the old key */
+}
+
+static void webmode_run(void)
+{
+    SetupWebCtx ctx = { &prefs, prefs_ok, "can_sim board", FW_BUILD, webmode_key_changed };
+    sw_run_setup_mode(ctx, wifi_tx_cap, NULL);   /* never returns */
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -2132,6 +2160,10 @@ void setup()
     prefs_ok = prefs.begin("cansim", false);
     if (!prefs_ok) Serial.println("NVS: prefs.begin failed - WiFi creds won't persist");
     fsec_begin(prefs, prefs_ok);   /* the shared ESP-NOW secret, if one was set */
+    if (prefs_ok && prefs.getBool("webmode", false)) {   /* serial WEBMODE asked for the setup page */
+        prefs.putBool("webmode", false);
+        webmode_run();
+    }
     if (prefs_ok) {
         g_can_disabled = prefs.getBool("can_dis", false);
         g_paired       = prefs.getBool("paired", false);

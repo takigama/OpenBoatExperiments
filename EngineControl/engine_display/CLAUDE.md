@@ -987,3 +987,23 @@ in this repo were exactly that, and are gone). All of it lives in `fleet_securit
   "HELLO rejected - not made with our key" and the C3 never joins; the right phrase back -> rejoins in ~1 s.
 - **Serial-flashing a board that was ever updated over the air**: it boots from the OTHER program slot, so
   flashing slot 0 does nothing - also erase `otadata` (0xe000, 0x2000), as `tech_flash_hc.sh` does.
+
+### Setup page / WEBMODE (`setup_web.h`, identical copies in `engine_display/` and `can_sim/`)
+
+- A small web page to set the ESP-NOW passphrase and (optionally) WiFi details. On the HELM it is part of the
+  normal web page (it is on your WiFi): `POST /key`, `/wifi`, `/reboot`, and a key form under "ESP-NOW".
+- On a C3 or CYD, serial **`WEBMODE`** restarts the board into setup mode for 10 minutes (then it restarts
+  normally): it joins the WiFi it has saved, if any, otherwise starts its own **open** network `EC-xxxx` (the
+  last two address bytes; page at `http://192.168.4.1/`). The CYD also shows where to connect on its screen.
+  The open network is a deliberate choice for convenience - anyone in range during those minutes could set a key;
+  keep setup mode short and compare fingerprints afterwards (`KEY?`).
+- Saving a key forgets joined boards and restarts the board; saving WiFi details restarts it too. A CYD never joins
+  WiFi in normal use (its role), so WiFi details only matter for `WEBMODE` on a C3/S3 `can_sim` or the HELM.
+- Bench-verified: C3 and CYD setup pages reached from a laptop-style client, short passphrase refused, valid one
+  saved, board rejoined the HELM by itself. Note the CYD's serial log goes quiet while it is in setup mode.
+
+### Migrating from the pairing-window generation
+
+The secured generation (HELM b36+ / can_sim b27+) cannot talk to the old one (different frame layout, and
+ESP-NOW is off until a key is set). Update All still works to get the boards across, but afterwards **set the same
+passphrase on every board** (serial `KEY ...` or the setup page) before anything joins; confirm the fingerprints match.
