@@ -1,5 +1,5 @@
 {
-  "build": 23,
-  "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/esp32seatalk-v23/esp32seatalk-firmware.bin",
-  "md5": "293aea37bac0e3c65f49a590ac7a0c23"
+  "build": 24,
+  "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/tobe-ESP32Seatalk-v24/TOBE-ESP32Seatalk-v24.bin",
+  "md5": "b34cb75603c71a12596a642ba4146fdf"
 }
