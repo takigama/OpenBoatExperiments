@@ -103,7 +103,7 @@ static CrlfSerial g_crlf_serial;
  * FW_BUILD for the full reasoning (monotonic build number, not semver).
  * Reported in this board's own ANNOUNCE (sim_engine_send_announce()) so
  * HELM's device list knows whether it's out of date. */
-#define FW_BUILD 27
+#define FW_BUILD 28
 
 /* which hardware this image is built for (reported in ANNOUNCE[7], so HELM
  * offers this board the matching firmware from the OTA manifest) */
