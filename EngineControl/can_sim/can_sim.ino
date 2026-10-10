@@ -50,6 +50,7 @@
 #include <esp_now.h>
 #include "espnow_pairing.h"
 #include "espnow_bus.h"
+#include "fleet_security.h"
 #include "wired_bus.h"
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>   /* GitHub release downloads are https */
@@ -451,7 +452,7 @@ static void derive_sim_mac(uint8_t *out, uint8_t role_tag)
  * and persisted so a reboot can re-establish the encrypted peer without
  * re-pairing. Only meaningful once g_paired is true. */
 static uint8_t g_helm_mac[6];
-static uint8_t g_helm_lmk[ESPNOW_LMK_LEN];
+/* (the pair key is derived from the shared secret and both radio addresses when needed - fleet_security.h) */
 
 static void bytes_to_hex(const uint8_t *buf, int len, char *out)
 {
@@ -468,91 +469,85 @@ static void hex_to_bytes(const char *hex, uint8_t *buf, int len)
     }
 }
 
+/* register the HELM as an encrypted peer; the key is worked out from the shared secret and both addresses */
+static bool espnow_add_helm_peer(void)
+{
+    uint8_t me[6];
+    fsec_my_mac(me);
+    esp_now_peer_info_t peer = {};
+    memcpy(peer.peer_addr, g_helm_mac, 6);
+    peer.channel = 0;
+    peer.encrypt = true;
+    fsec_lmk(me, g_helm_mac, peer.lmk);
+    return (esp_now_is_peer_exist(g_helm_mac) ? esp_now_mod_peer(&peer) : esp_now_add_peer(&peer)) == ESP_OK;
+}
+
 static void espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
-    /* not logged per frame: this runs in the radio's own task, and a Serial write that blocks
-     * there (the C3's USB serial does) stalls the receive path and, through the shared port lock,
-     * the main loop too. Only the rare pairing-size messages are worth a line. */
-    if (len == (int)sizeof(espnow_pair_msg_t))
-        Serial.printf("ESP-NOW: pairing msg, %d bytes from %02X:%02X:%02X:%02X:%02X:%02X (g_paired=%d)\n",
-            len, info->src_addr[0], info->src_addr[1], info->src_addr[2],
-            info->src_addr[3], info->src_addr[4], info->src_addr[5], g_paired);
+    /* not logged per frame: this runs in the radio's own task, and a Serial write that blocks there
+     * (the C3's USB serial does) stalls the receive path and the main loop with it */
+    if (!g_fsec_have_key) return;
 
-    if (!g_paired && len == (int)sizeof(espnow_pair_msg_t)) {
-        espnow_pair_msg_t msg;
-        memcpy(&msg, data, sizeof(msg));
-        if (msg.fleet_id != FLEET_ID) {
-            Serial.printf("ESP-NOW: ACK rejected - fleet_id mismatch (got 0x%08lX, want 0x%08lX)\n",
-                (unsigned long)msg.fleet_id, (unsigned long)FLEET_ID);
+    if (!g_paired && len == (int)sizeof(espnow_hello_ack_t) && data[0] == ESPNOW_MSG_HELLO_ACK) {
+        espnow_hello_ack_t ack;
+        memcpy(&ack, data, sizeof(ack));
+        uint8_t me[6];
+        fsec_my_mac(me);
+        if (memcmp(ack.peer_mac, me, 6) != 0) return;   /* an answer to some other board */
+        uint8_t want[8];
+        fsec_hello_tag(ESPNOW_MSG_HELLO_ACK, ack.mac, ack.node_type, ack.peer_mac, want);
+        if (!fsec_tag_equal(want, ack.tag, 8) || ack.node_type != NODE_TYPE_HELM) {
+            Serial.println("ESP-NOW: reply rejected - it was not made with our key");
             return;
         }
-        if (msg.type != PAIR_MSG_ACK) {
-            Serial.printf("ESP-NOW: rejected - type %d, expected PAIR_MSG_ACK\n", msg.type);
+        memcpy(g_helm_mac, ack.mac, 6);
+        if (!espnow_add_helm_peer()) {
+            Serial.println("ESP-NOW: got a valid reply but could not register HELM as an encrypted peer");
             return;
         }
-
-        /* the ACK arrives unencrypted (see espnow_pairing.h) - register
-         * HELM as an encrypted peer now that we actually have its key. */
-        memcpy(g_helm_mac, info->src_addr, 6);
-        memcpy(g_helm_lmk, msg.lmk, ESPNOW_LMK_LEN);
-
-        esp_now_peer_info_t peer = {};
-        memcpy(peer.peer_addr, g_helm_mac, 6);
-        peer.channel = 0;
-        peer.encrypt = true;
-        memcpy(peer.lmk, g_helm_lmk, ESPNOW_LMK_LEN);
-        esp_err_t err = esp_now_is_peer_exist(g_helm_mac) ? esp_now_mod_peer(&peer) : esp_now_add_peer(&peer);
-        if (err != ESP_OK) {
-            Serial.println("ESP-NOW: got an ACK but failed to register HELM as an encrypted peer");
-            return;
-        }
-
         g_paired = true;
-        g_last_helm_rx_ms = millis();   /* avoid one spurious hunt cycle right
-                                          * after pairing, before HELM's first
-                                          * heartbeat has had a chance to arrive */
+        g_last_helm_rx_ms = millis();
         if (prefs_ok) {
-            char hex[33];
+            char hex[13];
             bytes_to_hex(g_helm_mac, 6, hex); hex[12] = 0;
             prefs.putString("helm_mac", hex);
-            bytes_to_hex(g_helm_lmk, ESPNOW_LMK_LEN, hex); hex[32] = 0;
-            prefs.putString("helm_lmk", hex);
             prefs.putBool("paired", true);
         }
-        Serial.println("ESP-NOW: paired with HELM (encrypted)");
+        Serial.println("ESP-NOW: joined HELM (encrypted)");
         return;
     }
 
     if (g_paired && len == (int)sizeof(espnow_bus_frame_t) && md_mac_eq(info->src_addr, g_helm_mac)) {
         espnow_bus_frame_t f;
         memcpy(&f, data, sizeof(f));
-        if (f.type != ESPNOW_MSG_BUS_FRAME || f.fleet_id != FLEET_ID) {
-            Serial.println("ESP-NOW: bus frame rejected - bad type/fleet_id");
-            return;
-        }
+        if (!fsec_frame_verify(&f, info->src_addr)) return;   /* bad signature or a replay */
 
-        g_last_helm_rx_ms = millis();   /* channel-hunting's "still there" signal */
+        /* only a frame ADDRESSED to us proves we are on HELM's channel - broadcasts can be heard
+         * (faintly) from a neighbouring channel, so they don't count as contact */
+        if (memcmp(info->des_addr, ESPNOW_BROADCAST_MAC, 6) != 0)
+            g_last_helm_rx_ms = millis();
         twai_message_t m = {};
         m.identifier = f.can_id;
         m.data_length_code = f.dlc;
         if (f.dlc) memcpy(m.data, f.data, f.dlc);
         bus_handle_rx(&m);
-        return;
-    }
-
-    if (g_paired && len == (int)sizeof(espnow_bus_frame_t)) {
-        Serial.println("ESP-NOW: bus frame rejected - not from HELM's known MAC");
     }
 }
 
 static void espnow_setup(void)
 {
+    if (!g_fsec_have_key) {
+        Serial.println("ESP-NOW: OFF - no key set. Type  KEY <passphrase>  (12+ characters, the same on every board).");
+        return;
+    }
     if (esp_now_init() != ESP_OK) {
         Serial.println("ESP-NOW: init failed");
         return;
     }
     esp_now_register_recv_cb(espnow_on_recv);
-    esp_now_set_pmk(ESPNOW_PMK);
+    uint8_t pmk[ESPNOW_LMK_LEN];
+    fsec_pmk(pmk);
+    esp_now_set_pmk(pmk);
 
     esp_now_peer_info_t bcast = {};
     memcpy(bcast.peer_addr, ESPNOW_BROADCAST_MAC, 6);
@@ -560,34 +555,21 @@ static void espnow_setup(void)
     bcast.encrypt = false;
     esp_now_add_peer(&bcast);
 
-    /* already paired from a previous boot - re-register HELM as an
-     * encrypted peer (esp_now's own table doesn't survive reboot, only
-     * our NVS copy of the MAC+key does) without re-broadcasting. */
-    if (g_paired && prefs_ok) {
+    /* already joined from a previous boot - re-register HELM as an encrypted peer (esp_now's own table
+     * doesn't survive reboot, only our NVS copy of HELM's address does; the key is re-derived) */
+    g_paired = prefs_ok && prefs.getBool("paired", false);
+    if (g_paired) {
         String hm = prefs.getString("helm_mac", "");
-        String hl = prefs.getString("helm_lmk", "");
-        if (hm.length() == 12 && hl.length() == 32) {
+        if (hm.length() == 12) {
             hex_to_bytes(hm.c_str(), g_helm_mac, 6);
-            hex_to_bytes(hl.c_str(), g_helm_lmk, ESPNOW_LMK_LEN);
-            esp_now_peer_info_t peer = {};
-            memcpy(peer.peer_addr, g_helm_mac, 6);
-            peer.channel = 0;
-            peer.encrypt = true;
-            memcpy(peer.lmk, g_helm_lmk, ESPNOW_LMK_LEN);
-            if (esp_now_add_peer(&peer) != ESP_OK)
-                Serial.println("ESP-NOW: failed to restore HELM as an encrypted peer");
+            if (!espnow_add_helm_peer()) Serial.println("ESP-NOW: failed to restore HELM as an encrypted peer");
         } else {
-            /* paired flag set but no key on record (e.g. upgraded from
-             * the unencrypted infrastructure-only version) - can't
-             * restore a peer we never actually saved a key for; fall
-             * back to re-pairing rather than staying stuck. */
-            Serial.println("ESP-NOW: paired but no saved key - re-arming pairing");
             g_paired = false;
-            if (prefs_ok) prefs.putBool("paired", false);
+            prefs.putBool("paired", false);
         }
     }
 
-    Serial.println("ESP-NOW: ready");
+    Serial.printf("ESP-NOW: ready (key fingerprint %08lX)\n", (unsigned long)fsec_fingerprint());
 }
 
 /* shared by REPAIR (serial) and the debug page's Clear Pairing button -
@@ -602,7 +584,6 @@ static void espnow_forget_helm(void)
     if (prefs_ok) {
         prefs.putBool("paired", false);
         prefs.remove("helm_mac");
-        prefs.remove("helm_lmk");
     }
 }
 
@@ -632,6 +613,7 @@ static void espnow_forget_helm(void)
  * 1..13 sweep. */
 static void pairing_requester_tick(void)
 {
+    if (!g_fsec_have_key) return;   /* ESP-NOW is off until a key is set */
     /* A directly-wired HELM needs no ESP-NOW pairing/hunting at all -
      * the two boards already found each other over the wire (HELM's own
      * heartbeat and this board's ENROLL_REQUEST retries reach each other
@@ -694,20 +676,16 @@ static void pairing_requester_tick(void)
 
     esp_wifi_set_channel(g_channel, WIFI_SECOND_CHAN_NONE);
 
-    if (!g_paired) {
-        espnow_pair_msg_t msg = {};
-        msg.type = PAIR_MSG_REQUEST;
-        msg.fleet_id = FLEET_ID;
-        WiFi.macAddress(msg.mac);
-        msg.node_type = NODE_TYPE_ENGINE_CTRL;
-        esp_err_t err = esp_now_send(ESPNOW_BROADCAST_MAC, (uint8_t *)&msg, sizeof(msg));
-        Serial.printf("ESP-NOW: broadcasting PAIR_MSG_REQUEST from %02X:%02X:%02X:%02X:%02X:%02X "
-                      "(channel %d) - esp_now_send()=%s\n",
-            msg.mac[0], msg.mac[1], msg.mac[2], msg.mac[3], msg.mac[4], msg.mac[5],
-            g_channel, err == ESP_OK ? "OK" : "FAILED");
-    } else {
-        Serial.printf("ESP-NOW: hunting for lost HELM - now on channel %d\n", g_channel);
-    }
+    /* announce ourselves: a HELLO only a holder of the shared secret can make. Sent while looking for HELM and
+     * also while re-looking after contact is lost, so HELM can pick us up again if it forgot us. */
+    espnow_hello_t hello = {};
+    hello.type = ESPNOW_MSG_HELLO;
+    fsec_my_mac(hello.mac);
+    hello.node_type = NODE_TYPE_ENGINE_CTRL;
+    fsec_hello_tag(ESPNOW_MSG_HELLO, hello.mac, hello.node_type, NULL, hello.tag);
+    esp_err_t err = esp_now_send(ESPNOW_BROADCAST_MAC, (uint8_t *)&hello, sizeof(hello));
+    Serial.printf("ESP-NOW: %s on channel %d - HELLO %s\n",
+        g_paired ? "looking for HELM again" : "looking for HELM", g_channel, err == ESP_OK ? "sent" : "FAILED");
 }
 
 /* ==================== bus_send(): transport-routing wrapper ====================
@@ -742,14 +720,10 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
         return;
     }
 
-    if (!g_paired) return;   /* no transceiver AND no ESP-NOW peer yet - nothing to send on */
+    if (!g_paired || !g_fsec_have_key) return;   /* no transceiver AND no ESP-NOW peer yet - nothing to send on */
 
-    espnow_bus_frame_t f = {};
-    f.type = ESPNOW_MSG_BUS_FRAME;
-    f.fleet_id = FLEET_ID;
-    f.can_id = id;
-    f.dlc = len;
-    if (len) memcpy(f.data, data, len);
+    espnow_bus_frame_t f;
+    fsec_frame_build(&f, id, data, len);   /* signed with the shared secret */
     esp_err_t err = esp_now_send(ESPNOW_BROADCAST_MAC, (uint8_t *)&f, sizeof(f));
 
     /* how many bus frames the radio accepted vs refused, every 5 s - ESP-NOW has a small send
@@ -1996,8 +1970,12 @@ static void print_serial_help(void)
     Serial.println("Serial commands (case-insensitive):");
     Serial.println("  HELP                    - show this list");
     Serial.println("  WIFI:<ssid>,<password>  - save WiFi creds and reboot (password may be empty)");
-    Serial.println("  REPAIR                  - forget HELM pairing, broadcast PAIR_MSG_REQUEST again");
-    Serial.println("  PAIRSTATUS              - show ESP-NOW pairing + CAN/transport status");
+    Serial.println("  KEY <passphrase>        - set the shared ESP-NOW secret (12+ characters; the same on every board), then restart");
+    Serial.println("  KEY?                    - is a key set? shows its fingerprint (same on every board with the same key)");
+    Serial.println("  KEYCLEAR                - forget the key (ESP-NOW goes off), then restart");
+    Serial.println("  REPAIR                  - forget HELM and look for it again");
+    Serial.println("  PAIRSTATUS / STATUS     - show ESP-NOW link + CAN/transport status");
+    Serial.println("  REBOOT                  - restart");
     Serial.println("  CANON / CANOFF          - enable/disable CAN (bus_send falls back to ESP-NOW when off)");
 }
 
@@ -2027,16 +2005,58 @@ static void save_wifi_and_reboot(const char *ssid, const char *pass)
 
 static void handle_serial_line(char *line)
 {
-    if (strcasecmp(line, "HELP") == 0) {
+    if (strcasecmp(line, "HELP") == 0 || strcasecmp(line, "MENU") == 0 || strcmp(line, "?") == 0) {
         print_serial_help();
+        return;
+    }
+    if (strncasecmp(line, "KEY ", 4) == 0) {
+        const char *phrase = line + 4;
+        while (*phrase == ' ') phrase++;
+        if (strlen(phrase) < FSEC_MIN_PASSPHRASE) {
+            Serial.printf("Serial: the passphrase must be at least %d characters\n", FSEC_MIN_PASSPHRASE);
+            return;
+        }
+        Serial.println("Serial: working out the key (a second or two)...");
+        if (!fsec_set_passphrase(prefs, prefs_ok, phrase)) {
+            Serial.println("Serial: could not save the key (flash unavailable)");
+            return;
+        }
+        if (prefs_ok) prefs.putBool("paired", false);   /* any old link used the old key */
+        Serial.printf("Serial: key saved, fingerprint %08lX (it must read the same on every board) - restarting\n",
+            (unsigned long)fsec_fingerprint());
+        Serial.flush();
+        delay(300);
+        ESP.restart();
+        return;
+    }
+    if (strcasecmp(line, "KEY?") == 0 || strcasecmp(line, "KEY") == 0) {
+        if (g_fsec_have_key) Serial.printf("Serial: key is set, fingerprint %08lX\n", (unsigned long)fsec_fingerprint());
+        else Serial.println("Serial: no key set - ESP-NOW is off. Type  KEY <passphrase>");
+        return;
+    }
+    if (strcasecmp(line, "KEYCLEAR") == 0) {
+        fsec_clear(prefs, prefs_ok);
+        if (prefs_ok) prefs.putBool("paired", false);
+        Serial.println("Serial: key cleared - restarting with ESP-NOW off");
+        Serial.flush();
+        delay(300);
+        ESP.restart();
+        return;
+    }
+    if (strcasecmp(line, "REBOOT") == 0) {
+        Serial.println("Serial: restarting");
+        Serial.flush();
+        delay(200);
+        ESP.restart();
         return;
     }
     if (strcasecmp(line, "REPAIR") == 0) {
         espnow_forget_helm();
-        Serial.println("ESP-NOW: pairing re-armed, broadcasting again");
+        Serial.println("ESP-NOW: forgot HELM, looking for it again");
         return;
     }
-    if (strcasecmp(line, "PAIRSTATUS") == 0) {
+    if (strcasecmp(line, "PAIRSTATUS") == 0 || strcasecmp(line, "STATUS") == 0) {
+        Serial.printf("Firmware build %d, ESP-NOW key %s\n", FW_BUILD, g_fsec_have_key ? "set" : "NOT SET");
         Serial.printf("ESP-NOW: %s, CAN %s (%s) - bus_send uses %s, WiFi %s\n",
             g_paired ? "paired with HELM" : "not paired",
             g_can_disabled ? "disabled" : "enabled",
@@ -2111,6 +2131,7 @@ void setup()
 
     prefs_ok = prefs.begin("cansim", false);
     if (!prefs_ok) Serial.println("NVS: prefs.begin failed - WiFi creds won't persist");
+    fsec_begin(prefs, prefs_ok);   /* the shared ESP-NOW secret, if one was set */
     if (prefs_ok) {
         g_can_disabled = prefs.getBool("can_dis", false);
         g_paired       = prefs.getBool("paired", false);

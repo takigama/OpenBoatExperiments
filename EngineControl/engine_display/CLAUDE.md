@@ -954,3 +954,36 @@ The CYD pairs with the HELM only and is a listener; HELM is the hub. Verified on
   HELM only). The CYD's mute stays local by design - only HELM silences the bus-wide alarm.
 - **can_sim needs `CANOFF`** (serial command, persisted) on a bench with no CAN transceiver, or it
   sends on CAN only and never on ESP-NOW.
+
+## ESP-NOW security: the shared secret (replaces the pairing window)
+
+There is no pairing window and no key on the air. Every board in the network holds the SAME secret, typed
+in once as a passphrase and kept in that board's own flash (NVS key `fkey`). Nothing secret is compiled in:
+the release images are public, so a compiled-in key would be public too (the old `FLEET_ID` / PMK placeholders
+in this repo were exactly that, and are gone). All of it lives in `fleet_security.h` (identical copies in
+`engine_display/` and `can_sim/`) with the message layouts in `espnow_pairing.h` / `espnow_bus.h`.
+
+- **Setting it**: serial `KEY <passphrase>` (12+ characters), then the board restarts. `KEY?` prints a
+  *fingerprint* - an 8-hex-digit code that is the same on every board holding the same secret, so you can
+  compare boards without showing the secret. `KEYCLEAR` forgets it. With no key, ESP-NOW stays OFF.
+  Passphrase -> PBKDF2-HMAC-SHA256 (10000 rounds, fixed public salt) -> 32-byte master key, stored.
+- **Joining**: a board broadcasts a HELLO (its address + type + an 8-byte HMAC tag only a holder of the secret
+  can make) while it looks for HELM; HELM verifies it and answers with a HELLO_ACK broadcast carrying its own
+  tag, so the board knows HELM is genuine too. Both then derive the key for that pair
+  (`fsec_lmk(addrA, addrB)` = HMAC of the master key over the two radio addresses) and register each other as
+  encrypted ESP-NOW peers. No key is ever transmitted; a stranger cannot join, nor impersonate HELM.
+  HELM remembers joined boards (address + type) in NVS; keys are re-derived at boot.
+- **Signed bus frames**: ESP-NOW cannot encrypt a broadcast, so every bus frame carries a random per-boot
+  `session`, a `counter`, and an 8-byte HMAC `tag` over the sender's radio address and the frame. Receivers
+  drop a bad tag and any counter that doesn't advance (a restarted sender may start over only below counter
+  100). Limit: a receiver that has never heard a sender accepts the first valid frame, which could be an old
+  recording. Addressed frames are also encrypted by the radio with the pair key.
+- **Contact** is judged only from frames *addressed* to a board (`info->des_addr` not the broadcast address);
+  HELM therefore also sends its heartbeat as an addressed unicast to every joined board.
+- **Serial menu** on every board: `MENU`, `STATUS`, `KEY`, `KEY?`, `KEYCLEAR`, `WIFI:<ssid>,<pass>`, `REBOOT`;
+  HELM adds `UPDATE` (check, then Update All), `CLEARPEERS`, `CANON/CANOFF`; the CYD and can_sim add `REPAIR`.
+- **Verified on the bench** (HELM + C3 can_sim + CYD): same phrase -> all join by themselves, same fingerprint,
+  full data to the CYD, encrypted ignition commands HELM -> C3; a different phrase on the C3 -> HELM logs
+  "HELLO rejected - not made with our key" and the C3 never joins; the right phrase back -> rejoins in ~1 s.
+- **Serial-flashing a board that was ever updated over the air**: it boots from the OTHER program slot, so
+  flashing slot 0 does nothing - also erase `otadata` (0xe000, 0x2000), as `tech_flash_hc.sh` does.
