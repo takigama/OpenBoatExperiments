@@ -95,6 +95,14 @@ for arg in "${targets_arg[@]}"; do
     fi
 done
 
+# devices marked "ota": false (the CYD displays) are flashed by USB, never released
+for t in "${targets[@]}"; do
+    if [[ "$(jq -r --arg d "${t%%:*}" '.[$d].ota // true' "$devices_json")" == "false" ]]; then
+        echo "error: '${t%%:*}' has no OTA (devices.json \"ota\": false) - build it with compile-device.sh and flash it by USB" >&2
+        exit 1
+    fi
+done
+
 # ---- preflight: a real release starts from a clean, pushed tree ----
 if [[ $dry_run -eq 0 ]]; then
     dirty="$(git -C "$root_dir" status --porcelain -- . )"

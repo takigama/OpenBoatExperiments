@@ -13,4 +13,8 @@
 #define BOARD_CYD_28_CAPACITIVE 3   /* "CYD" 2.8" ILI9341 SPI 320x240, GT911 capacitive touch (I2C), plain ESP32 */
 #define BOARD_CYD_24_RESISTIVE  4   /* "CYD" 2.4" ILI9341 SPI 320x240, XPT2046 resistive touch, different backlight pin than the 2.8" boards */
 
+/* tools/devices.json builds each target by passing -DTARGET_BOARD=<n> to the
+ * compiler, so this default only applies to a build made by hand (Arduino IDE). */
+#ifndef TARGET_BOARD
 #define TARGET_BOARD  BOARD_HELM_S3_800x480   /* <-- EDIT THIS LINE, then reflash */
+#endif

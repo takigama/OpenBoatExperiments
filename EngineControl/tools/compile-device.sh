@@ -72,8 +72,14 @@ case "$type" in
         sketch_rel_dir="$(dirname "$sketch_ino")"
         sketch_dir="$root_dir/$sketch_rel_dir"
 
-        echo "[$label] compiling via Docker builder image ($fqbn)..." >&2
-        "$script_dir/docker/compile.sh" "$sketch_rel_dir" "$fqbn" >&2
+        # optional per-variant preprocessor flags, e.g. -DTARGET_BOARD=2 to
+        # pick which display board engine_display builds for
+        build_flags="$(jq -r '.build_flags // empty' <<<"$cfg")"
+        extra_args=()
+        [[ -n "$build_flags" ]] && extra_args=(--build-property "compiler.cpp.extra_flags=$build_flags")
+
+        echo "[$label] compiling via Docker builder image ($fqbn${build_flags:+, $build_flags})..." >&2
+        "$script_dir/docker/compile.sh" "$sketch_rel_dir" "$fqbn" "${extra_args[@]}" >&2
 
         # arduino-cli exports to build/<core-triplet>/<sketch>.ino.bin -
         # <core-triplet> is just the first 3 colon-separated fqbn

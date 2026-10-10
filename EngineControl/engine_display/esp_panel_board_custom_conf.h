@@ -324,7 +324,13 @@
                                                         // NOT VERIFIED for CYD: many ILI9341 CYD panels need
                                                         // this flipped to 1 for correct colors. If colors look
                                                         // like a red/blue swap on first boot, flip this.
+#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
+#define ESP_PANEL_BOARD_LCD_COLOR_INEVRT_BIT    (1)     // 0/1. The ESP32-2432S028R shows inverted colours
+                                                        // without this (found on the FishFinderProBluetoothCYD
+                                                        // build: TFT_INVERSION_ON on the same board)
+#else
 #define ESP_PANEL_BOARD_LCD_COLOR_INEVRT_BIT    (0)     // 0/1
+#endif
 
 /**
  * @brief LCD transformation configuration
