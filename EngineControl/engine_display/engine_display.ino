@@ -174,7 +174,7 @@ static Board *g_board = NULL;
 /* OTA: bump by hand every release. Monotonic build number, not semver -
  * the manifest comparison is just `remote_build > FW_BUILD`, no version
  * string parsing/ordering needed. See check_for_update_tick(). */
-#define FW_BUILD 32
+#define FW_BUILD 33
 
 /* OTA manifest: ota/manifest.json in the OpenBoat repo on GitHub, written by
  * tools/release.sh. One entry per device, then one per hardware variant:
