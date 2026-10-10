@@ -90,3 +90,19 @@ Another interesting concept to explore is frigate. Frigate is an NVR thats exist
 ... and other things?
 
 AI could also be extended to the autopilot intreesting ways when combined with all the sensors available.
+
+# Building the firmware
+
+Every ESP32 firmware here builds the same way - PlatformIO inside one Docker image, driven by one script (run it from Linux/WSL):
+
+```
+build/build.sh --list                # what can be built
+build/build.sh EngineControl         # a project (all of its firmware)
+build/build.sh ESP32Seatalk          # or one firmware
+build/build.sh all
+```
+
+The result is in `build/firmware/` as `TOBE-<name>-v<version>.bin` (TOBE = takigama open boat experiments). The code the projects share - serial
+command line, web pages and WiFi setup mode, over-the-air updates, the ESP-NOW secret - lives in [`lib/`](lib/README.md); how the build, the
+registry of firmware (`build/projects.json`) and releases work is in [`build/README.md`](build/README.md). (SignalKPaperDisplay is a Go program for the
+Kindles and has its own build.)
