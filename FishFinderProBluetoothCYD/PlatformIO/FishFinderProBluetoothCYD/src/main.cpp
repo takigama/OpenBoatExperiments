@@ -1,6 +1,11 @@
 #include <Arduino.h>
 
-#include "debug_log.h"
+#include <Tobe.h>
+#include <TobeCli.h>
+#include <TobeLog.h>
+#include <TobeOta.h>
+#include <TobeWeb.h>
+#include <TobeWifi.h>
 #include "display.h"
 #include "op_mode.h"
 #include "ota_ui.h"
@@ -14,10 +19,54 @@
 // mode (ota_ui.cpp) for occasional admin.
 OpMode::Mode s_mode;
 
+// ---- command line. WiFi and BLE cannot run together on this chip, so the built-in UPDATE (which joins WiFi) is
+// replaced by one that only runs in WiFi mode.
+void cmdMode(const char *args) {
+    if (strcasecmp(args, "wifi") == 0) {
+        OpMode::switchTo(OpMode::Mode::Wifi);  // does not return
+    } else if (strcasecmp(args, "ble") == 0) {
+        OpMode::switchTo(OpMode::Mode::Ble);  // does not return
+    } else {
+        tobe::console.printf("mode is %s. MODE WIFI or MODE BLE switches (restarts).\n",
+                             s_mode == OpMode::Mode::Wifi ? "WIFI" : "BLE");
+    }
+}
+
+void cmdUpdate(const char *) {
+    if (s_mode != OpMode::Mode::Wifi) {
+        tobe::console.print("updates need WiFi mode - MODE WIFI, then UPDATE (or tap Check Update on the screen)\n");
+        return;
+    }
+    String msg;
+    if (!tobe::ota::updateNow(&msg)) tobe::console.printf("%s\n", msg.c_str());
+}
+
+void statusHook() {
+    tobe::console.printf("  mode %s", s_mode == OpMode::Mode::Wifi ? "WIFI" : "BLE");
+    if (s_mode == OpMode::Mode::Ble)
+        tobe::console.printf(", sonar %s, %u frames", SonarBle::connected() ? "connected" : "not connected",
+                             (unsigned)SonarBle::latest().frameCount);
+    tobe::console.print("\n");
+}
+
+const tobe::CliCommand kCommands[] = {
+    {"MODE", "<wifi|ble>", "switch between WiFi (admin, updates) and BLE (sonar display) mode - restarts", cmdMode, 0},
+    {"UPDATE", "", "WiFi mode: check GitHub for a newer firmware and install it", cmdUpdate, 0},
+};
+
 void setup() {
-    Serial.begin(115200);
+    tobe::console.begin(115200);
     delay(500);
-    DebugLog::logf("FishFinderProBluetoothCYD build %d booted", FW_BUILD);
+    tobe::logf("%s booted", tobe::titleWithVersion().c_str());
+
+    tobe::wifi::Config wcfg;
+    wcfg.nvsNamespace = "wifi";
+    tobe::wifi::configure(wcfg);
+    tobe::cli.begin("FISHCYD> ", kCommands, sizeof(kCommands) / sizeof(kCommands[0]));
+    tobe::cli.setStatusHook(statusHook);
+
+    // WEBMODE asked for the setup page: WiFi only, no display / BLE this boot
+    if (tobe::web::setupRequested()) tobe::web::runSetupMode();
 
     s_mode = OpMode::current();
     if (s_mode == OpMode::Mode::Ble) {
@@ -30,6 +79,7 @@ void setup() {
 }
 
 void loop() {
+    tobe::cli.tick();
     if (s_mode == OpMode::Mode::Wifi) {
         OtaUi::loop();
         return;
@@ -62,7 +112,8 @@ void loop() {
     static uint32_t lastStatus = 0;
     if (millis() - lastStatus >= 5000) {
         lastStatus = millis();
-        DebugLog::logf("status: ble_connected=%d frames=%u heap=%u", SonarBle::connected(),
-                        SonarBle::latest().frameCount, ESP.getFreeHeap());
+        if (!tobe::cli.quiet())
+            tobe::logf("status: ble_connected=%d frames=%u heap=%u", SonarBle::connected(),
+                       SonarBle::latest().frameCount, ESP.getFreeHeap());
     }
 }

@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
-#include "debug_log.h"
+#include <TobeLog.h>
 
 namespace OpMode {
 
@@ -24,7 +24,7 @@ void switchTo(Mode mode) {
     p.begin(kPrefsNamespace, /*readOnly=*/false);
     p.putBool("wifi", mode == Mode::Wifi);
     p.end();
-    DebugLog::logf("mode: switching to %s, restarting", mode == Mode::Ble ? "BLE" : "WiFi");
+    tobe::logf("mode: switching to %s, restarting", mode == Mode::Ble ? "BLE" : "WiFi");
     delay(200);  // let the log line flush before the reset
     ESP.restart();
 }

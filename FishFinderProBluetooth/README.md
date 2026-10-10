@@ -127,8 +127,10 @@ temperature) sentence with a correct checksum - straight over Serial, no
 downstream parsing beyond standard NMEA needed. The amplitude bins
 aren't decoded yet, so only the raw hex line carries them for now.
 
-Build/flash via the Dockerfile in that directory (same reproducible-image
-pattern as ESP32Seatalk - see its header comment for the exact commands).
+Build with `build/build.sh FishFinderProBluetooth` from the repository root (see
+[`build/README.md`](../build/README.md)); the firmware lands in `build/firmware/` as
+`TOBE-FishFinderProBluetooth-v<N>.bin`. The serial port, web pages, WiFi setup and OTA
+are the shared TOBE libraries in [`lib/`](../lib/README.md).
 
 **WiFi and BLE are mutually exclusive, chosen once per boot.** The
 ESP32-C3 (like every ESP32 with WiFi+BT) has a single radio shared
@@ -140,18 +142,24 @@ into an RPi running OpenPlotter, not on WiFi at all in normal use - so
 **BLE mode is the default/production path**, no WiFi involved - but it
 boots idle rather than auto-streaming, waiting for a `start` command.
 **WiFi mode** exists purely for occasional admin (config, OTA updates).
-All of these are typed into the serial monitor:
+All of these are typed into the serial monitor, which is the shared TOBE command line
+(Tab completes, `?` lists the commands, Up recalls the last ones; case does not matter).
+The port stays silent until you type - it carries sonar data for OpenPlotter - so press
+Enter to get the `FISH>` prompt:
 
-- `wifi` / `ble` - switch mode; saves the choice to NVS and reboots. This
+- `MODE WIFI` / `MODE BLE` - switch mode; saves the choice to NVS and reboots. This
   is the *only* way back into WiFi mode, since there's no web UI
-  reachable once WiFi is off. (WiFi mode also has the web UI's own
-  "Switch to BLE mode" button, since that direction doesn't need serial.)
-- `start` / `stop` - within BLE mode only, pause/resume scanning and
+  reachable once WiFi is off. (`BLE` alone still works too. WiFi mode also has the web
+  UI's own "Switch to BLE mode" button, since that direction doesn't need serial.)
+- `START` / `STOP` - within BLE mode only, pause/resume scanning and
   streaming live, no reboot needed.
-- `sens <0-100>` / `range <0-8>` - within BLE mode only, sent to the
+- `SENS <0-100>` / `RANGE <0-8>` - within BLE mode only, sent to the
   device over FFF2 (see "Command format" above); confirmation printed to
   the debug log, and the decoded "device depth range" debug line reports
   what the device echoes back.
+- the commands every TOBE firmware has: `STATUS`, `WIFI <ssid> [password]` (save a
+  network), `WIFISHOW`, `WIFICLEAR`, `WEBMODE` (restart into the setup web page),
+  `UPDATE` (WiFi mode: install a newer release from GitHub), `LOG`, `REBOOT`.
 
 **WiFi config is entirely runtime, not compiled in** - same pattern as
 ESP32Seatalk, and deliberately so: this project does GitHub-hosted OTA,
@@ -170,7 +178,7 @@ Some ESP32-C3 modules (this project's original test boards included) also
 have a marginal antenna match that causes reflections back into the PA at
 full TX power, breaking WiFi entirely (RX/scanning stays fine, only TX
 fails) even outside of the WiFi/BLE coexistence issue above -
-`wifi_manager.cpp` caps TX power to work around it.
+`TobeWifi` (`lib/TobeWifi`) caps TX power on the C3 to work around it - once, for every C3 firmware.
 
 ## Notes
 

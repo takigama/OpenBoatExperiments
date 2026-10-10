@@ -3,13 +3,14 @@
 #include <TFT_eSPI.h>
 #include <WiFi.h>
 
-#include "debug_log.h"
+#include <Tobe.h>
+#include <TobeLog.h>
+#include <TobeOta.h>
+#include <TobeWifi.h>
 #include "keyboard.h"
 #include "op_mode.h"
-#include "ota_manager.h"
 #include "touch.h"
 #include "web_config.h"
-#include "wifi_manager.h"
 
 namespace OtaUi {
 
@@ -25,7 +26,7 @@ constexpr uint16_t kOk = TFT_GREEN;
 
 enum class State { Checking, UpdateAvailable, UpToDate };
 State s_state = State::Checking;
-OtaManager::UpdateInfo s_info;
+tobe::ota::Info s_info;
 
 struct Btn {
     int x, y, w, h;
@@ -65,7 +66,7 @@ void redraw() {
             kForgetWifiBtn.draw("Forget WiFi", kLabel);
             break;
         case State::UpdateAvailable:
-            drawMessage("Update available", "build " + String(s_info.build), kOk);
+            drawMessage("Update available", "build " + String((unsigned)s_info.entry.build), kOk);
             kDoOtaBtn.draw("Do OTA", kOk);
             kBackBtn.draw("Back to Sonar", kLabel);
             kForgetWifiBtn.draw("Forget WiFi", kLabel);
@@ -81,7 +82,7 @@ void redraw() {
 void runCheck() {
     s_state = State::Checking;
     redraw();
-    s_info = OtaManager::checkForUpdate();
+    s_info = tobe::ota::check();
     s_state = s_info.available ? State::UpdateAvailable : State::UpToDate;
     redraw();
 }
@@ -100,7 +101,7 @@ void waitPhoneInstructions() {
     tft.drawString("WiFi setup needed", 160, 40);
     tft.setTextFont(2);
     tft.setTextColor(kLabel, kBg);
-    tft.drawString("Connect to \"" + WifiManager::apSsid() + "\"", 160, 80);
+    tft.drawString("Connect to \"" + tobe::wifi::apSsid() + "\"", 160, 80);
     tft.drawString("then open 192.168.4.1", 160, 102);
     tft.setTextDatum(TL_DATUM);
     constexpr Btn kBack{60, 190, 200, 30};
@@ -118,7 +119,7 @@ void waitPhoneInstructions() {
 // didn't join - see wifi_manager.h): scans for nearby networks and lets
 // the user pick one (or enter a name manually) plus a password via the
 // on-screen keyboard, or fall back to phone-based setup. Only returns via
-// WifiManager::saveCredentialsAndReboot() rebooting - i.e. in practice,
+// tobe::wifi::saveAndReboot() rebooting - i.e. in practice,
 // never returns at all.
 void runWifiSetup() {
     tft.fillScreen(kBg);
@@ -211,7 +212,7 @@ void runWifiSetup() {
         // more here than hiding it, given how easy it is to fat-finger a
         // small on-screen key.
         String pass = Keyboard::run(tft, "Password for \"" + ssid + "\"", "", false);
-        WifiManager::saveCredentialsAndReboot(ssid, pass);  // does not return
+        tobe::wifi::saveAndReboot(ssid, pass);  // does not return
     }
 }
 
@@ -224,16 +225,16 @@ void begin() {
     tft.setTextDatum(MC_DATUM);
     tft.setTextFont(2);
     tft.setTextColor(kLabel, kBg);
-    tft.drawString("FishFinderProBluetoothCYD - WiFi mode", 160, 15);
+    tft.drawString(tobe::title() + " - WiFi mode", 160, 15);
     tft.setTextDatum(TL_DATUM);
 
     Touch::begin();
 
     drawMessage("Connecting to WiFi...", "", kLabel);
-    WifiManager::Mode mode = WifiManager::begin();
+    tobe::wifi::Mode mode = tobe::wifi::begin();
     WebConfig::begin();  // needed either way - AP mode for setup, STA mode for /log and manual OTA
 
-    if (mode == WifiManager::Mode::AP) {
+    if (mode == tobe::wifi::Mode::AP) {
         runWifiSetup();  // blocking - only "returns" via a reboot
     } else {
         runCheck();
@@ -247,11 +248,11 @@ void loop() {
     if (!Touch::pollTap(&x, &y)) return;
 
     if (s_state == State::UpdateAvailable && kDoOtaBtn.hit(x, y)) {
-        drawMessage("Updating...", "downloading build " + String(s_info.build), kWarn);
-        bool ok = OtaManager::applyUpdate(s_info);  // reboots on success; only returns on failure
+        drawMessage("Updating...", "downloading build " + String((unsigned)s_info.entry.build), kWarn);
+        bool ok = tobe::ota::apply(s_info.entry.url, s_info.entry.md5);  // reboots on success; only returns on failure
         if (!ok) {
             drawMessage("Update failed", "check /log over WiFi for details", kWarn);
-            DebugLog::logf("ota_ui: applyUpdate() failed");
+            tobe::logf("ota_ui: applyUpdate() failed");
         }
         return;
     }
@@ -259,7 +260,7 @@ void loop() {
         OpMode::switchTo(OpMode::Mode::Ble);  // does not return
     }
     if (kForgetWifiBtn.hit(x, y)) {  // drawn (and tappable) in every state - see redraw()
-        WifiManager::forgetCredentialsAndReboot();  // does not return
+        tobe::wifi::forgetAndReboot();  // does not return
     }
 }
 

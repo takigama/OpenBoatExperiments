@@ -5,7 +5,7 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 
-#include "debug_log.h"
+#include <TobeLog.h>
 
 namespace Touch {
 
@@ -106,7 +106,7 @@ void runCalibration() {
     p.putFloat("oy", s_offsetY);
     p.end();
 
-    DebugLog::logf("touch: calibrated sx=%.4f ox=%.1f sy=%.4f oy=%.1f", s_scaleX, s_offsetX, s_scaleY, s_offsetY);
+    tobe::logf("touch: calibrated sx=%.4f ox=%.1f sy=%.4f oy=%.1f", s_scaleX, s_offsetX, s_scaleY, s_offsetY);
 
     tft.fillScreen(TFT_BLACK);
     tft.drawString("Calibration saved", 160, 120);
@@ -143,14 +143,14 @@ bool pollTap(int *x, int *y) {
     static uint32_t lastLog = 0;
     if (millis() - lastLog >= 500) {
         lastLog = millis();
-        DebugLog::logf("touch: touched=%d", touched);
+        tobe::logf("touch: touched=%d", touched);
     }
 
     if (!isNewTap) return false;
 
     int px = constrain(int(rx * s_scaleX + s_offsetX), 0, 319);
     int py = constrain(int(ry * s_scaleY + s_offsetY), 0, 239);
-    DebugLog::logf("touch: tap raw x=%d y=%d z=%d -> screen x=%d y=%d", rx, ry, rz, px, py);
+    tobe::logf("touch: tap raw x=%d y=%d z=%d -> screen x=%d y=%d", rx, ry, rz, px, py);
     *x = px;
     *y = py;
     return true;

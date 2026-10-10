@@ -3,7 +3,7 @@
 #include <NimBLEDevice.h>
 #include <string.h>
 
-#include "debug_log.h"
+#include <TobeLog.h>
 
 namespace SonarBle {
 
@@ -64,7 +64,7 @@ void decodeFrame(const uint8_t *data) {
         s_reading.tempC = ((int)rawTempTenthsF - 320) / 18.0f;
     }
 
-    DebugLog::logf("frame %u: depth=%.2fm%s fish=%.2fm%s temp=%.1fC outOfWater=%d", s_reading.frameCount,
+    tobe::logf("frame %u: depth=%.2fm%s fish=%.2fm%s temp=%.1fC outOfWater=%d", s_reading.frameCount,
                     s_reading.depthM, s_reading.valid ? "" : "(invalid)", s_reading.fishDepthM,
                     s_reading.fishValid ? "" : "(none)", s_reading.tempC, s_reading.outOfWater);
 }
@@ -122,7 +122,7 @@ void startScan();  // fwd decl, needed by onScanComplete/ConnCallbacks below
 class ScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice *device) override {
         if (device->getName() != kDeviceName) return;
-        DebugLog::logf("ble: found %s (%s)", kDeviceName, device->getAddress().toString().c_str());
+        tobe::logf("ble: found %s (%s)", kDeviceName, device->getAddress().toString().c_str());
         NimBLEDevice::getScan()->stop();
         s_targetAddress = device->getAddress();
         s_doConnect = true;
@@ -133,12 +133,12 @@ class ConnCallbacks : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient *) override {
         s_bleConnected = false;
         s_bufLen = 0;
-        DebugLog::logf("ble: disconnected, rescanning");
+        tobe::logf("ble: disconnected, rescanning");
         startScan();
     }
 };
 
-void onScanComplete(NimBLEScanResults) { DebugLog::logf("ble: scan completed unexpectedly, restarting"); }
+void onScanComplete(NimBLEScanResults) { tobe::logf("ble: scan completed unexpectedly, restarting"); }
 
 void startScan() {
     NimBLEScan *scan = NimBLEDevice::getScan();
@@ -148,7 +148,7 @@ void startScan() {
     scan->setWindow(15);
     scan->setActiveScan(true);
     scan->start(0, onScanComplete, false);
-    DebugLog::logf("ble: scanning...");
+    tobe::logf("ble: scanning...");
 }
 
 void connectToFishFinder() {
@@ -158,27 +158,27 @@ void connectToFishFinder() {
         static ConnCallbacks connCallbacks;
         s_bleClient->setClientCallbacks(&connCallbacks, false);
     }
-    DebugLog::logf("ble: connecting...");
+    tobe::logf("ble: connecting...");
     if (!s_bleClient->connect(s_targetAddress)) {
-        DebugLog::logf("ble: connect failed, rescanning");
+        tobe::logf("ble: connect failed, rescanning");
         startScan();
         return;
     }
     NimBLERemoteService *service = s_bleClient->getService(kServiceUuid);
     if (!service) {
-        DebugLog::logf("ble: service fff0 not found");
+        tobe::logf("ble: service fff0 not found");
         s_bleClient->disconnect();
         return;
     }
     NimBLERemoteCharacteristic *chr = service->getCharacteristic(kDataCharUuid);
     if (!chr || !chr->canNotify()) {
-        DebugLog::logf("ble: characteristic fff1 not notifiable");
+        tobe::logf("ble: characteristic fff1 not notifiable");
         s_bleClient->disconnect();
         return;
     }
     chr->subscribe(true, onNotify);
     s_bleConnected = true;
-    DebugLog::logf("ble: connected, subscribed to fff1");
+    tobe::logf("ble: connected, subscribed to fff1");
 }
 
 }  // namespace

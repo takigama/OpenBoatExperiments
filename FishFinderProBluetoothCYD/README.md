@@ -75,24 +75,24 @@ join failed, paginated with signal strength:
   calibration (auto-triggered on first use, persisted to NVS).
 - `keyboard.h/.cpp` - on-screen keyboard (letters/symbols, shift,
   backspace) used for manual WiFi password entry.
-- `wifi_manager.h/.cpp` - scan/connect/persist WiFi credentials (NVS),
-  `forgetCredentialsAndReboot()`.
 - `ota_ui.h/.cpp` - the touch-driven WiFi/OTA admin screen: network
   picker with pagination, password entry, Check Update/Do OTA, Forget
   WiFi, Back to Sonar.
-- `ota_manager.h/.cpp` - fetches `ota/manifest.json` from GitHub, MD5-
-  verified download via `Update`/`MD5Builder`, stall-timeout protection.
 - `web_config.h/.cpp` - a small web UI, reachable only in WiFi mode:
-  "setup from phone" (AP-mode credential entry) and a `/log` page (recent
-  `debug_log` lines) alongside the on-device touch UI.
+  "setup from phone" (AP-mode credential entry) and the TOBE system section (firmware update, WiFi, log,
+  restart) alongside the on-device touch UI.
 - `op_mode.h/.cpp` - the NVS-persisted BLE/WiFi mode flag and the
   reboot-based switch between them.
-- `debug_log.h/.cpp` - ring buffer of recent log lines (always also goes
-  to Serial), rendered by `web_config.cpp`'s `/log` page.
 - `main.cpp` - wires it all together.
 
-Build/flash via the Dockerfile in that directory - see its header comment
-for the exact commands. **Firmware updates ship via OTA, not USB** - see
+WiFi (saved credentials, join, the setup network), the OTA download, the log and the serial command line
+are the shared TOBE libraries in [`lib/`](../lib/README.md) - not copied into this project any more.
+The serial port is the TOBE command line (type `?`): `MODE WIFI` / `MODE BLE`, `STATUS`, `WIFI <ssid> [password]`,
+`WEBMODE`, `UPDATE` (WiFi mode), `LOG`, `REBOOT`.
+
+Build with `build/build.sh FishFinderProBluetoothCYD` from the repository root (see
+[`build/README.md`](../build/README.md)); the firmware lands in `build/firmware/` as
+`TOBE-FishFinderProBluetoothCYD-v<N>.bin`. **Firmware updates ship via OTA, not USB** - see
 "Updating this firmware" below.
 
 ## Display modes
