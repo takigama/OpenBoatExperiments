@@ -1,0 +1,21 @@
+{
+  "helm": {
+    "viewe7": {
+      "build": 33,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-helm-viewe7-b33/helm-viewe7.bin",
+      "md5": "db2d56db54ce6be616a113543a4245ad"
+    }
+  },
+  "can_sim": {
+    "c3": {
+      "build": 23,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-c3-b23/can_sim-c3.bin",
+      "md5": "c2451d72dc1c3b175997cfa9a0ba78f9"
+    },
+    "s3zero": {
+      "build": 23,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/ec-can_sim-s3zero-b23/can_sim-s3zero.bin",
+      "md5": "cb13d0a5125025883426307f8ee6355d"
+    }
+  }
+}
