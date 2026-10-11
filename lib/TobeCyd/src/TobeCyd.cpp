@@ -21,9 +21,9 @@ bool s_begun = false;
 
 const char *presetName(uint8_t p) {
     switch (p) {
-        case PRESET_CYD: return "CYD (ILI9341, one USB port)";
-        case PRESET_CYD2USB: return "CYD2USB (ILI9341 + inversion, two USB ports)";
-        case PRESET_CYD2USB_ST7789: return "CYD2USB-ST7789 (ST7789V, two USB ports)";
+        case PRESET_CYD: return "CYD (ILI9341 init, one USB port)";
+        case PRESET_CYD2USB: return "CYD2USB (ILI9341 init, two USB ports)";
+        case PRESET_CYD2USB_ST7789: return "CYD2USB-ST7789 (ST7789 init, two USB ports)";
         default: return "custom";
     }
 }
@@ -50,8 +50,12 @@ void save(const Settings &s) {
     p.putBool("invert", s.invert);
     p.putBool("bgr", s.bgr);
     p.putBool("rot", s.rotate180);
+    p.putBool("tfx", s.touchFlipX);
+    p.putBool("tfy", s.touchFlipY);
     p.end();
 }
+
+Settings resolved(const Settings &in);
 
 void cmdDisplay(const char *args) {
     char buf[64];
@@ -69,13 +73,15 @@ void cmdDisplay(const char *args) {
     if (!buf[0]) {
         tobe::console.printf("display: %s\n", describe().c_str());
         tobe::console.print(
-            "  DISPLAY CYD                 ILI9341 init, not inverted      (the original, one USB port)\n"
-            "  DISPLAY CYD2USB             ILI9341 init, inverted          (two USB ports; the original recipe)\n"
-            "  DISPLAY CYD2USB-ST7789      ST7789 init, not inverted       (two USB ports; the newer recipe)\n"
+            "  DISPLAY CYD                 ILI9341 init                    (the original, one USB port)\n"
+            "  DISPLAY CYD2USB             ILI9341 init                    (two USB ports; the original recipe)\n"
+            "  DISPLAY CYD2USB-ST7789      ST7789 init                     (two USB ports; the newer recipe)\n"
             "  DISPLAY CONTROLLER ILI9341|ST7789   the panel init to use    (custom; restarts)\n"
             "  DISPLAY INVERT ON|OFF       colour inversion      (custom)\n"
             "  DISPLAY BGR ON|OFF          colour order          (custom; may restart)\n"
             "  DISPLAY ROTATE ON|OFF       rotate 180 degrees    (restarts)\n"
+            "  DISPLAY TOUCHX ON|OFF       reverse the touch left/right   (if touch is mirrored against the picture)\n"
+            "  DISPLAY TOUCHY ON|OFF       reverse the touch up/down\n"
             "  DISPLAY TEST                colour bars\n");
         return;
     }
@@ -84,14 +90,11 @@ void cmdDisplay(const char *args) {
         return;
     }
     if (!strcasecmp(buf, "cyd")) {
-        n = presetSettings(PRESET_CYD);
-        n.rotate180 = s_settings.rotate180;
+        n = resolved([&] { Settings t = s_settings; t.preset = PRESET_CYD; return t; }());
     } else if (!strcasecmp(buf, "cyd2usb")) {
-        n = presetSettings(PRESET_CYD2USB);
-        n.rotate180 = s_settings.rotate180;
+        n = resolved([&] { Settings t = s_settings; t.preset = PRESET_CYD2USB; return t; }());
     } else if (!strcasecmp(buf, "cyd2usb-st7789")) {
-        n = presetSettings(PRESET_CYD2USB_ST7789);
-        n.rotate180 = s_settings.rotate180;
+        n = resolved([&] { Settings t = s_settings; t.preset = PRESET_CYD2USB_ST7789; return t; }());
     } else if (!strcasecmp(buf, "custom")) {
         n.preset = PRESET_CUSTOM;
     } else if (!strcasecmp(buf, "controller") && (!strcasecmp(arg, "ili9341") || !strcasecmp(arg, "st7789"))) {
@@ -105,6 +108,10 @@ void cmdDisplay(const char *args) {
         n.preset = PRESET_CUSTOM;
     } else if (!strcasecmp(buf, "rotate") && parseOnOff(arg, &b)) {
         n.rotate180 = b;
+    } else if (!strcasecmp(buf, "touchx") && parseOnOff(arg, &b)) {
+        n.touchFlipX = b;
+    } else if (!strcasecmp(buf, "touchy") && parseOnOff(arg, &b)) {
+        n.touchFlipY = b;
     } else {
         tobe::console.print("DISPLAY ? lists the options - type DISPLAY with nothing after it\n");
         return;
@@ -114,13 +121,15 @@ void cmdDisplay(const char *args) {
 }
 
 const CliCommand kCommands[] = {
-    {"DISPLAY", "[CYD|CYD2USB|CYD2USB-ST7789|CONTROLLER|INVERT|BGR|ROTATE|TEST]", "show or set how this CYD's panel is driven", cmdDisplay, 0},
+    {"DISPLAY", "[CYD|CYD2USB|CYD2USB-ST7789|CONTROLLER|INVERT|BGR|ROTATE|TOUCHX|TOUCHY|TEST]", "show or set how this CYD's panel is driven", cmdDisplay, 0},
 };
 
 Settings resolved(const Settings &in) {
     if (in.preset == PRESET_CUSTOM) return in;
     Settings n = presetSettings(in.preset);
     n.rotate180 = in.rotate180;
+    n.touchFlipX = in.touchFlipX;
+    n.touchFlipY = in.touchFlipY;
     return n;
 }
 
@@ -165,10 +174,14 @@ void load() {
         s_settings.invert = p.getBool("invert", s_cyd2usbInverted);
         s_settings.bgr = p.getBool("bgr", true);
         s_settings.rotate180 = p.getBool("rot", false);
+        s_settings.touchFlipX = p.getBool("tfx", false);
+        s_settings.touchFlipY = p.getBool("tfy", false);
         if (s_settings.preset != PRESET_CUSTOM) {  // a preset is only ever its own flags
-            bool rot = s_settings.rotate180;
+            Settings keep = s_settings;
             s_settings = presetSettings(s_settings.preset);
-            s_settings.rotate180 = rot;
+            s_settings.rotate180 = keep.rotate180;
+            s_settings.touchFlipX = keep.touchFlipX;
+            s_settings.touchFlipY = keep.touchFlipY;
         }
     }
     p.end();
@@ -186,6 +199,8 @@ String describe() {
     d += s_settings.invert ? ", inverted" : ", not inverted";
     d += s_settings.bgr ? ", BGR" : ", RGB";
     d += s_settings.rotate180 ? ", rotated 180" : ", normal orientation";
+    if (s_settings.touchFlipX || s_settings.touchFlipY)
+        d += String(", touch flipped ") + (s_settings.touchFlipX ? "X" : "") + (s_settings.touchFlipY ? "Y" : "");
     return d;
 }
 
@@ -244,6 +259,8 @@ String webHtml() {
     h += "<p><label><input type=checkbox name=invert id=di" + checked(s.invert) + "> Invert colours</label></p>";
     h += "<p><label><input type=checkbox name=bgr id=db" + checked(s.bgr) + "> BGR colour order (untick for RGB)</label></p>";
     h += "<p><label><input type=checkbox name=rot id=dr" + checked(s.rotate180) + "> Rotate 180&deg; (touch is calibrated again)</label></p>";
+    h += "<p><label><input type=checkbox name=tfx" + checked(s.touchFlipX) + "> Touch reversed left/right</label></p>";
+    h += "<p><label><input type=checkbox name=tfy" + checked(s.touchFlipY) + "> Touch reversed up/down</label></p>";
 
     h += "<p><button>Apply</button></p>"
          "<p class=hint>A different panel init, colour order or rotation restarts the board.</p>"
@@ -269,6 +286,8 @@ void webRoutes(WebServer &server) {
         n.invert = server.hasArg("invert");
         n.bgr = server.hasArg("bgr");
         n.rotate180 = server.hasArg("rot");
+        n.touchFlipX = server.hasArg("tfx");
+        n.touchFlipY = server.hasArg("tfy");
         bool restart = set(n, /*restartNow=*/false);
         server.send(200, "text/html", reply(restart ? "Saved. Restarting to apply this..." : "Applied."));
         if (restart) tobe::restart(1200);

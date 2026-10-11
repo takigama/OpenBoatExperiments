@@ -51,6 +51,8 @@ struct Settings {
     bool invert = true;
     bool bgr = true;
     bool rotate180 = false;
+    bool touchFlipX = false;   // the touch axes, if they come out reversed against the picture (not part of a preset)
+    bool touchFlipY = false;
 };
 
 struct Config {

@@ -5486,8 +5486,8 @@ static void cyd_panel_apply_raw(const tobe::cyd::Settings &s)
     lcd->mirrorX(st7789 != s.rotate180);
     lcd->mirrorY(s.rotate180);
     if (touch) {
-        touch->mirrorX(!s.rotate180);
-        touch->mirrorY(s.rotate180);
+        touch->mirrorX((!s.rotate180) != s.touchFlipX);
+        touch->mirrorY(s.rotate180 != s.touchFlipY);
     }
 }
 
