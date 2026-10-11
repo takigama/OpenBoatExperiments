@@ -257,3 +257,57 @@ whatever the matrix allows gets encoded back out.
 - Trip log, total log, and satellite count are decode-only - no SeaTalk or
   CAN encoder, so they can never appear as routing-matrix rows or be
   injected via `set/`.
+
+## The protocol reference, and where real-world data differs from it
+
+The SeaTalk command layouts in `src/seatalk_decode.cpp` come from Thomas Knauf's *SeaTalk Technical Reference*
+([Part 1: how SeaTalk works](http://www.thomasknauf.de/rap/seatalk1.htm),
+[Part 2: recognized datagrams](http://www.thomasknauf.de/rap/seatalk2.htm) - the copy read for this was dated
+21.10.2023). It is the standard community reference and it is very good, but it is a reference, not a test
+suite: the first time this firmware listened to a real bus, one entry turned out to be impossible to implement
+correctly from the text alone.
+
+### How the page writes multi-byte values
+
+The page does not state a byte order. Reading the whole of Part 1 and Part 2, its entries use three different
+styles, and only a real bus tells you which one an entry is:
+
+| Written as | Entries | Means | Confirmed by a real bus |
+|---|---|---|---|
+| the same letters twice, `XX XX` | `00` depth, `20` speed through water, `52` SOG, `22` total log | **low byte first** | yes: depth `00 42 60 42 01` = 0x0142 = 32.2 ft = 9.82 m |
+| different letters, `XX YY`, with a formula on `XXYY` | `10` apparent wind angle | **high byte first** - not stated for this entry | yes: wind `10 11 01 1c` = 0x011C / 2 = 142.0 deg |
+| the arithmetic spelled out | `05` RPM `YY*256+ZZ`, `25` log `XX+YY*256+...`, `58` `(XX*256+YY)/1000` | as written | not seen yet |
+
+Entry `10` was implemented as low-byte-first (by analogy with `XX XX`), which is wrong.
+
+### Datagrams captured from a real SeaTalk bus (boat at anchor, about 9.8 m of water, about 9 kn of wind)
+
+| Datagram | Page entry | What the page says | What the real instruments sent |
+|---|---|---|---|
+| `00 42 60 42 01` | `00 02 YZ XX XX` depth | attribute byte `02` | attribute `42` (length still 5). Y = 6: metric display (Y&4) plus the "used, unknown meaning" bit (Y&2). Z = 0: no defect or alarm. Depth wanders 9.66 - 10.0 m |
+| `10 11 01 1c`, `1e`, `1a`, `18` | `10 01 XX YY` apparent wind angle, `XXYY/2` | byte order not stated; attribute `01` | attribute `11`; reads 142.0, 143.0, 141.0, 140.0 deg with **XX as the high byte** |
+| `11 11 09 07`, `09 01`, `08 09` | `11 01 XX 0Y` apparent wind speed | attribute `01` | attribute `11`; 9.7, 9.1, 8.9 kn - matches the formula |
+| `23 41 28 68` | `23 Z1 XX YY` water temperature; Z&4 = sensor defective or not connected | as given | Z = 4, and the payload is a fixed 40 C / 104 F: with that flag the value is a **placeholder**, not a measurement |
+| `20 41 00 00` | `20 01 XX XX` speed through water | no flag listed for this command | attribute high nibble 4, the same as the temperature above, with 0.0 kn. Probably the same "no sensor" meaning - unconfirmed |
+| `24 42 00 00 00` | `24 02 00 00 XX` display units | `XX` = 00: nm / knots | consistent (attribute `42`) |
+| `a3 90 11` | not listed | - | seen now and then; meaning unknown |
+
+Part 1 describes the attribute byte's high nibble as "0 or part of a data value". On this bus it is 4 on
+depth, speed, temperature and units, and 1 on both wind commands; for `23` it is the documented flag, for the
+others no use of it could be identified.
+
+### What went wrong in this firmware, and what stops it happening again
+
+- Up to v25 the wind angle was decoded **and** encoded low byte first: received angles were published as
+  roughly 3500 degrees (wrapped), and an angle sent to an instrument made its needle deflect wrongly. Fixed in
+  v26 (commit `6e21ae4`).
+- It survived because the encoder had been written as the mirror image of the decoder, so a loopback
+  self-test passed whichever way round the bytes were. A formula can be transcribed perfectly and still be wrong.
+- Placeholders that the instrument itself flags as "sensor not connected" (the 40 C above) are shown in
+  `/messages` but are no longer forwarded to MQTT, SignalK or CAN.
+- `tools/host-test/run.sh` compiles the decoder and encoder on the PC and checks them against datagrams from
+  real captures (the table above). **A command should be added there from a real capture before it is
+  trusted**; entries not yet seen on a real bus - latitude/longitude `50`/`51` (`YYYY` low byte first, sign in the
+  high byte), trip and total log, `84`/`9C` heading - are implemented from the page alone.
+- `STATUS` on the serial console shows how many datagrams the receive queue has dropped (it holds 20), so a
+  main loop that stalls is visible rather than silent.
