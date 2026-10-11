@@ -1,21 +1,21 @@
 {
   "helm": {
     "viewe7": {
-      "build": 38,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/tobe-EngineControl-Helm-v38/TOBE-EngineControl-Helm-v38.bin",
-      "md5": "588aa8afe052906ef08eec6f5ec3cdbf"
+      "build": 39,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/tobe-EngineControl-Helm-v39/TOBE-EngineControl-Helm-v39.bin",
+      "md5": "3c2460e2ade009e49dbfd32f5f4139df"
     }
   },
   "can_sim": {
     "c3": {
-      "build": 29,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/cs-c3-29/TOBE-EngineControl-CanSim-C3-v29.bin",
-      "md5": "82f7960e073a5e2c1090cea226b3284a"
+      "build": 30,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/cs-c3-30/TOBE-EngineControl-CanSim-C3-v30.bin",
+      "md5": "e140dc55365bcb4c2f18521513df7d2e"
     },
     "s3zero": {
-      "build": 29,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/cs-s3z-29/TOBE-EngineControl-CanSim-S3Zero-v29.bin",
-      "md5": "970b422fb1acc6a7a4bf577f1c081f2c"
+      "build": 30,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/cs-s3z-30/TOBE-EngineControl-CanSim-S3Zero-v30.bin",
+      "md5": "156a1ebfce8dad2f59ff266cf0a33fc5"
     }
   }
 }
