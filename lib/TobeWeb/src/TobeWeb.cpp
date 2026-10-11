@@ -22,7 +22,11 @@ const char *kStyle =
     "body{font-family:sans-serif;background:#0a1929;color:#e6e6e6;max-width:520px;margin:1.5em auto;padding:0 1em}"
     "a{color:#6ab0ff}h1{font-size:1.4em;margin:.2em 0}h2,h3{color:#fff}"
     "input,select,textarea{background:#142838;color:#e6e6e6;border:1px solid #33475c;padding:.5em;"
-    "width:100%;box-sizing:border-box;margin:.25em 0 .8em}"
+    "box-sizing:border-box;margin:.25em 0 .8em}"
+    // text-like fields fill the row; checkboxes / radios must NOT (a full-width checkbox with margins sits on its
+    // own line above its label and throws every list and table of them out of line)
+    "input:not([type=checkbox]):not([type=radio]),select,textarea{width:100%}"
+    "input[type=checkbox],input[type=radio]{width:auto;padding:0;margin:0 .45em 0 0;vertical-align:middle}"
     "button{background:#1c3450;color:#fff;border:1px solid #33475c;padding:.6em 1em;width:100%;margin:.2em 0}"
     "button:hover{background:#27456a}hr{border-color:#26384b}table{border-collapse:collapse}"
     "td,th{padding:.2em .6em;border-bottom:1px solid #26384b;text-align:left}"

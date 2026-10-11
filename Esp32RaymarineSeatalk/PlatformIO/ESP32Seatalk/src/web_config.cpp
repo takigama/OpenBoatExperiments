@@ -147,6 +147,13 @@ String demoSection() {
         return body;
     }
 
+    // Select all / Unselect all in the header: ticks (or clears) every object checkbox in both forms below.
+    body += "<p><button type='button' onclick='demoAll(true)' style='width:auto;padding:.4em 1em'>Select all</button> "
+            "<button type='button' onclick='demoAll(false)' style='width:auto;padding:.4em 1em'>Unselect all</button></p>"
+            "<script>function demoAll(on){var c=document.querySelectorAll('#demo input[type=checkbox]');"
+            "for(var i=0;i<c.length;i++)c[i].checked=on;}</script>";
+    body += "<div id='demo'>";
+
     // Cycling: checkboxes only, values come from the simulation.
     body += "<form method='POST' action='/demo/start-cycling'>";
     for (int i = 0; i < (int)DemoMode::Object::Count; i++) {
@@ -174,7 +181,7 @@ String demoSection() {
         body += "</div>";
     }
     body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.3em'>Start sending fixed values</button>";
-    body += "</form>";
+    body += "</form></div>";
     return body;
 }
 
