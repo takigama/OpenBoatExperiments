@@ -82,10 +82,19 @@ in `../common/`; the serial command line, setup web page, OTA and ESP-NOW secret
 **CYD** (any variant; the `cyd` environment, `-DTARGET_BOARD=2`)
 - plain ESP32 (not S3 - a different chip family from HELM), no PSRAM, 4MB flash, CH340 USB-UART bridge (so there is
   no "USB CDC On Boot" quirk)
-- **partition scheme "Huge APP"** (3MB app / 1MB SPIFFS, no OTA): this sketch's WiFi/WebServer/ESP32_Display_Panel
-  footprint doesn't fit the default 4MB/1.2MB-APP partition even after the HELM-only UI code (icon assets, arc
-  gauge, wizard, PIN lock - all gated behind `#if TARGET_BOARD == BOARD_HELM_S3_800x480`) is compiled out. The CYD
-  build is ~1.4MB (45% of the 3MB partition). A CYD is flashed by USB, never by OTA.
+- **partition scheme `min_spiffs.csv`** (two 1.9MB application slots, 128KB SPIFFS): this sketch's
+  WiFi/WebServer/ESP32_Display_Panel footprint doesn't fit the default 4MB/1.2MB-APP partition even after the
+  HELM-only UI code (icon assets, arc gauge, wizard, PIN lock - all gated behind
+  `#if TARGET_BOARD == BOARD_HELM_S3_800x480`) is compiled out; the CYD build is ~1.6MB, so it fits a 1.9MB slot with
+  room to spare. Two slots mean a CYD can update itself over WiFi: it was "Huge APP" (one 3MB slot, USB only)
+  until build 38.
+- **Updating a CYD**: it is a released firmware (`tobe-EngineControl-CYD-v<n>`, manifest entry `cyd`/`cyd28` in
+  `EngineControl/ota/manifest.json`). Give it WiFi once (`WIFI <ssid> <password>` on the serial console, or the
+  WEBMODE page), then `UPDATE` on the serial console checks GitHub, installs a newer build and restarts; the
+  "Firmware" section of the WEBMODE page does the same from a browser. Normal running never joins WiFi (the radio
+  belongs to ESP-NOW). A CYD that still has the old single-slot table needs ONE USB flash of the new partition
+  table first: bootloader (0x1000), partition table (0x8000) and app (0x10000) - not the factory image, which
+  erases the saved ESP-NOW key and display settings. After that every update is over the air.
 
 **Both**
 - Libraries (pinned in `engine_display/platformio.ini`): ESP32_Display_Panel 1.0.4, LVGL **8.4.0** (v8 API, NOT v9),
