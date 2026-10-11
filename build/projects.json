@@ -31,7 +31,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/can_sim",
             "env": "c3",
-            "version": 30,
+            "version": 31,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "can_sim",
@@ -44,7 +44,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/can_sim",
             "env": "s3zero",
-            "version": 30,
+            "version": 31,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "can_sim",
@@ -57,7 +57,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/engine_display",
             "env": "helm",
-            "version": 41,
+            "version": 42,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "helm",
