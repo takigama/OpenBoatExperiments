@@ -3194,6 +3194,44 @@ static void ui_tick_cyd(lv_timer_t *t)
     set_hidden(cyd_btn_start, !(caps & CAP_START));
     set_hidden(cyd_btn_auto,  !(caps & CAP_START));
 
+    /* press feedback, same colour language as the HELM: held = red with a seconds count (the press is being sent),
+     * then the engine's own report - glow plugs on / cranking - in a brighter colour. The label says it too, so
+     * it reads at a glance without knowing the colours. */
+    {
+        static int last_glow = -1;
+        static uint32_t last_gsec = 0xFFFFFFFFu;
+        int gs = glow_held ? 2 : (eng.glow_active ? 1 : 0);
+        uint32_t gsec = glow_held ? (millis() - glow_press_ms) / 1000 : 0;
+        if (gs != last_glow || (glow_held && gsec != last_gsec)) {
+            last_glow = gs;
+            last_gsec = gsec;
+            lv_obj_set_style_bg_color(cyd_btn_glow, gs == 2 ? lv_color_hex(0xcc2222)
+                                                   : gs == 1 ? lv_color_hex(0xff9922) : lv_color_hex(0x995500), 0);
+            lv_obj_t *l = lv_obj_get_child(cyd_btn_glow, 0);
+            if (gs == 2) lv_label_set_text_fmt(l, "GLOW\n%lus", (unsigned long)gsec);
+            else if (gs == 1) lv_label_set_text(l, "GLOWING");
+            else lv_label_set_text(l, "GLOW");
+            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_center(l);
+        }
+        static int last_start = -1;
+        static uint32_t last_ssec = 0xFFFFFFFFu;
+        int ss = start_held ? 2 : (eng.crank_active ? 1 : 0);
+        uint32_t ssec = start_held ? (millis() - start_press_ms) / 1000 : 0;
+        if (ss != last_start || (start_held && ssec != last_ssec)) {
+            last_start = ss;
+            last_ssec = ssec;
+            lv_obj_set_style_bg_color(cyd_btn_start, ss == 2 ? lv_color_hex(0xcc2222)
+                                                    : ss == 1 ? lv_color_hex(0x22cc66) : lv_color_hex(0x116633), 0);
+            lv_obj_t *l = lv_obj_get_child(cyd_btn_start, 0);
+            if (ss == 2) lv_label_set_text_fmt(l, "START\n%lus", (unsigned long)ssec);
+            else if (ss == 1) lv_label_set_text(l, "CRANKING");
+            else lv_label_set_text(l, "START");
+            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+            lv_obj_center(l);
+        }
+    }
+
     bool cyd_autostart_active = (autostart_state != AUTOSTART_IDLE);
     static int last_cyd_autostart_active = -1;
     if ((int)cyd_autostart_active != last_cyd_autostart_active) {
