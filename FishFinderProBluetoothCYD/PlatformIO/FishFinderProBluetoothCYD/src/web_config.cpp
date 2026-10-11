@@ -4,6 +4,7 @@
 #include <WiFi.h>
 
 #include <Tobe.h>
+#include <TobeCyd.h>
 #include <TobeLog.h>
 #include <TobeWeb.h>
 #include <TobeWifi.h>
@@ -21,6 +22,7 @@ void handleRoot() {
     // just the way back. WiFi setup, firmware update, log and restart are TobeWeb's system section.
     String body = "<p>WiFi mode. Address <b>" + tobe::wifi::ip() + "</b></p>";
     body += "<form method=GET action=/mode/ble><button>Back to sonar display</button></form>";
+    body += tobe::cyd::webHtml();
     body += tobe::web::systemSection();
     server.send(200, "text/html", tobe::web::page("Status", body));
 }
@@ -36,6 +38,7 @@ void begin() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/mode/ble", HTTP_GET, handleModeBle);
     tobe::web::attach(server);
+    tobe::cyd::webRoutes(server);
     server.begin();
     tobe::logf("web: config server listening on port 80");
 }

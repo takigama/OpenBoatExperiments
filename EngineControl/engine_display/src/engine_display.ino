@@ -82,6 +82,9 @@
 #include "wired_bus.h"
 #include "fleet_security.h"
 #include "TobeFleetUi.h"   /* KEY / KEYSHOW / KEYCLEAR and the setup page's key section */
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+#include <TobeCyd.h>       /* CYD: DISPLAY command and the setup page's display section (same as FishFinder CYD) */
+#endif
 #include <ArduinoJson.h>   /* the OTA manifest is read here (HELM only) */
 
 /* periodic status prints hold off while someone is typing a command */
@@ -5352,8 +5355,88 @@ static void cyd_pairing_tick(void)
     Serial.printf("ESP-NOW: HELLO on channel %d\n", g_cyd_channel);
 }
 
-/* serial WEBMODE: the CYD restarts into a mode that serves the setup page (ESP-NOW key + WiFi details) and
- * says where to find it on its own screen - TobeWeb's setup mode, with TobeFleet's key section added */
+/* ---- display settings (lib/TobeCyd): one firmware for the original CYD (ILI9341) and the CYD2USB (ST7789V).
+ * The panel is driven with the ILI9341 init either way; inversion, colour order and which way up are the stored
+ * settings, applied here. Colour order is only read when the panel starts (a change restarts); the rest is live. */
+static void cyd_panel_apply_raw(const tobe::cyd::Settings &s)
+{
+    if (!g_board) return;
+    auto lcd = g_board->getLCD();
+    auto touch = g_board->getTouch();
+    if (!lcd) return;
+    lcd->invertColor(s.invert);
+    /* baseline picture: LCD not mirrored; touch mirrored in X (both with the axes swapped). "Rotate 180" flips
+     * both axes of both, so touch keeps matching the picture */
+    lcd->mirrorX(s.rotate180);
+    lcd->mirrorY(s.rotate180);
+    if (touch) {
+        touch->mirrorX(!s.rotate180);
+        touch->mirrorY(s.rotate180);
+    }
+}
+
+static void cyd_panel_apply(const tobe::cyd::Settings &s)
+{
+    lvgl_port_lock(-1);   /* the panel is in use by LVGL's flush */
+    cyd_panel_apply_raw(s);
+    lv_obj_invalidate(lv_scr_act());
+    lvgl_port_unlock();
+}
+
+/* four colour bars, each labelled with the colour it must be - for judging inversion / colour order */
+static bool cyd_panel_test(void)
+{
+    static const uint32_t col[4] = { 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF };
+    static const char *const nm[4] = { "RED", "GREEN", "BLUE", "WHITE" };
+
+    lvgl_port_lock(-1);
+    lv_obj_t *bg = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(bg, 320, 240);
+    lv_obj_set_pos(bg, 0, 0);
+    lv_obj_set_style_radius(bg, 0, 0);
+    lv_obj_set_style_border_width(bg, 0, 0);
+    lv_obj_set_style_pad_all(bg, 0, 0);
+    lv_obj_set_style_bg_color(bg, lv_color_hex(0x000000), 0);
+    lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *b = lv_obj_create(bg);
+        lv_obj_set_size(b, 80, 200);
+        lv_obj_set_pos(b, i * 80, 0);
+        lv_obj_set_style_radius(b, 0, 0);
+        lv_obj_set_style_border_width(b, 0, 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(col[i]), 0);
+        lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_t *l = lv_label_create(b);
+        lv_label_set_text(l, nm[i]);
+        lv_obj_set_style_text_color(l, lv_color_hex(i == 3 ? 0x000000 : 0xFFFFFF), 0);
+        lv_obj_center(l);
+    }
+    lv_obj_t *t = lv_label_create(bg);
+    lv_label_set_text(t, "each bar must be the colour it says");
+    lv_obj_set_style_text_color(t, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(t, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_refr_now(NULL);
+    lvgl_port_unlock();
+
+    delay(4000);
+
+    lvgl_port_lock(-1);
+    lv_obj_del(bg);
+    lvgl_port_unlock();
+    return true;
+}
+
+static String cyd_web_html(void) { return fleet_ui_web_html() + tobe::cyd::webHtml(); }
+
+static void cyd_web_routes(WebServer &server)
+{
+    fleet_ui_web_routes(server);
+    tobe::cyd::webRoutes(server);
+}
+
+/* serial WEBMODE: the CYD restarts into a mode that serves the setup page (ESP-NOW key + WiFi details + display
+ * settings) and says where to find it on its own screen - TobeWeb's setup mode, with TobeFleet's key section
+ * and TobeCyd's display section added */
 static void cyd_webmode_show(const char *where)
 {
     lvgl_port_lock(-1);
@@ -5376,8 +5459,8 @@ static void cyd_webmode_show(const char *where)
 static void cyd_webmode_run(void)
 {
     tobe::web::SetupOptions opt;
-    opt.extraHtml = fleet_ui_web_html;
-    opt.extraRoutes = fleet_ui_web_routes;
+    opt.extraHtml = cyd_web_html;
+    opt.extraRoutes = cyd_web_routes;
     opt.onReady = cyd_webmode_show;
     tobe::web::runSetupMode(opt);   /* never returns */
 }
@@ -5553,6 +5636,7 @@ static void cli_status_hook(void)
     Serial.printf("  CAN: %s\n", g_can_disabled ? "disabled by setting" : (can_ok ? "running" : "not healthy"));
 #else
     Serial.printf("  link to HELM: %s\n", g_cyd_paired ? "joined" : "not joined");
+    Serial.printf("  display: %s\n", tobe::cyd::describe().c_str());
 #endif
 }
 
@@ -5977,6 +6061,10 @@ void setup()
     Board *board = new Board();
     g_board = board;   /* see g_board's declaration - OTA backlight blanking */
     board->init();
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+    tobe::cyd::load();   /* the colour order is read when the panel starts, so the display setting is needed now */
+    board->getLCD()->configColorRGB_Order(tobe::cyd::get().bgr);
+#endif
 
 #if LVGL_PORT_AVOID_TEARING_MODE
     board->getLCD()->configFrameBufferNumber(LVGL_PORT_DISP_BUFFER_NUM);
@@ -6010,6 +6098,9 @@ void setup()
     heap_report("pre-begin");
     assert(board->begin());
     heap_report("board");
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+    cyd_panel_apply_raw(tobe::cyd::get());   /* inversion and orientation; LVGL is not running yet */
+#endif
 
     lvgl_port_init(board->getLCD(), board->getTouch());
     heap_report("lvgl");
@@ -6038,6 +6129,15 @@ void setup()
         tobe::cli.begin(CLI_PROMPT, kCli, sizeof(kCli) / sizeof(kCli[0]));
         tobe::cli.setStatusHook(cli_status_hook);
         fleet_ui_begin(&prefs, &prefs_ok, cli_key_changed);   /* KEY / KEYSHOW / KEYCLEAR */
+#if TARGET_BOARD != BOARD_HELM_S3_800x480
+        {
+            tobe::cyd::Config cc;
+            cc.apply = cyd_panel_apply;
+            cc.test = cyd_panel_test;
+            cc.liveColourOrder = false;   /* read when the panel starts: a change restarts */
+            tobe::cyd::begin(cc);         /* DISPLAY command */
+        }
+#endif
 #ifdef OTA_MANIFEST_URL
         tobe::ota::setManifestUrl(OTA_MANIFEST_URL);          /* local_config.h: a manifest of your own */
 #endif

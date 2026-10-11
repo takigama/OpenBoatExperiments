@@ -2,6 +2,7 @@
 
 #include <Tobe.h>
 #include <TobeCli.h>
+#include <TobeCyd.h>
 #include <TobeLog.h>
 #include <TobeOta.h>
 #include <TobeWeb.h>
@@ -9,6 +10,7 @@
 #include "display.h"
 #include "op_mode.h"
 #include "ota_ui.h"
+#include "panel.h"
 #include "sonar_ble.h"
 #include "touch.h"
 
@@ -47,6 +49,7 @@ void statusHook() {
         tobe::console.printf(", sonar %s, %u frames", SonarBle::connected() ? "connected" : "not connected",
                              (unsigned)SonarBle::latest().frameCount);
     tobe::console.print("\n");
+    tobe::console.printf("  display %s\n", tobe::cyd::describe().c_str());
 }
 
 const tobe::CliCommand kCommands[] = {
@@ -64,9 +67,15 @@ void setup() {
     tobe::wifi::configure(wcfg);
     tobe::cli.begin("FISHCYD> ", kCommands, sizeof(kCommands) / sizeof(kCommands[0]));
     tobe::cli.setStatusHook(statusHook);
+    Panel::begin();  // the DISPLAY command; the stored settings are applied whenever a screen comes up
 
     // WEBMODE asked for the setup page: WiFi only, no display / BLE this boot
-    if (tobe::web::setupRequested()) tobe::web::runSetupMode();
+    if (tobe::web::setupRequested()) {
+        tobe::web::SetupOptions opt;
+        opt.extraHtml = tobe::cyd::webHtml;
+        opt.extraRoutes = tobe::cyd::webRoutes;
+        tobe::web::runSetupMode(opt);
+    }
 
     s_mode = OpMode::current();
     if (s_mode == OpMode::Mode::Ble) {

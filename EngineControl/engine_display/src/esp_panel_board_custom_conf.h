@@ -79,15 +79,13 @@
  * - `SPD2010`
  * - `ST7262`, `ST7701`, `ST7703`, `ST7789`, `ST7796`, `ST77903`, `ST77916`, `ST77922`
  */
-/* The ESP32-2432S028R "cyd2usb" (two USB ports) panel is an ST7789 driven BGR with colour inversion
- * off - the community repo witnessmenow/ESP32-Cheap-Yellow-Display documents it as env:cyd2usb
- * (-DST7789_DRIVER -DTFT_RGB_ORDER=TFT_BGR -DTFT_INVERSION_OFF, HSPI port). The single-USB boards
- * use TFT_eSPI's ILI9341_2 init instead. The other CYD variants stay on ILI9341. */
-#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
-#define ESP_PANEL_BOARD_LCD_CONTROLLER      ST7789
-#else
+/* One firmware for every CYD, same as FishFinderProBluetoothCYD: the ILI9341 init, which the original CYD (an
+ * ILI9341) takes natively and the CYD2USB (an ST7789V) accepts - the community's cyd2usb recipe used it until
+ * April 2024 (witnessmenow/ESP32-Cheap-Yellow-Display, commit d55212c moved it to ST7789). What differs between
+ * the boards - colour inversion, colour order, which way up - is not compiled in: it is the stored display
+ * setting (lib/TobeCyd: "Display" on the setup page, the DISPLAY command), applied in engine_display.ino
+ * (cyd_panel_apply) once the panel is up. */
 #define ESP_PANEL_BOARD_LCD_CONTROLLER      ILI9341
-#endif
 
 /**
  * @brief LCD bus type selection
@@ -333,24 +331,9 @@
  */
 #define ESP_PANEL_BOARD_LCD_COLOR_BITS          (ESP_PANEL_LCD_COLOR_BITS_RGB565)
                                                         // ESP_PANEL_LCD_COLOR_BITS_RGB565/RGB666/RGB888
-#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
-#define ESP_PANEL_BOARD_LCD_COLOR_BGR_ORDER     (1)     // 0: RGB, 1: BGR (cyd2usb ST7789 is BGR)
-#else
-#define ESP_PANEL_BOARD_LCD_COLOR_BGR_ORDER     (0)     // 0: RGB, 1: BGR
-#endif
-                                                        // NOT VERIFIED for CYD: many ILI9341 CYD panels need
-                                                        // this flipped to 1 for correct colors. If colors look
-                                                        // like a red/blue swap on first boot, flip this.
-#ifndef CYD_INVERT_TEST
-#define CYD_INVERT_TEST 0
-#endif
-#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
-#define ESP_PANEL_BOARD_LCD_COLOR_INEVRT_BIT    (CYD_INVERT_TEST)     // 0/1. The ESP32-2432S028R shows inverted colours
-                                                        // without this (found on the FishFinderProBluetoothCYD
-                                                        // build: TFT_INVERSION_ON on the same board)
-#else
-#define ESP_PANEL_BOARD_LCD_COLOR_INEVRT_BIT    (0)     // 0/1
-#endif
+#define ESP_PANEL_BOARD_LCD_COLOR_BGR_ORDER     (1)     // 0: RGB, 1: BGR. Only the default: the display setting
+                                                        // (lib/TobeCyd) overrides it before the panel starts.
+#define ESP_PANEL_BOARD_LCD_COLOR_INEVRT_BIT    (0)     // 0/1. Likewise: the display setting inverts at run time.
 
 /**
  * @brief LCD transformation configuration
@@ -366,13 +349,8 @@
  * coordinates won't line up with what's drawn).
  */
 #define ESP_PANEL_BOARD_LCD_SWAP_XY             (1)     // 0/1
-#if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
-#define ESP_PANEL_BOARD_LCD_MIRROR_X            (1)     // 0/1. The cyd2usb ST7789 shows the image mirrored
-                                                        // left-right with 0 (seen on a real unit)
-#else
-#define ESP_PANEL_BOARD_LCD_MIRROR_X            (0)     // 0/1
-#endif
-#define ESP_PANEL_BOARD_LCD_MIRROR_Y            (0)     // 0/1
+#define ESP_PANEL_BOARD_LCD_MIRROR_X            (0)     // 0/1. Defaults: "rotate 180" in the display setting
+#define ESP_PANEL_BOARD_LCD_MIRROR_Y            (0)     // 0/1  flips both at run time (LCD and touch).
 #define ESP_PANEL_BOARD_LCD_GAP_X               (0)     // [0, ESP_PANEL_BOARD_WIDTH]
 #define ESP_PANEL_BOARD_LCD_GAP_Y               (0)     // [0, ESP_PANEL_BOARD_HEIGHT]
 
@@ -514,7 +492,10 @@
  */
 #define ESP_PANEL_BOARD_TOUCH_SWAP_XY           (1)     // 0/1
 #if TARGET_BOARD == BOARD_CYD_28_RESISTIVE
-#define ESP_PANEL_BOARD_TOUCH_MIRROR_X          (1)     // 0/1. Follows ESP_PANEL_BOARD_LCD_MIRROR_X above
+#define ESP_PANEL_BOARD_TOUCH_MIRROR_X          (1)     // 0/1. Where the touch digitizer sits relative to the
+                                                        // (correctly oriented) picture - found on a real 2.8" unit
+                                                        // when the picture needed MIRROR_X=1 on the ST7789 init;
+                                                        // the picture is the same now, so this is unchanged.
 #else
 #define ESP_PANEL_BOARD_TOUCH_MIRROR_X          (0)     // 0/1
 #endif

@@ -10,6 +10,7 @@ project gets the fix on its next build. SignalKPaperDisplay (Go, runs on a Kindl
 | **TobeWifi** | Saved WiFi credentials (NVS), join, the open setup network `TOBE-<name>-XXXX`, and chip radio fixes (the ESP32-C3 transmit-power cap lives here, once). |
 | **TobeWeb** | The page frame (dark, "TOBE <name>"), the system section every device shows (firmware update, WiFi, log, restart), and **setup mode** (`WEBMODE`): AP or join existing WiFi, serve the setup page for 10 minutes. |
 | **TobeOta** | Over-the-air update from GitHub Releases: read the manifest, find this firmware, download, MD5-check, flash. |
+| **TobeCyd** | One firmware for every CYD: which board (original / CYD2USB), colour inversion, colour order, rotate 180 - stored in NVS, set from a "Display" web section or the `DISPLAY` command. Panel-driver independent: the project supplies the `apply` function (TFT_eSPI in FishFinderProBluetoothCYD, ESP_Panel in EngineControl). |
 | **TobeFleet** | The shared secret behind an ESP-NOW network (key derivation, signed frames, join handshake). Header-only; used by EngineControl. |
 
 The libraries build on each other (TobeCli uses TobeWifi and TobeOta; TobeWeb uses TobeWifi and TobeOta; all use TobeCore). They are

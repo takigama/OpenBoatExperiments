@@ -7,6 +7,8 @@
 
 #include <TobeLog.h>
 
+#include "panel.h"
+
 namespace Touch {
 
 namespace {
@@ -74,8 +76,7 @@ void drawCrosshair(TFT_eSPI &tft, int x, int y) {
 // hardware), and keeps this file self-contained.
 void runCalibration() {
     TFT_eSPI tft;
-    tft.init();
-    tft.setRotation(1);
+    Panel::init(tft, nullptr);
     tft.fillScreen(TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
     tft.setTextFont(2);
@@ -132,6 +133,14 @@ void begin() {
     p.end();
 
     if (!haveCal) runCalibration();
+}
+
+void forgetCalibration() {
+    Preferences p;
+    p.begin("touchcal", false);
+    p.clear();
+    p.end();
+    tobe::logf("touch: calibration cleared");
 }
 
 bool pollTap(int *x, int *y) {

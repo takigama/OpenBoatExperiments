@@ -2,6 +2,8 @@
 
 #include <TFT_eSPI.h>
 
+#include "panel.h"
+
 namespace Display {
 
 namespace {
@@ -405,6 +407,12 @@ void drawModeButton() {
     tft.setTextDatum(TL_DATUM);
 }
 
+// The panel was reconfigured under us (DISPLAY command): draw everything from scratch.
+void repaintAll() {
+    tft.fillScreen(kBg);
+    s_needsFullRedraw = true;
+}
+
 }  // namespace
 
 void begin() {
@@ -413,12 +421,10 @@ void begin() {
     pinMode(kSdCsPin, OUTPUT);
     digitalWrite(kSdCsPin, HIGH);
 
-    tft.init();
-    // Landscape - see platformio.ini for how the earlier "this panel is
-    // only 240 wide"/"unfixable corruption" conclusions both turned out
-    // to be wrong. Full 320x240 genuinely works. Flip to 3 if the board
-    // ends up mounted upside down.
-    tft.setRotation(1);
+    // Landscape 320x240 (see platformio.ini for how the earlier "this panel is only 240 wide"/"unfixable
+    // corruption" conclusions both turned out to be wrong). Inversion, colour order and which way up are the
+    // stored display settings - Panel::init applies them; the screen repaints itself when they change.
+    Panel::init(tft, repaintAll);
     tft.fillScreen(kBg);
 }
 

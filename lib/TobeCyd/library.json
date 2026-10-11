@@ -1,0 +1,12 @@
+{
+  "name": "TobeCyd",
+  "version": "1.0.0",
+  "description": "TOBE CYD display settings: which CYD this is (one USB port / two), colour inversion, colour order, rotation - stored in NVS, set from a web section or the DISPLAY command, applied by the project's own panel code",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    { "name": "TobeCore" },
+    { "name": "TobeCli" },
+    { "name": "TobeWeb" }
+  ]
+}

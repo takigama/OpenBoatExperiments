@@ -38,10 +38,18 @@ and `engine_display.ino`'s `PIN_CAN_TX`/`PIN_CAN_RX` - not a guarantee:
 | Touch pins | CLK25 MOSI32 MISO39 CS33 IRQ36 | SDA33 SCL32 INT21 RST25 | CLK25 MOSI32 MISO39 CS33 IRQ36 |
 | CAN TX / RX | 22 / 34 | 22 / 34 | 22 / 35 |
 
-If the image is mirrored/upside-down or touch doesn't line up with what's
-drawn on first boot, adjust `ESP_PANEL_BOARD_LCD_MIRROR_X/Y` and the
-matching `ESP_PANEL_BOARD_TOUCH_*` transform flags together in
-`esp_panel_board_custom_conf.h` - see the comments there.
+**Display settings (one firmware for every CYD).** The 2.8" CYDs differ in the panel (original: ILI9341;
+CYD2USB with two USB ports: ST7789V), not in the pins. The firmware always starts the panel with the ILI9341
+init and takes the rest from the stored display settings of `lib/TobeCyd` (the same library, page section and
+command FishFinderProBluetoothCYD uses): board preset (CYD / CYD2USB / custom), colour inversion, colour order
+(BGR/RGB), rotate 180. Change them with the serial command `DISPLAY` (`DISPLAY CYD2USB`, `DISPLAY INVERT ON`,
+`DISPLAY BGR OFF`, `DISPLAY ROTATE ON`, `DISPLAY TEST` for colour bars) or in the "Display" section of the
+setup page (`WEBMODE`). Inversion is live; colour order and rotation restart. Defaults are the CYD2USB preset
+(inverted, BGR). `cyd_panel_apply*()` in `engine_display.ino` is the ESP_Panel side (invertColor, mirrorX/Y on
+the LCD and touch, colour order via `configColorRGB_Order` before the panel starts). If touch doesn't line up
+with what's drawn, the baseline touch transform is `ESP_PANEL_BOARD_TOUCH_*` in `esp_panel_board_custom_conf.h`.
+Not yet bench-verified on this stack after the move from the ST7789 init (the picture orientation is expected
+to match FishFinderProBluetoothCYD's; if it is mirrored, use `DISPLAY ROTATE ON` or fix the baseline).
 
 ## Build / flash
 
@@ -106,7 +114,9 @@ Paths are relative to `engine_display/src/` unless they say otherwise. `../commo
   BOARD_HELM_S3_800x480`, inert otherwise.
 - `esp_panel_board_custom_conf.h` — hand-specifies the ILI9341/touch/
   backlight pin config for whichever CYD variant is selected; inert for
-  HELM builds. See the pin table above.
+  HELM builds. See the pin table above. Inversion, colour order and
+  rotation are run-time display settings (see "Display settings" above),
+  the values in this file are only the defaults.
 
 ## Hard constraints (violating these cost us days — do not "improve" them)
 

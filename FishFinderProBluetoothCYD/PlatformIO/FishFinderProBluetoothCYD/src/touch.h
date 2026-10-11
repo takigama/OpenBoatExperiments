@@ -16,4 +16,8 @@ void begin();
 // pixel coordinates (0-319, 0-239), matching the display's rotation.
 bool pollTap(int *x, int *y);
 
+// Drop the stored calibration: the two crosshairs are asked for again at the next start. For when the
+// display's orientation changed and the old map no longer fits.
+void forgetCalibration();
+
 }  // namespace Touch

@@ -9,6 +9,7 @@
 #include <TobeWifi.h>
 #include "keyboard.h"
 #include "op_mode.h"
+#include "panel.h"
 #include "touch.h"
 #include "web_config.h"
 
@@ -77,6 +78,24 @@ void redraw() {
             kForgetWifiBtn.draw("Forget WiFi", kLabel);
             break;
     }
+}
+
+bool s_inSetup = false;  // a blocking setup screen (network picker, phone instructions) owns the display
+
+void drawTitle() {
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextFont(2);
+    tft.setTextColor(kLabel, kBg);
+    tft.drawString(tobe::title() + " - WiFi mode", 160, 15);
+    tft.setTextDatum(TL_DATUM);
+}
+
+// The panel was reconfigured under us (DISPLAY command, the web page): draw this screen again.
+void repaintAll() {
+    if (s_inSetup) return;  // the picker redraws itself on the next tap
+    tft.fillScreen(kBg);
+    drawTitle();
+    redraw();
 }
 
 void runCheck() {
@@ -219,14 +238,9 @@ void runWifiSetup() {
 }  // namespace
 
 void begin() {
-    tft.init();
-    tft.setRotation(1);
+    Panel::init(tft, repaintAll);
     tft.fillScreen(kBg);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextFont(2);
-    tft.setTextColor(kLabel, kBg);
-    tft.drawString(tobe::title() + " - WiFi mode", 160, 15);
-    tft.setTextDatum(TL_DATUM);
+    drawTitle();
 
     Touch::begin();
 
@@ -235,6 +249,7 @@ void begin() {
     WebConfig::begin();  // needed either way - AP mode for setup, STA mode for /log and manual OTA
 
     if (mode == tobe::wifi::Mode::AP) {
+        s_inSetup = true;
         runWifiSetup();  // blocking - only "returns" via a reboot
     } else {
         runCheck();
