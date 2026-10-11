@@ -57,7 +57,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/engine_display",
             "env": "helm",
-            "version": 40,
+            "version": 41,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "helm",
