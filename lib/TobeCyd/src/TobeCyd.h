@@ -69,6 +69,12 @@ struct Config {
     const char *nvsNamespace = "tobedisp";
 };
 
+/**
+ * Whether the CYD2USB preset is inverted. The same panel with the same init wants it inverted under TFT_eSPI
+ * (FishFinderProBluetoothCYD, the default) and not under ESP_Panel (EngineControl). Call before load().
+ */
+void setCyd2usbInverted(bool inverted);
+
 /** Read the stored settings (defaults if none). Safe to call more than once. */
 void load();
 

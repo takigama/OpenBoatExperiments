@@ -1771,7 +1771,7 @@ static lv_obj_t *setup_screen_base(const char *title_text)
     lv_obj_t *scr = lv_obj_create(lv_layer_top());
     lv_obj_set_size(scr, 800, 480);
     lv_obj_set_pos(scr, 0, 0);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a1929), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);   /* black: best at night, matches the status screens */
     lv_obj_set_style_border_width(scr, 0, 0);
     lv_obj_set_style_radius(scr, 0, 0);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -2564,7 +2564,7 @@ static lv_obj_t *make_polyline(lv_obj_t *parent, const lv_point_t *pts,
 static void create_ui(void)
 {
     lv_obj_t *scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a1929), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);   /* black: best at night, matches the status screens */
 
     gauge_geom_init();
 
@@ -3059,13 +3059,13 @@ static lv_obj_t *cyd_lbl_auto;   /* doubles as phase status, same reasoning
 static lv_obj_t *cyd_off_overlay, *cyd_no_engine_overlay, *cyd_no_engine_label, *cyd_off_label;
 static lv_obj_t *cyd_btn_engine;   /* the engine name at the top; tap to switch engine when there is a choice */
 
-/* the engines this secondary display can switch to: present and on (it has no ignition authority, so an off
- * engine is no destination - same rule as the HELM's engine picker) */
+/* the engines this display can look at: every one the master has told us about, on or off (the picker sits above
+ * the "waiting" overlays, so an engine that is off can always be switched away from again) */
 static int cyd_selectable_engines(void)
 {
     int n = 0;
     for (int i = 0; i < MD_MAX_ENGINES; i++)
-        if (engines[i].present && engines[i].ign_on) n++;
+        if (engines[i].present) n++;
     return n;
 }
 
@@ -3074,7 +3074,7 @@ static void cyd_engine_cycle_cb(lv_event_t *e)
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     for (int step = 1; step <= MD_MAX_ENGINES; step++) {
         int i = (sel_engine + step) % MD_MAX_ENGINES;
-        if (!(engines[i].present && engines[i].ign_on)) continue;
+        if (!engines[i].present) continue;
         if (i != sel_engine) {
             sel_engine = i;
             if (prefs_ok) prefs.putUChar("engine", sel_engine);
@@ -3131,7 +3131,9 @@ static void ui_tick_cyd(lv_timer_t *t)
         last_can_switch = can_switch;
         if (can_switch) lv_label_set_text_fmt(cyd_lbl_engine, "%s  " LV_SYMBOL_RIGHT, name);   /* tap: next engine */
         else lv_label_set_text(cyd_lbl_engine, name);
+        lv_obj_set_style_border_width(cyd_btn_engine, can_switch ? 1 : 0, 0);
     }
+    set_hidden(cyd_btn_engine, !any_engine_present());   /* nothing to name or pick: the overlay says why */
 
     int rpm = eng.rpm;
     if (rpm < 0) rpm = 0;
@@ -3230,15 +3232,19 @@ static lv_obj_t *cyd_make_btn(lv_obj_t *parent, const char *text, lv_event_cb_t 
 static void create_ui_cyd(void)
 {
     lv_obj_t *scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a1929), 0);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x000000), 0);   /* black: best at night, matches the status screens */
 
-    /* engine name: a transparent button across the top, so the whole strip is the tap target for switching engine */
-    cyd_btn_engine = lv_btn_create(scr);
-    lv_obj_set_size(cyd_btn_engine, 300, 30);
-    lv_obj_align(cyd_btn_engine, LV_ALIGN_TOP_MID, 0, 0);
+    /* engine name = the engine picker: a button across the top, on the top layer so it stays above the "waiting" /
+     * "no engine" overlays (an engine that is off must still be switchable away from). Bordered when there is a
+     * choice (two or more engines present); tapping it steps to the next one. */
+    cyd_btn_engine = lv_btn_create(lv_layer_top());
+    lv_obj_set_size(cyd_btn_engine, 220, 32);
+    lv_obj_align(cyd_btn_engine, LV_ALIGN_TOP_MID, 0, 2);
     lv_obj_set_style_bg_opa(cyd_btn_engine, LV_OPA_TRANSP, 0);
     lv_obj_set_style_shadow_width(cyd_btn_engine, 0, 0);
     lv_obj_set_style_border_width(cyd_btn_engine, 0, 0);
+    lv_obj_set_style_border_color(cyd_btn_engine, lv_color_hex(0x8fa3b8), 0);
+    lv_obj_set_style_radius(cyd_btn_engine, 8, 0);
     lv_obj_add_event_cb(cyd_btn_engine, cyd_engine_cycle_cb, LV_EVENT_CLICKED, NULL);
     cyd_lbl_engine = lv_label_create(cyd_btn_engine);
     lv_label_set_text(cyd_lbl_engine, "--");
@@ -6172,6 +6178,7 @@ void setup()
     Board *board = new Board();
 #else
     /* which LCD driver and colour order are read when the panel starts: the display setting is needed now */
+    tobe::cyd::setCyd2usbInverted(false);   /* ESP_Panel with this init: the panel is right without inversion */
     tobe::cyd::load();
     Board *board = NULL;
     cyd_board_create(&board, tobe::cyd::get());

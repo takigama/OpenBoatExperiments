@@ -15,6 +15,7 @@ namespace {
 
 Settings s_settings;
 Config s_cfg;
+bool s_cyd2usbInverted = true;
 bool s_loaded = false;
 bool s_begun = false;
 
@@ -141,9 +142,16 @@ Settings presetSettings(uint8_t preset) {
     s.preset = preset;
     s.controller = preset == PRESET_CYD2USB_ST7789 ? CTRL_ST7789 : CTRL_ILI9341;
     s.bgr = true;
-    s.invert = preset == PRESET_CYD2USB;
+    s.invert = preset == PRESET_CYD2USB && s_cyd2usbInverted;
     s.rotate180 = false;
     return s;
+}
+
+void setCyd2usbInverted(bool inverted) {
+    s_cyd2usbInverted = inverted;
+    s_loaded = false;   // the stored preset is re-derived with the new flag
+    s_settings = Settings();
+    s_settings.invert = inverted;
 }
 
 void load() {
@@ -154,7 +162,7 @@ void load() {
     if (p.isKey("preset")) {
         s_settings.preset = p.getUChar("preset", PRESET_CYD2USB);
         s_settings.controller = p.getUChar("ctrl", CTRL_ILI9341) == CTRL_ST7789 ? CTRL_ST7789 : CTRL_ILI9341;
-        s_settings.invert = p.getBool("invert", true);
+        s_settings.invert = p.getBool("invert", s_cyd2usbInverted);
         s_settings.bgr = p.getBool("bgr", true);
         s_settings.rotate180 = p.getBool("rot", false);
         if (s_settings.preset != PRESET_CUSTOM) {  // a preset is only ever its own flags
