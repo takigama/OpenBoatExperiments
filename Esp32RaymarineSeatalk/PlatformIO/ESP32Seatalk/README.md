@@ -12,6 +12,9 @@ routing matrix. See [Routing matrix](#routing-matrix) below.
 
 ## Hardware
 
+Photos of the built board, and of it driving a real ST60+ Wind instrument, are in the
+[hardware project README](../../README.md#the-built-board).
+
 | Signal | GPIO | Notes |
 |---|---|---|
 | SeaTalk | GPIO4 | Bit-banged, open-drain, via a BSS138 level shifter. Single wire, TX and RX share it (self-echo is expected, not a bug). |
