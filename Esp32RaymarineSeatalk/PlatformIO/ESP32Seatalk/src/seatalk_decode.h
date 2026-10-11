@@ -59,6 +59,11 @@ struct Event {
 // framing error slipping through, or a command we don't fully understand).
 bool decode(const SeatalkBus::Datagram &dg, Event *out);
 
+// True for a reading the instrument itself marks as "sensor defective / not connected" (water temperature, whose
+// attribute byte then carries the 0x4_ flag - e.g. "23 41 28 68" is a fixed 40 C placeholder, not a measurement).
+// Such a value should be shown for what it is but not forwarded as data.
+inline bool isNoSensor(const Event &ev) { return ev.type == Type::WaterTemperature && ev.flagA; }
+
 // SignalK's own dot-path convention (e.g. "navigation.speedThroughWater") -
 // the single source of truth both MqttManager (converting dots to slashes
 // for its topic names) and SignalKManager (using them as delta paths

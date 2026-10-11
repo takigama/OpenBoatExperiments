@@ -45,6 +45,10 @@ void begin(int gpioPin);
 // against what they just called send() with).
 bool poll(Datagram *out);
 
+// Datagrams that were received completely but lost because the receive queue was full (the main loop was busy
+// for too long). Counted since boot.
+uint32_t droppedDatagrams();
+
 // Blocks for the datagram's duration (~2ms/byte at 4800 baud) - fine for
 // the short, infrequent datagrams SeaTalk actually sends, not meant for
 // bulk transfer. dataBytes excludes the command byte itself. RX stays

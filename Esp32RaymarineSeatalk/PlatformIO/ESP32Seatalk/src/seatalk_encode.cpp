@@ -41,8 +41,14 @@ void sendSpeedOverGround(double kn) {
 }
 
 void sendApparentWindAngle(double deg) {
+    // SeaTalk carries 0..359.5 degrees right of the bow; ours is signed (negative = port side) - wrap it first, a
+    // negative value cast straight to unsigned is undefined
+    deg = fmod(deg, 360.0);
+    if (deg < 0) deg += 360.0;
     uint16_t raw = (uint16_t)(deg * 2.0 + 0.5);
-    uint8_t data[] = {0x01, (uint8_t)(raw & 0xFF), (uint8_t)(raw >> 8)};
+    if (raw >= 720) raw -= 720;  // 359.75 rounds up to 360.0
+    // high byte first for this command - see seatalk_decode.cpp (command 0x10)
+    uint8_t data[] = {0x01, (uint8_t)(raw >> 8), (uint8_t)(raw & 0xFF)};
     SeatalkBus::send(0x10, data, sizeof(data));
 }
 

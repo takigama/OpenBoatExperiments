@@ -80,6 +80,8 @@ void runLoopbackTest() {
 void statusHook() {
     tobe::console.printf("  MQTT %s, SignalK %s\n", MqttManager::isConnected() ? "connected" : "not connected",
                          SignalKManager::isConnected() ? "connected" : "not connected");
+    tobe::console.printf("  SeaTalk: %lu datagrams lost to a full receive queue since boot\n",
+                         (unsigned long)SeatalkBus::droppedDatagrams());
 }
 
 void setup() {
@@ -150,8 +152,15 @@ void loop() {
         if (SeatalkDecode::decode(dg, &ev)) {
             tobe::logf("seatalk: %s-> type=%d value=%.3f value2=%.3f", hex.c_str(), (int)ev.type,
                             ev.value, ev.value2);
-            RxLog::addEvent(RxLog::Source::SeaTalk, ev, rawHex);
-            RouteConfig::relay(RouteConfig::Bus::SeaTalk, ev);
+            if (SeatalkDecode::isNoSensor(ev)) {
+                // the instrument says its sensor is not connected: this value is a placeholder, not a reading
+                char note[64];
+                snprintf(note, sizeof(note), "no sensor - not forwarded; %s", rawHex);
+                RxLog::addEvent(RxLog::Source::SeaTalk, ev, note);
+            } else {
+                RxLog::addEvent(RxLog::Source::SeaTalk, ev, rawHex);
+                RouteConfig::relay(RouteConfig::Bus::SeaTalk, ev);
+            }
         } else {
             tobe::logf("seatalk: %s-> undecoded", hex.c_str());
             RxLog::add(RxLog::Source::SeaTalk, "undecoded cmd %02X  [%s]", dg.bytes[0], rawHex);

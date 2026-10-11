@@ -59,7 +59,10 @@ bool decode(const SeatalkBus::Datagram &dg, Event *out) {
         }
         case 0x10: {  // Apparent wind angle: "10 01 XX YY", XXYY/2 degrees right of bow
             if (dg.length != 4) return false;
-            uint16_t raw = b[2] | (b[3] << 8);
+            // HIGH byte first - unlike the other 16-bit fields here ("XX XX" there is low byte first). Confirmed
+            // against a real bus: "10 11 01 1c", "10 11 01 1e", "10 11 01 1a" = 142.0, 143.0, 141.0 degrees. Read the
+            // other way round it is 3584 degrees, which is what this decoder used to publish.
+            uint16_t raw = (b[2] << 8) | b[3];
             double deg = raw / 2.0;
             if (deg > 180.0) deg -= 360.0;  // -> signed, negative = port (SignalK convention)
             out->type = Type::ApparentWindAngle;

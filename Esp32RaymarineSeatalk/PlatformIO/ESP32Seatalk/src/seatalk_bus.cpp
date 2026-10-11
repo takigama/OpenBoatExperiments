@@ -155,6 +155,8 @@ void begin(int gpioPin) {
     armForNextStartBit();
 }
 
+uint32_t droppedDatagrams() { return s_queueDrops; }
+
 bool poll(Datagram *out) {
     if (s_queueCount == 0) return false;
     *out = s_queue[s_queueHead];

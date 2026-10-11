@@ -355,8 +355,8 @@ void handleTestLamp() {
 // display before it's even noticed (a single send showed wind speed but
 // not the other three, first time this ran).
 void sendNavTestValues() {
-    // Apparent wind angle 45.0deg: "10 01 XX YY", XXYY/2 - raw=90=0x005A
-    uint8_t wind_angle[] = {0x01, 0x5A, 0x00};
+    // Apparent wind angle 45.0deg: "10 01 XX YY", XXYY/2 (high byte first) - raw=90=0x005A
+    uint8_t wind_angle[] = {0x01, 0x00, 0x5A};
     SeatalkBus::send(0x10, wind_angle, sizeof(wind_angle));
 
     // Apparent wind speed 12.5kn: "11 01 XX 0Y", (XX&0x7F)+Y/10
