@@ -4,6 +4,7 @@
 #include <WiFi.h>
 
 #include "Tobe.h"
+#include "TobeCli.h"
 #include "TobeLog.h"
 #include "TobeOta.h"
 #include "TobeWifi.h"
@@ -244,6 +245,7 @@ void runSetupMode(const SetupOptions &opt) {
     uint32_t lastSay = 0;
     while ((int32_t)(endAt - millis()) > 0) {
         srv.handleClient();
+        cli.tick();   // the serial command line keeps working in setup mode (STATUS, WIFI, UPDATE, DISPLAY, ...)
         if (millis() - lastSay > 30000) {
             lastSay = millis();
             logf("SETUP MODE: %s", where.c_str());

@@ -81,8 +81,8 @@
  */
 /* One firmware for every CYD, same as FishFinderProBluetoothCYD. The controller named here is only the compile-time
  * default: engine_display.ino (cyd_board_create) takes this board configuration and, at boot, swaps in the driver
- * the stored display setting asks for - ILI9341 for the original CYD, ST7789 (the panel's own init) for the
- * CYD2USB; lib/TobeCyd holds the setting ("Display" on the setup page, the DISPLAY command). Both drivers are
+ * the stored display setting asks for - ILI9341 (the original CYD and the older cyd2usb recipe, with inversion)
+ * or ST7789 (the panel's own init); lib/TobeCyd holds the setting ("Display" on the setup page, the DISPLAY command). Both drivers are
  * compiled for CYD builds (esp_panel_drivers_conf.h). */
 #define ESP_PANEL_BOARD_LCD_CONTROLLER      ILI9341
 

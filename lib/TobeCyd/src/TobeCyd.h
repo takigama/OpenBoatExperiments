@@ -1,14 +1,20 @@
 /**
  * TobeCyd.h - one firmware for every CYD ("Cheap Yellow Display", ESP32-2432S028).
  *
- * The 2.8" CYDs share the ESP32, the pins and the touch controller but not the panel: the original (one USB port)
- * has an ILI9341, the CYD2USB (two USB ports) an ST7789V. One firmware drives both: which controller it talks to
- * - and how - is a stored setting (NVS), so each panel gets its own init sequence rather than being driven as if
- * it were the other one:
+ * The 2.8" CYDs share the ESP32, the pins and the touch controller but not the panel, and "how many USB ports" does
+ * not settle which panel a given unit has: the original (one USB port) is an ILI9341; the two-USB-port boards have
+ * been seen with an ILI9341-style panel that wants inversion (the community's original cyd2usb recipe, and what
+ * the unit this was developed on needs) and are documented with an ST7789V (the recipe since April 2024). One
+ * firmware drives all of them: which init it gives the panel is a stored setting (NVS), so each is driven for
+ * what it is - pick the preset that looks right:
  *
- *     board       CYD (one USB port, ILI9341) | CYD2USB (two USB ports, ST7789V) | custom
- *     controller  ILI9341 | ST7789   - set by the board; only free with "custom"
- *     invert      colour inversion on/off
+ *     CYD            ILI9341 init, not inverted           (the original, one USB port)
+ *     CYD2USB        ILI9341 init, inverted               (two USB ports; the original cyd2usb recipe)
+ *     CYD2USB-ST7789 ST7789 init, not inverted            (two USB ports; the recipe since April 2024)
+ *     custom         controller / invert / colour order set by hand
+ *
+ * and, on top of any of them:
+ *
  *     bgr         colour order: BGR (the MADCTL BGR bit) or RGB
  *     rotate      rotate the picture (and touch) by 180 degrees
  *
@@ -36,13 +42,13 @@ class WebServer;  // the page code includes <WebServer.h> itself (TFT_eSPI.h mus
 namespace tobe {
 namespace cyd {
 
-enum Preset : uint8_t { PRESET_CYD = 0, PRESET_CYD2USB = 1, PRESET_CUSTOM = 2 };
+enum Preset : uint8_t { PRESET_CYD = 0, PRESET_CYD2USB = 1, PRESET_CUSTOM = 2, PRESET_CYD2USB_ST7789 = 3 };
 enum Controller : uint8_t { CTRL_ILI9341 = 0, CTRL_ST7789 = 1 };
 
 struct Settings {
-    uint8_t preset = PRESET_CYD2USB;
-    uint8_t controller = CTRL_ST7789;   // which init sequence / driver the panel gets (set by the preset)
-    bool invert = false;                // each panel with its own init needs no inversion
+    uint8_t preset = PRESET_CYD2USB;    // the default: what FishFinderProBluetoothCYD has always shown on its unit
+    uint8_t controller = CTRL_ILI9341;  // which init sequence / driver the panel gets (set by the preset)
+    bool invert = true;
     bool bgr = true;
     bool rotate180 = false;
 };

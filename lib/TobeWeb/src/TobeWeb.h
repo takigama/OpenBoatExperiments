@@ -61,8 +61,9 @@ String setupPage(const SetupOptions &opt, const String &message = "");
 
 /**
  * Setup mode. Joins the saved WiFi if there is one, otherwise makes the open network, then serves the setup
- * page for `minutes` and restarts. Never returns. Open on purpose (convenience): anyone in range while it is
- * on can change the settings, so keep it short.
+ * page for `minutes` and restarts. Never returns. The serial command line (tobe::cli) keeps being serviced, so
+ * call tobe::cli.begin() first. Open on purpose (convenience): anyone in range while it is on can change the
+ * settings, so keep it short.
  */
 [[noreturn]] void runSetupMode(const SetupOptions &opt = SetupOptions());
 

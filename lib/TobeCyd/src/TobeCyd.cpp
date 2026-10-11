@@ -20,8 +20,9 @@ bool s_begun = false;
 
 const char *presetName(uint8_t p) {
     switch (p) {
-        case PRESET_CYD: return "CYD (one USB port, ILI9341)";
-        case PRESET_CYD2USB: return "CYD2USB (two USB ports, ST7789V)";
+        case PRESET_CYD: return "CYD (ILI9341, one USB port)";
+        case PRESET_CYD2USB: return "CYD2USB (ILI9341 + inversion, two USB ports)";
+        case PRESET_CYD2USB_ST7789: return "CYD2USB-ST7789 (ST7789V, two USB ports)";
         default: return "custom";
     }
 }
@@ -67,7 +68,9 @@ void cmdDisplay(const char *args) {
     if (!buf[0]) {
         tobe::console.printf("display: %s\n", describe().c_str());
         tobe::console.print(
-            "  DISPLAY CYD | CYD2USB       the board: one USB port (ILI9341) / two USB ports (ST7789V)\n"
+            "  DISPLAY CYD                 ILI9341 init, not inverted      (the original, one USB port)\n"
+            "  DISPLAY CYD2USB             ILI9341 init, inverted          (two USB ports; the original recipe)\n"
+            "  DISPLAY CYD2USB-ST7789      ST7789 init, not inverted       (two USB ports; the newer recipe)\n"
             "  DISPLAY CONTROLLER ILI9341|ST7789   the panel init to use    (custom; restarts)\n"
             "  DISPLAY INVERT ON|OFF       colour inversion      (custom)\n"
             "  DISPLAY BGR ON|OFF          colour order          (custom; may restart)\n"
@@ -84,6 +87,9 @@ void cmdDisplay(const char *args) {
         n.rotate180 = s_settings.rotate180;
     } else if (!strcasecmp(buf, "cyd2usb")) {
         n = presetSettings(PRESET_CYD2USB);
+        n.rotate180 = s_settings.rotate180;
+    } else if (!strcasecmp(buf, "cyd2usb-st7789")) {
+        n = presetSettings(PRESET_CYD2USB_ST7789);
         n.rotate180 = s_settings.rotate180;
     } else if (!strcasecmp(buf, "custom")) {
         n.preset = PRESET_CUSTOM;
@@ -107,7 +113,7 @@ void cmdDisplay(const char *args) {
 }
 
 const CliCommand kCommands[] = {
-    {"DISPLAY", "[CYD|CYD2USB|CONTROLLER|INVERT|BGR|ROTATE|TEST]", "show or set how this CYD's panel is driven", cmdDisplay, 0},
+    {"DISPLAY", "[CYD|CYD2USB|CYD2USB-ST7789|CONTROLLER|INVERT|BGR|ROTATE|TEST]", "show or set how this CYD's panel is driven", cmdDisplay, 0},
 };
 
 Settings resolved(const Settings &in) {
@@ -133,9 +139,9 @@ String reply(const String &msg) {
 Settings presetSettings(uint8_t preset) {
     Settings s;
     s.preset = preset;
-    s.controller = preset == PRESET_CYD ? CTRL_ILI9341 : CTRL_ST7789;
+    s.controller = preset == PRESET_CYD2USB_ST7789 ? CTRL_ST7789 : CTRL_ILI9341;
     s.bgr = true;
-    s.invert = false;
+    s.invert = preset == PRESET_CYD2USB;
     s.rotate180 = false;
     return s;
 }
@@ -147,8 +153,8 @@ void load() {
     if (!p.begin(s_cfg.nvsNamespace, true)) return;
     if (p.isKey("preset")) {
         s_settings.preset = p.getUChar("preset", PRESET_CYD2USB);
-        s_settings.controller = p.getUChar("ctrl", CTRL_ST7789) == CTRL_ILI9341 ? CTRL_ILI9341 : CTRL_ST7789;
-        s_settings.invert = p.getBool("invert", false);
+        s_settings.controller = p.getUChar("ctrl", CTRL_ILI9341) == CTRL_ST7789 ? CTRL_ST7789 : CTRL_ILI9341;
+        s_settings.invert = p.getBool("invert", true);
         s_settings.bgr = p.getBool("bgr", true);
         s_settings.rotate180 = p.getBool("rot", false);
         if (s_settings.preset != PRESET_CUSTOM) {  // a preset is only ever its own flags
@@ -208,29 +214,37 @@ String webHtml() {
     load();
     const Settings &s = s_settings;
     String h = "<hr><h3>Display</h3>";
-    h += "<p>This firmware runs on both kinds of CYD. Pick the board you have; if the colours look wrong "
-         "(inverted, or red and blue swapped) or the picture is upside down, adjust below. "
-         "Now: <b>" + tobe::web::escape(describe()) + "</b>.</p>";
-    h += "<form method=POST action=/display id=dform>Board"
+    h += "<p>This firmware runs on every 2.8&quot; CYD. The number of USB ports does not settle which panel a "
+         "unit has: pick the board that looks right (the two-USB-port boards are seen both ways), then adjust the "
+         "colour order and orientation if needed.</p>";
+    h += "<p>Now: <b>" + tobe::web::escape(describe()) + "</b></p>";
+
+    h += "<form method=POST action=/display id=dform>";
+    h += "<p><label for=dp>Board</label>"
          "<select name=preset id=dp onchange=\"dpPreset()\">";
-    h += String("<option value=0") + (s.preset == PRESET_CYD ? " selected" : "") + ">" + presetName(PRESET_CYD) + "</option>";
-    h += String("<option value=1") + (s.preset == PRESET_CYD2USB ? " selected" : "") + ">" + presetName(PRESET_CYD2USB) +
-         "</option>";
-    h += String("<option value=2") + (s.preset == PRESET_CUSTOM ? " selected" : "") + ">custom (set the three below)</option>";
-    h += "</select>Panel init"
-         "<select name=ctrl id=dc>";
+    const uint8_t order[] = {PRESET_CYD, PRESET_CYD2USB, PRESET_CYD2USB_ST7789};
+    for (uint8_t id : order)
+        h += "<option value=" + String(id) + (s.preset == id ? " selected" : "") + ">" + presetName(id) + "</option>";
+    h += String("<option value=2") + (s.preset == PRESET_CUSTOM ? " selected" : "") + ">custom (set the next three)</option>";
+    h += "</select></p>";
+
+    h += "<p><label for=dc>Panel init</label><select name=ctrl id=dc>";
     h += String("<option value=0") + (s.controller == CTRL_ILI9341 ? " selected" : "") + ">ILI9341</option>";
     h += String("<option value=1") + (s.controller == CTRL_ST7789 ? " selected" : "") + ">ST7789</option>";
-    h += "</select>"
-         "<label><input type=checkbox name=invert id=di" + checked(s.invert) + ">Invert colours</label>"
-         "<label><input type=checkbox name=bgr id=db" + checked(s.bgr) + ">BGR colour order (untick for RGB)</label>"
-         "<label><input type=checkbox name=rot id=dr" + checked(s.rotate180) + ">Rotate 180&deg; (touch is set up again)</label>"
-         "<button>Apply</button> (a different panel init, colour order or rotation restarts the board)</form>";
-    h += "<form method=POST action=/display/test><button>Show colour bars</button></form>";
+    h += "</select></p>";
+
+    h += "<p><label><input type=checkbox name=invert id=di" + checked(s.invert) + "> Invert colours</label></p>";
+    h += "<p><label><input type=checkbox name=bgr id=db" + checked(s.bgr) + "> BGR colour order (untick for RGB)</label></p>";
+    h += "<p><label><input type=checkbox name=rot id=dr" + checked(s.rotate180) + "> Rotate 180&deg; (touch is calibrated again)</label></p>";
+
+    h += "<p><button>Apply</button></p>"
+         "<p class=hint>A different panel init, colour order or rotation restarts the board.</p>"
+         "</form>";
+    h += "<form method=POST action=/display/test><p><button>Show colour bars</button></p></form>";
     // the presets' settings, so picking one shows what it means; "custom" unlocks the three controls
     h += "<script>function dpPreset(){var p=document.getElementById('dp').value,i=document.getElementById('di'),"
          "b=document.getElementById('db'),c=document.getElementById('dc');"
-         "if(p!='2'){i.checked=false;b.checked=true;c.value=(p=='0')?'0':'1'}"
+         "if(p!='2'){i.checked=(p=='1');b.checked=true;c.value=(p=='3')?'1':'0'}"
          "i.disabled=b.disabled=c.disabled=(p!='2')}"
          "dpPreset();document.getElementById('dform').addEventListener('submit',function(){"
          "document.getElementById('di').disabled=document.getElementById('db').disabled="
@@ -242,7 +256,7 @@ void webRoutes(WebServer &server) {
     server.on("/display", HTTP_POST, [&server]() {
         load();
         Settings n = s_settings;
-        n.preset = (uint8_t)constrain(server.arg("preset").toInt(), 0, 2);
+        n.preset = (uint8_t)constrain(server.arg("preset").toInt(), 0, 3);
         n.controller = server.arg("ctrl").toInt() == 0 ? CTRL_ILI9341 : CTRL_ST7789;
         n.invert = server.hasArg("invert");
         n.bgr = server.hasArg("bgr");

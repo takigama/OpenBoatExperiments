@@ -7,6 +7,7 @@
   "dependencies": [
     { "name": "TobeCore" },
     { "name": "TobeWifi" },
-    { "name": "TobeOta" }
+    { "name": "TobeOta" },
+    { "name": "TobeCli" }
   ]
 }

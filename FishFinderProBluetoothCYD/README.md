@@ -46,13 +46,14 @@ join failed, paginated with signal strength:
   "Firmware" below) - SD isn't used by this project yet.
 - **One firmware for every 2.8" CYD** (original, ILI9341, and the CYD2USB with two USB ports, ST7789V). Which
   panel it is, and how it is driven, is the stored display setting - the "Display" section of the WiFi-mode web
-  page (or the setup page, `WEBMODE`) or the `DISPLAY` serial command (`DISPLAY CYD` / `DISPLAY CYD2USB`,
-  `DISPLAY CONTROLLER ILI9341|ST7789`, `DISPLAY INVERT ON|OFF`, `DISPLAY BGR ON|OFF`, `DISPLAY ROTATE ON|OFF`,
-  `DISPLAY TEST` for colour bars). Same library, page and command as EngineControl's CYD (`lib/TobeCyd`). TFT_eSPI
-  is built for the ILI9341_2 driver (the original CYD's); for the CYD2USB `src/panel.cpp` resets the panel after
-  `tft.init()` and replays TFT_eSPI's ST7789 init, with the ST7789's landscape MADCTL. A change of panel,
-  colour order or rotation restarts; rotating asks for the touch calibration again. Default is the CYD2USB preset
-  (ST7789, not inverted, BGR).
+  page (or the setup page, `WEBMODE`) or the `DISPLAY` serial command (`DISPLAY CYD` (ILI9341, not inverted), `DISPLAY CYD2USB`
+  (ILI9341, inverted - the default, what this firmware has always run on its unit), `DISPLAY CYD2USB-ST7789`
+  (ST7789 init), `DISPLAY CONTROLLER ILI9341|ST7789`, `DISPLAY INVERT ON|OFF`, `DISPLAY BGR ON|OFF`,
+  `DISPLAY ROTATE ON|OFF`, `DISPLAY TEST` for colour bars). The two-USB-port boards are seen both ways, so pick
+  the one that looks right. Same library, page and command as EngineControl's CYD (`lib/TobeCyd`). TFT_eSPI is
+  built for the ILI9341_2 driver; for the ST7789 setting `src/panel.cpp` resets the panel after `tft.init()` and
+  replays TFT_eSPI's ST7789 init, with the ST7789's landscape MADCTL. A change of panel, colour order or rotation
+  restarts; rotating asks for the touch calibration again.
 - Full 320x240 landscape works correctly. Working TFT_eSPI config is
   `ILI9341_2_DRIVER` + `USE_HSPI_PORT` + 55MHz SPI (until the display setting existed it ran the CYD2USB with
   `TFT_INVERSION_ON`; found by flashing the community's
