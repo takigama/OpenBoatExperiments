@@ -1,9 +1,9 @@
 {
   "helm": {
     "viewe7": {
-      "build": 39,
-      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/tobe-EngineControl-Helm-v39/TOBE-EngineControl-Helm-v39.bin",
-      "md5": "3c2460e2ade009e49dbfd32f5f4139df"
+      "build": 40,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/tobe-EngineControl-Helm-v40/TOBE-EngineControl-Helm-v40.bin",
+      "md5": "a3c1490912f287513f2196f1961bed7f"
     }
   },
   "can_sim": {
