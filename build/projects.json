@@ -18,7 +18,7 @@
         "ESP32Seatalk": {
             "dir": "Esp32RaymarineSeatalk/PlatformIO/ESP32Seatalk",
             "env": "esp32-c3",
-            "version": 25,
+            "version": 26,
             "ota": {}
         },
         "EngineControl-CYD": {
