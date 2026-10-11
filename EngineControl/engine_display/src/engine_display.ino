@@ -3107,6 +3107,8 @@ static void ui_tick_cyd(lv_timer_t *t)
         uint8_t link = cyd_helm_link_state();
         if (link != last_link) {
             last_link = link;
+            Serial.printf("LINK: %s\n", link == 0 ? "no ESP-NOW key" : link == 1 ? "NO MASTER (no frames from HELM)"
+                                                                               : "master linked");
             lv_label_set_text(cyd_no_engine_label,
                               link == 0 ? "NO MASTER\nNO ESP-NOW KEY"
                               : link == 1 ? "NO MASTER\nSEARCHING..."
@@ -3634,9 +3636,18 @@ static void can_handle_rx(const twai_message_t *m)
  * forever. Called unconditionally from loop(), both transports share it. */
 static void engine_ageout_tick(void)
 {
+    /* engines appearing / disappearing, reported from here (the main loop) - never from the radio callback, whose
+     * task a blocking serial write would stall, dropping the very frames being reported on */
+    static bool was_present[MD_MAX_ENGINES] = {};
     for (int i = 0; i < MD_MAX_ENGINES; i++) {
+        if (engines[i].present != was_present[i]) {
+            was_present[i] = engines[i].present;
+            if (engines[i].present) Serial.printf("ENGINE %d: appeared\n", i);
+        }
         if (engines[i].present &&
             millis() - engines[i].last_seen > ENGINE_LOST_MS) {
+            Serial.printf("ENGINE %d: LOST - no ANNOUNCE for %lu ms\n", i, (unsigned long)(millis() - engines[i].last_seen));
+            was_present[i] = false;
             engines[i].present = false;
             engines[i].ign_on  = false;
             engines[i].name[0] = 0;
@@ -4094,7 +4105,8 @@ static void wired_bus_tick(void)
 
 static void espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 {
-    /* deliberately NOT logging every rx: telemetry alone is ~20/sec and drowned out the lines that matter */
+    /* deliberately NOT logging every rx: telemetry alone is ~20/sec and drowned out the lines that matter - and
+     * any blocking serial write here stalls the WiFi task and drops the frames (seen: reception fell to a third) */
     if (!g_fsec_have_key) return;
 
     /* a board asking to join: its HELLO must carry a tag only a holder of the shared secret can make */
