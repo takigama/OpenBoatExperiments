@@ -3056,7 +3056,38 @@ static lv_obj_t *cyd_lbl_engine, *cyd_lbl_rpm, *cyd_lbl_temp, *cyd_lbl_oil;
 static lv_obj_t *cyd_btn_glow, *cyd_btn_start, *cyd_btn_mute, *cyd_btn_auto;
 static lv_obj_t *cyd_lbl_auto;   /* doubles as phase status, same reasoning
                                    * as lbl_auto in create_ui() */
-static lv_obj_t *cyd_off_overlay, *cyd_no_engine_overlay;
+static lv_obj_t *cyd_off_overlay, *cyd_no_engine_overlay, *cyd_no_engine_label, *cyd_off_label;
+static lv_obj_t *cyd_btn_engine;   /* the engine name at the top; tap to switch engine when there is a choice */
+
+/* the engines this secondary display can switch to: present and on (it has no ignition authority, so an off
+ * engine is no destination - same rule as the HELM's engine picker) */
+static int cyd_selectable_engines(void)
+{
+    int n = 0;
+    for (int i = 0; i < MD_MAX_ENGINES; i++)
+        if (engines[i].present && engines[i].ign_on) n++;
+    return n;
+}
+
+static void cyd_engine_cycle_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    for (int step = 1; step <= MD_MAX_ENGINES; step++) {
+        int i = (sel_engine + step) % MD_MAX_ENGINES;
+        if (!(engines[i].present && engines[i].ign_on)) continue;
+        if (i != sel_engine) {
+            sel_engine = i;
+            if (prefs_ok) prefs.putUChar("engine", sel_engine);
+            reset_telemetry();
+            silenced_mask = 0;
+        }
+        return;
+    }
+}
+
+/* how this CYD stands with the HELM (defined with the ESP-NOW code below): 0 no ESP-NOW key set, 1 key set but
+ * the HELM is not joined / has gone quiet, 2 HELM linked */
+static uint8_t cyd_helm_link_state(void);
 
 static void ui_tick_cyd(lv_timer_t *t)
 {
@@ -3069,13 +3100,35 @@ static void ui_tick_cyd(lv_timer_t *t)
     set_hidden(cyd_no_engine_overlay, any_engine_present());
     set_hidden(cyd_off_overlay, g_power);
 
+    /* with nothing to show, say why: "no engine" only means something while the master (HELM) is actually there.
+     * All the status wording on this screen is upper case. */
+    {
+        static uint8_t last_link = 255;
+        uint8_t link = cyd_helm_link_state();
+        if (link != last_link) {
+            last_link = link;
+            lv_label_set_text(cyd_no_engine_label,
+                              link == 0 ? "NO MASTER\nNO ESP-NOW KEY"
+                              : link == 1 ? "NO MASTER\nSEARCHING..."
+                                          : "NO ENGINE\nDETECTED");
+            lv_label_set_text(cyd_off_label,
+                              link == 0 ? "NO MASTER\nNO ESP-NOW KEY"
+                              : link == 1 ? "NO MASTER\nSEARCHING..."
+                                          : "WAITING FOR ENGINE");
+        }
+    }
+
     const char *name = engines[sel_engine].name[0] ? engines[sel_engine].name
                                                     : engtype_name(engines[sel_engine].type);
     static char last_name[MD_ENGINE_NAME_MAXLEN + 1] = "";
-    if (strncmp(last_name, name, sizeof(last_name)) != 0) {
+    static bool last_can_switch = false;
+    bool can_switch = cyd_selectable_engines() >= 2;
+    if (strncmp(last_name, name, sizeof(last_name)) != 0 || can_switch != last_can_switch) {
         strncpy(last_name, name, sizeof(last_name) - 1);
         last_name[sizeof(last_name) - 1] = 0;
-        lv_label_set_text(cyd_lbl_engine, name);
+        last_can_switch = can_switch;
+        if (can_switch) lv_label_set_text_fmt(cyd_lbl_engine, "%s  " LV_SYMBOL_RIGHT, name);   /* tap: next engine */
+        else lv_label_set_text(cyd_lbl_engine, name);
     }
 
     int rpm = eng.rpm;
@@ -3177,10 +3230,18 @@ static void create_ui_cyd(void)
     lv_obj_t *scr = lv_scr_act();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a1929), 0);
 
-    cyd_lbl_engine = lv_label_create(scr);
+    /* engine name: a transparent button across the top, so the whole strip is the tap target for switching engine */
+    cyd_btn_engine = lv_btn_create(scr);
+    lv_obj_set_size(cyd_btn_engine, 300, 30);
+    lv_obj_align(cyd_btn_engine, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_bg_opa(cyd_btn_engine, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_shadow_width(cyd_btn_engine, 0, 0);
+    lv_obj_set_style_border_width(cyd_btn_engine, 0, 0);
+    lv_obj_add_event_cb(cyd_btn_engine, cyd_engine_cycle_cb, LV_EVENT_CLICKED, NULL);
+    cyd_lbl_engine = lv_label_create(cyd_btn_engine);
     lv_label_set_text(cyd_lbl_engine, "--");
     lv_obj_set_style_text_color(cyd_lbl_engine, lv_color_hex(0x8fa3b8), 0);
-    lv_obj_align(cyd_lbl_engine, LV_ALIGN_TOP_MID, 0, 4);
+    lv_obj_center(cyd_lbl_engine);
 
     cyd_lbl_rpm = lv_label_create(scr);
     lv_obj_set_style_text_font(cyd_lbl_rpm, &lv_font_montserrat_48, 0);
@@ -3229,7 +3290,9 @@ static void create_ui_cyd(void)
     lv_obj_set_style_pad_all(cyd_off_overlay, 0, 0);
     lv_obj_clear_flag(cyd_off_overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *wait_l = lv_label_create(cyd_off_overlay);
-    lv_label_set_text(wait_l, "waiting for engine...");
+    lv_label_set_text(wait_l, "NO MASTER\nSEARCHING...");   /* ui_tick_cyd picks the words from the link state */
+    cyd_off_label = wait_l;
+    lv_obj_set_style_text_align(wait_l, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(wait_l, lv_color_hex(0x556677), 0);
     lv_obj_center(wait_l);
 
@@ -3244,7 +3307,8 @@ static void create_ui_cyd(void)
     lv_obj_set_style_pad_all(cyd_no_engine_overlay, 0, 0);
     lv_obj_clear_flag(cyd_no_engine_overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *ne = lv_label_create(cyd_no_engine_overlay);
-    lv_label_set_text(ne, "NO ENGINE\nDETECTED");
+    lv_label_set_text(ne, "NO MASTER\nSEARCHING...");   /* ui_tick_cyd picks the right words from the link state */
+    cyd_no_engine_label = ne;
     lv_obj_set_style_text_align(ne, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(ne, lv_color_hex(0x8fa3b8), 0);
     lv_obj_center(ne);
@@ -5167,6 +5231,13 @@ static uint8_t  g_cyd_channel = 1;
 static uint8_t  g_cyd_cached_tries_left = 0;
 static uint32_t g_cyd_hunt_last_hop_ms = 0;
 static uint32_t g_cyd_rx_frames = 0;   /* bus frames accepted from HELM, for the status line */
+
+static uint8_t cyd_helm_link_state(void)
+{
+    if (!g_fsec_have_key) return 0;
+    if (!g_cyd_paired || millis() - g_cyd_last_helm_rx_ms > CYD_LOST_CONTACT_MS) return 1;
+    return 2;
+}
 
 static void cyd_bytes_to_hex(const uint8_t *buf, int len, char *out)
 {
