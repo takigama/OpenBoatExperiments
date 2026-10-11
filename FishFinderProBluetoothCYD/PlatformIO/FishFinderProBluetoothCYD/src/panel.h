@@ -3,8 +3,9 @@
 #include <TFT_eSPI.h>
 
 // The panel, driven the way the stored display settings (tobe::cyd - see lib/TobeCyd) say: the same firmware
-// runs on a CYD with an ILI9341 and on a CYD2USB with an ST7789V. TFT_eSPI is compiled for ILI9341_2 (which both
-// accept); inversion, colour order and orientation are set at run time here, after every tft.init().
+// runs on a CYD with an ILI9341 and on a CYD2USB with an ST7789V. TFT_eSPI is compiled for ILI9341_2; for the
+// ST7789V the panel is re-initialised with its own init after tft.init(); inversion, colour order and
+// orientation are set at run time here.
 namespace Panel {
 
 // tft.init(), then the stored settings. `repaint` is called after the settings change while this screen is up

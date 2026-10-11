@@ -71,6 +71,7 @@
 #include <Preferences.h>
 #include <math.h>
 #include <esp_display_panel.hpp>
+#include "board/esp_panel_board_default_config.hpp"   /* ESP_PANEL_BOARD_DEFAULT_CONFIG: the CYD swaps the LCD driver at boot */
 #include <lvgl.h>
 #include "driver/twai.h"
 #include "lvgl_v8_port.h"
@@ -5356,8 +5357,32 @@ static void cyd_pairing_tick(void)
 }
 
 /* ---- display settings (lib/TobeCyd): one firmware for the original CYD (ILI9341) and the CYD2USB (ST7789V).
- * The panel is driven with the ILI9341 init either way; inversion, colour order and which way up are the stored
- * settings, applied here. Colour order is only read when the panel starts (a change restarts); the rest is live. */
+ * The stored setting picks the LCD driver at boot (each panel gets its own init); inversion, colour order and
+ * which way up come from it too. Controller and colour order are read when the panel starts (a change restarts);
+ * inversion is live. */
+/* The board with the LCD driver the display setting asks for. The compile-time board configuration (pins, bus,
+ * touch, backlight - esp_panel_board_custom_conf.h) is taken as it is and only the LCD controller is swapped:
+ * the ILI9341 driver with its init list, or the ST7789 driver with its own default init. Colour order is part
+ * of the LCD device configuration, so it is set here too. */
+static void cyd_board_create(Board **out, const tobe::cyd::Settings &s)
+{
+    BoardConfig cfg = ESP_PANEL_BOARD_DEFAULT_CONFIG;
+    auto &lcd = cfg.lcd.value();
+    bool st7789 = (s.controller == tobe::cyd::CTRL_ST7789);
+    lcd.device_name = st7789 ? "ST7789" : "ILI9341";
+    if (auto *dev = std::get_if<LCD::DevicePartialConfig>(&lcd.device_config.device)) {
+        dev->rgb_ele_order = s.bgr ? LCD_RGB_ELEMENT_ORDER_BGR : LCD_RGB_ELEMENT_ORDER_RGB;
+    }
+    if (st7789) {   /* the ST7789 gets its own init, not the ILI9341 list */
+        if (auto *v = std::get_if<LCD::VendorPartialConfig>(&lcd.device_config.vendor)) {
+            v->init_cmds = nullptr;
+            v->init_cmds_size = 0;
+        }
+    }
+    Serial.printf("display: %s\n", tobe::cyd::describe().c_str());
+    *out = new Board(cfg);
+}
+
 static void cyd_panel_apply_raw(const tobe::cyd::Settings &s)
 {
     if (!g_board) return;
@@ -5365,9 +5390,11 @@ static void cyd_panel_apply_raw(const tobe::cyd::Settings &s)
     auto touch = g_board->getTouch();
     if (!lcd) return;
     lcd->invertColor(s.invert);
-    /* baseline picture: LCD not mirrored; touch mirrored in X (both with the axes swapped). "Rotate 180" flips
-     * both axes of both, so touch keeps matching the picture */
-    lcd->mirrorX(s.rotate180);
+    /* baseline picture. LCD: the ST7789 init needs X mirrored for the picture the ILI9341 gets unmirrored (seen
+     * on a real unit). Touch: where the digitizer sits relative to that (correct) picture - the same for both,
+     * mirrored in X (both with the axes swapped). "Rotate 180" flips both axes of both, so touch keeps matching */
+    bool st7789 = (s.controller == tobe::cyd::CTRL_ST7789);
+    lcd->mirrorX(st7789 != s.rotate180);
     lcd->mirrorY(s.rotate180);
     if (touch) {
         touch->mirrorX(!s.rotate180);
@@ -6058,13 +6085,16 @@ void setup()
 #endif
     enroll_load_from_nvs();   /* bus master: MAC->id table (PRIMARY only sends assigns) */
 
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
     Board *board = new Board();
+#else
+    /* which LCD driver and colour order are read when the panel starts: the display setting is needed now */
+    tobe::cyd::load();
+    Board *board = NULL;
+    cyd_board_create(&board, tobe::cyd::get());
+#endif
     g_board = board;   /* see g_board's declaration - OTA backlight blanking */
     board->init();
-#if TARGET_BOARD != BOARD_HELM_S3_800x480
-    tobe::cyd::load();   /* the colour order is read when the panel starts, so the display setting is needed now */
-    board->getLCD()->configColorRGB_Order(tobe::cyd::get().bgr);
-#endif
 
 #if LVGL_PORT_AVOID_TEARING_MODE
     board->getLCD()->configFrameBufferNumber(LVGL_PORT_DISP_BUFFER_NUM);
@@ -6134,7 +6164,7 @@ void setup()
             tobe::cyd::Config cc;
             cc.apply = cyd_panel_apply;
             cc.test = cyd_panel_test;
-            cc.liveColourOrder = false;   /* read when the panel starts: a change restarts */
+            cc.liveColourOrder = false;   /* read when the panel starts: a change restarts (so does the controller) */
             tobe::cyd::begin(cc);         /* DISPLAY command */
         }
 #endif

@@ -12,6 +12,7 @@
  */
 
 #pragma once
+#include "board_select.h"   /* TARGET_BOARD: the CYD builds carry both LCD drivers */
 
 // *INDENT-OFF*
 
@@ -70,7 +71,7 @@
     #define ESP_PANEL_DRIVERS_LCD_USE_GC9B71            (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_GC9503            (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_HX8399            (0)
-    #define ESP_PANEL_DRIVERS_LCD_USE_ILI9341           (0)
+    #define ESP_PANEL_DRIVERS_LCD_USE_ILI9341           (TARGET_BOARD != BOARD_HELM_S3_800x480)  /* CYD: picked at boot */
     #define ESP_PANEL_DRIVERS_LCD_USE_ILI9881C          (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_JD9165            (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_JD9365            (0)
@@ -80,7 +81,7 @@
     #define ESP_PANEL_DRIVERS_LCD_USE_ST7262            (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_ST7701            (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_ST7703            (0)
-    #define ESP_PANEL_DRIVERS_LCD_USE_ST7789            (0)
+    #define ESP_PANEL_DRIVERS_LCD_USE_ST7789            (TARGET_BOARD != BOARD_HELM_S3_800x480)  /* CYD: picked at boot */
     #define ESP_PANEL_DRIVERS_LCD_USE_ST7796            (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_ST77903           (0)
     #define ESP_PANEL_DRIVERS_LCD_USE_ST77916           (0)
@@ -128,14 +129,14 @@
     #define ESP_PANEL_DRIVERS_TOUCH_USE_CST816S         (0)
     #define ESP_PANEL_DRIVERS_TOUCH_USE_CST820          (0)
     #define ESP_PANEL_DRIVERS_TOUCH_USE_FT5x06          (0)
-    #define ESP_PANEL_DRIVERS_TOUCH_USE_GT911           (0)
+    #define ESP_PANEL_DRIVERS_TOUCH_USE_GT911           (TARGET_BOARD != BOARD_HELM_S3_800x480)  /* CYD: the board is built by name at boot */
     #define ESP_PANEL_DRIVERS_TOUCH_USE_GT1151          (0)
     #define ESP_PANEL_DRIVERS_TOUCH_USE_SPD2010         (0)
     #define ESP_PANEL_DRIVERS_TOUCH_USE_ST1633          (0)
     #define ESP_PANEL_DRIVERS_TOUCH_USE_ST7123          (0)
     #define ESP_PANEL_DRIVERS_TOUCH_USE_STMPE610        (0)
     #define ESP_PANEL_DRIVERS_TOUCH_USE_TT21100         (0)
-    #define ESP_PANEL_DRIVERS_TOUCH_USE_XPT2046         (0)
+    #define ESP_PANEL_DRIVERS_TOUCH_USE_XPT2046         (TARGET_BOARD != BOARD_HELM_S3_800x480)  /* CYD: the board is built by name at boot */
 #endif // ESP_PANEL_DRIVERS_TOUCH_USE_ALL
 
 /**

@@ -44,17 +44,18 @@ join failed, paginated with signal strength:
   `../EngineControl`'s config for this same board), not sharing the
   display's MISO/MOSI/SCLK, and is fully wired up and calibrated (see
   "Firmware" below) - SD isn't used by this project yet.
-- **One firmware for every 2.8" CYD** (original, ILI9341, and the CYD2USB with two USB ports, ST7789V). The
-  panel is always driven with TFT_eSPI's `ILI9341_2` init; what differs - colour inversion, colour order, which
-  way up - is the stored display setting, chosen in the "Display" section of the WiFi-mode web page (or the
-  setup page, `WEBMODE`) or with the `DISPLAY` serial command (`DISPLAY CYD` / `DISPLAY CYD2USB`,
-  `DISPLAY INVERT ON|OFF`, `DISPLAY BGR ON|OFF`, `DISPLAY ROTATE ON|OFF`, `DISPLAY TEST` for colour bars).
-  Same library, page and command as EngineControl's CYD (`lib/TobeCyd`). Default is the CYD2USB preset, which
-  is what this firmware has always shown on the unit it was developed on; an original CYD wants the CYD preset
-  (no inversion). Rotating 180 degrees restarts and asks for the touch calibration again.
+- **One firmware for every 2.8" CYD** (original, ILI9341, and the CYD2USB with two USB ports, ST7789V). Which
+  panel it is, and how it is driven, is the stored display setting - the "Display" section of the WiFi-mode web
+  page (or the setup page, `WEBMODE`) or the `DISPLAY` serial command (`DISPLAY CYD` / `DISPLAY CYD2USB`,
+  `DISPLAY CONTROLLER ILI9341|ST7789`, `DISPLAY INVERT ON|OFF`, `DISPLAY BGR ON|OFF`, `DISPLAY ROTATE ON|OFF`,
+  `DISPLAY TEST` for colour bars). Same library, page and command as EngineControl's CYD (`lib/TobeCyd`). TFT_eSPI
+  is built for the ILI9341_2 driver (the original CYD's); for the CYD2USB `src/panel.cpp` resets the panel after
+  `tft.init()` and replays TFT_eSPI's ST7789 init, with the ST7789's landscape MADCTL. A change of panel,
+  colour order or rotation restarts; rotating asks for the touch calibration again. Default is the CYD2USB preset
+  (ST7789, not inverted, BGR).
 - Full 320x240 landscape works correctly. Working TFT_eSPI config is
-  `ILI9341_2_DRIVER` + `USE_HSPI_PORT` + 55MHz SPI, with inversion set at run time (`TFT_INVERSION_ON` on the
-  CYD2USB; found by flashing the community's
+  `ILI9341_2_DRIVER` + `USE_HSPI_PORT` + 55MHz SPI (until the display setting existed it ran the CYD2USB with
+  `TFT_INVERSION_ON`; found by flashing the community's
   [witnessmenow/ESP32-Cheap-Yellow-Display](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display)
   example repo's `cyd2usb` build variant unmodified onto this exact unit
   first, to rule out a hardware defect before debugging further) - see

@@ -39,17 +39,19 @@ and `engine_display.ino`'s `PIN_CAN_TX`/`PIN_CAN_RX` - not a guarantee:
 | CAN TX / RX | 22 / 34 | 22 / 34 | 22 / 35 |
 
 **Display settings (one firmware for every CYD).** The 2.8" CYDs differ in the panel (original: ILI9341;
-CYD2USB with two USB ports: ST7789V), not in the pins. The firmware always starts the panel with the ILI9341
-init and takes the rest from the stored display settings of `lib/TobeCyd` (the same library, page section and
-command FishFinderProBluetoothCYD uses): board preset (CYD / CYD2USB / custom), colour inversion, colour order
-(BGR/RGB), rotate 180. Change them with the serial command `DISPLAY` (`DISPLAY CYD2USB`, `DISPLAY INVERT ON`,
-`DISPLAY BGR OFF`, `DISPLAY ROTATE ON`, `DISPLAY TEST` for colour bars) or in the "Display" section of the
-setup page (`WEBMODE`). Inversion is live; colour order and rotation restart. Defaults are the CYD2USB preset
-(inverted, BGR). `cyd_panel_apply*()` in `engine_display.ino` is the ESP_Panel side (invertColor, mirrorX/Y on
-the LCD and touch, colour order via `configColorRGB_Order` before the panel starts). If touch doesn't line up
-with what's drawn, the baseline touch transform is `ESP_PANEL_BOARD_TOUCH_*` in `esp_panel_board_custom_conf.h`.
-Not yet bench-verified on this stack after the move from the ST7789 init (the picture orientation is expected
-to match FishFinderProBluetoothCYD's; if it is mirrored, use `DISPLAY ROTATE ON` or fix the baseline).
+CYD2USB with two USB ports: ST7789V), not in the pins. Each panel is driven with its own init, chosen at boot from
+the stored display settings of `lib/TobeCyd` (the same library, page section and command FishFinderProBluetoothCYD
+uses): board (CYD = ILI9341, CYD2USB = ST7789; "custom" also picks the controller), colour inversion, colour order
+(BGR/RGB), rotate 180. Change them with the serial command `DISPLAY` (`DISPLAY CYD`, `DISPLAY CYD2USB`,
+`DISPLAY CONTROLLER ST7789`, `DISPLAY INVERT ON`, `DISPLAY BGR OFF`, `DISPLAY ROTATE ON`, `DISPLAY TEST` for
+colour bars) or in the "Display" section of the setup page (`WEBMODE`). Inversion is live; controller, colour order
+and rotation restart. Defaults: CYD2USB, not inverted, BGR. In `engine_display.ino`, `cyd_board_create()` builds
+the ESP_Panel `Board` from the compile-time configuration (`esp_panel_board_custom_conf.h`) with the LCD driver
+swapped for ILI9341 (+ the vendor init list there) or ST7789 (its own default init); both drivers, and the
+XPT2046/GT911 touch drivers the by-name factory needs, are compiled in `esp_panel_drivers_conf.h` for CYD builds.
+`cyd_panel_apply*()` sets inversion and the mirror baseline (ST7789 needs X mirrored for the picture the ILI9341
+gets unmirrored; touch is the same for both). If touch doesn't line up with what's drawn, the baseline touch
+transform is `ESP_PANEL_BOARD_TOUCH_*` in `esp_panel_board_custom_conf.h`.
 
 ## Build / flash
 

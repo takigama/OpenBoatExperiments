@@ -79,12 +79,11 @@
  * - `SPD2010`
  * - `ST7262`, `ST7701`, `ST7703`, `ST7789`, `ST7796`, `ST77903`, `ST77916`, `ST77922`
  */
-/* One firmware for every CYD, same as FishFinderProBluetoothCYD: the ILI9341 init, which the original CYD (an
- * ILI9341) takes natively and the CYD2USB (an ST7789V) accepts - the community's cyd2usb recipe used it until
- * April 2024 (witnessmenow/ESP32-Cheap-Yellow-Display, commit d55212c moved it to ST7789). What differs between
- * the boards - colour inversion, colour order, which way up - is not compiled in: it is the stored display
- * setting (lib/TobeCyd: "Display" on the setup page, the DISPLAY command), applied in engine_display.ino
- * (cyd_panel_apply) once the panel is up. */
+/* One firmware for every CYD, same as FishFinderProBluetoothCYD. The controller named here is only the compile-time
+ * default: engine_display.ino (cyd_board_create) takes this board configuration and, at boot, swaps in the driver
+ * the stored display setting asks for - ILI9341 for the original CYD, ST7789 (the panel's own init) for the
+ * CYD2USB; lib/TobeCyd holds the setting ("Display" on the setup page, the DISPLAY command). Both drivers are
+ * compiled for CYD builds (esp_panel_drivers_conf.h). */
 #define ESP_PANEL_BOARD_LCD_CONTROLLER      ILI9341
 
 /**
@@ -325,6 +324,33 @@
         ESP_PANEL_LCD_CMD_WITH_NONE_PARAM(120, 0x29),                               \
     }
 */
+
+/* The init sequence for the ILI9341 case: TFT_eSPI's ILI9341_2 one - the community's recipe for the original CYD -
+ * instead of the driver's default list. SLPOUT, MADCTL (colour order / orientation) and COLMOD are sent by the
+ * driver itself, and DISPON by the panel layer, so they are not repeated here. Used only when the display setting
+ * selects the ILI9341; for the ST7789 the list is dropped at boot and the driver's own ST7789 init runs. Inversion
+ * is the run-time display setting. */
+#define ESP_PANEL_BOARD_LCD_VENDOR_INIT_CMD()                                                                      \
+    {                                                                                                              \
+        {0xCF, (uint8_t []){0x00, 0xC1, 0x30}, 3, 0},                                                              \
+        {0xED, (uint8_t []){0x64, 0x03, 0x12, 0x81}, 4, 0},                                                        \
+        {0xE8, (uint8_t []){0x85, 0x00, 0x78}, 3, 0},                                                              \
+        {0xCB, (uint8_t []){0x39, 0x2C, 0x00, 0x34, 0x02}, 5, 0},                                                  \
+        {0xF7, (uint8_t []){0x20}, 1, 0},                                                                          \
+        {0xEA, (uint8_t []){0x00, 0x00}, 2, 0},                                                                    \
+        {0xC0, (uint8_t []){0x10}, 1, 0},                                                                          \
+        {0xC1, (uint8_t []){0x00}, 1, 0},                                                                          \
+        {0xC5, (uint8_t []){0x30, 0x30}, 2, 0},                                                                    \
+        {0xC7, (uint8_t []){0xB7}, 1, 0},                                                                          \
+        {0xB1, (uint8_t []){0x00, 0x1A}, 2, 0},                                                                    \
+        {0xB6, (uint8_t []){0x08, 0x82, 0x27}, 3, 0},                                                              \
+        {0xF2, (uint8_t []){0x00}, 1, 0},                                                                          \
+        {0x26, (uint8_t []){0x01}, 1, 0},                                                                          \
+        {0xE0, (uint8_t []){0x0F, 0x2A, 0x28, 0x08, 0x0E, 0x08, 0x54, 0xA9, 0x43, 0x0A, 0x0F, 0x00, 0x00, 0x00,   \
+                            0x00}, 15, 0},                                                                         \
+        {0xE1, (uint8_t []){0x00, 0x15, 0x17, 0x07, 0x11, 0x06, 0x2B, 0x56, 0x3C, 0x05, 0x10, 0x0F, 0x3F, 0x3F,   \
+                            0x0F}, 15, 0},                                                                         \
+    }
 
 /**
  * @brief LCD color configuration

@@ -26,6 +26,8 @@ const char *presetName(uint8_t p) {
     }
 }
 
+const char *controllerName(uint8_t c) { return c == CTRL_ILI9341 ? "ILI9341" : "ST7789"; }
+
 bool parseOnOff(const char *s, bool *out) {
     if (!strcasecmp(s, "on") || !strcasecmp(s, "1") || !strcasecmp(s, "yes") || !strcasecmp(s, "true")) {
         *out = true;
@@ -42,6 +44,7 @@ void save(const Settings &s) {
     Preferences p;
     if (!p.begin(s_cfg.nvsNamespace, false)) return;
     p.putUChar("preset", s.preset);
+    p.putUChar("ctrl", s.controller);
     p.putBool("invert", s.invert);
     p.putBool("bgr", s.bgr);
     p.putBool("rot", s.rotate180);
@@ -64,9 +67,10 @@ void cmdDisplay(const char *args) {
     if (!buf[0]) {
         tobe::console.printf("display: %s\n", describe().c_str());
         tobe::console.print(
-            "  DISPLAY CYD | CYD2USB       the preset for the board (one / two USB ports)\n"
-            "  DISPLAY INVERT ON|OFF       colour inversion      (makes the preset \"custom\")\n"
-            "  DISPLAY BGR ON|OFF          colour order          (makes the preset \"custom\")\n"
+            "  DISPLAY CYD | CYD2USB       the board: one USB port (ILI9341) / two USB ports (ST7789V)\n"
+            "  DISPLAY CONTROLLER ILI9341|ST7789   the panel init to use    (custom; restarts)\n"
+            "  DISPLAY INVERT ON|OFF       colour inversion      (custom)\n"
+            "  DISPLAY BGR ON|OFF          colour order          (custom; may restart)\n"
             "  DISPLAY ROTATE ON|OFF       rotate 180 degrees    (restarts)\n"
             "  DISPLAY TEST                colour bars\n");
         return;
@@ -82,6 +86,9 @@ void cmdDisplay(const char *args) {
         n = presetSettings(PRESET_CYD2USB);
         n.rotate180 = s_settings.rotate180;
     } else if (!strcasecmp(buf, "custom")) {
+        n.preset = PRESET_CUSTOM;
+    } else if (!strcasecmp(buf, "controller") && (!strcasecmp(arg, "ili9341") || !strcasecmp(arg, "st7789"))) {
+        n.controller = !strcasecmp(arg, "st7789") ? CTRL_ST7789 : CTRL_ILI9341;
         n.preset = PRESET_CUSTOM;
     } else if (!strcasecmp(buf, "invert") && parseOnOff(arg, &b)) {
         n.invert = b;
@@ -100,7 +107,7 @@ void cmdDisplay(const char *args) {
 }
 
 const CliCommand kCommands[] = {
-    {"DISPLAY", "[CYD|CYD2USB|INVERT|BGR|ROTATE|TEST]", "show or set how this CYD's panel is driven", cmdDisplay, 0},
+    {"DISPLAY", "[CYD|CYD2USB|CONTROLLER|INVERT|BGR|ROTATE|TEST]", "show or set how this CYD's panel is driven", cmdDisplay, 0},
 };
 
 Settings resolved(const Settings &in) {
@@ -111,7 +118,8 @@ Settings resolved(const Settings &in) {
 }
 
 bool needsRestart(const Settings &now, const Settings &next) {
-    return next.rotate180 != now.rotate180 || (next.bgr != now.bgr && !s_cfg.liveColourOrder);
+    return next.rotate180 != now.rotate180 || next.controller != now.controller ||
+           (next.bgr != now.bgr && !s_cfg.liveColourOrder);
 }
 
 String checked(bool on) { return on ? " checked" : ""; }
@@ -125,8 +133,9 @@ String reply(const String &msg) {
 Settings presetSettings(uint8_t preset) {
     Settings s;
     s.preset = preset;
+    s.controller = preset == PRESET_CYD ? CTRL_ILI9341 : CTRL_ST7789;
     s.bgr = true;
-    s.invert = preset == PRESET_CYD2USB;
+    s.invert = false;
     s.rotate180 = false;
     return s;
 }
@@ -138,7 +147,8 @@ void load() {
     if (!p.begin(s_cfg.nvsNamespace, true)) return;
     if (p.isKey("preset")) {
         s_settings.preset = p.getUChar("preset", PRESET_CYD2USB);
-        s_settings.invert = p.getBool("invert", true);
+        s_settings.controller = p.getUChar("ctrl", CTRL_ST7789) == CTRL_ILI9341 ? CTRL_ILI9341 : CTRL_ST7789;
+        s_settings.invert = p.getBool("invert", false);
         s_settings.bgr = p.getBool("bgr", true);
         s_settings.rotate180 = p.getBool("rot", false);
         if (s_settings.preset != PRESET_CUSTOM) {  // a preset is only ever its own flags
@@ -158,6 +168,7 @@ const Settings &get() {
 String describe() {
     load();
     String d = presetName(s_settings.preset);
+    d += String(", ") + controllerName(s_settings.controller) + " init";
     d += s_settings.invert ? ", inverted" : ", not inverted";
     d += s_settings.bgr ? ", BGR" : ", RGB";
     d += s_settings.rotate180 ? ", rotated 180" : ", normal orientation";
@@ -205,19 +216,25 @@ String webHtml() {
     h += String("<option value=0") + (s.preset == PRESET_CYD ? " selected" : "") + ">" + presetName(PRESET_CYD) + "</option>";
     h += String("<option value=1") + (s.preset == PRESET_CYD2USB ? " selected" : "") + ">" + presetName(PRESET_CYD2USB) +
          "</option>";
-    h += String("<option value=2") + (s.preset == PRESET_CUSTOM ? " selected" : "") + ">custom (set the two below)</option>";
+    h += String("<option value=2") + (s.preset == PRESET_CUSTOM ? " selected" : "") + ">custom (set the three below)</option>";
+    h += "</select>Panel init"
+         "<select name=ctrl id=dc>";
+    h += String("<option value=0") + (s.controller == CTRL_ILI9341 ? " selected" : "") + ">ILI9341</option>";
+    h += String("<option value=1") + (s.controller == CTRL_ST7789 ? " selected" : "") + ">ST7789</option>";
     h += "</select>"
          "<label><input type=checkbox name=invert id=di" + checked(s.invert) + ">Invert colours</label>"
          "<label><input type=checkbox name=bgr id=db" + checked(s.bgr) + ">BGR colour order (untick for RGB)</label>"
          "<label><input type=checkbox name=rot id=dr" + checked(s.rotate180) + ">Rotate 180&deg; (touch is set up again)</label>"
-         "<button>Apply</button></form>";
+         "<button>Apply</button> (a different panel init, colour order or rotation restarts the board)</form>";
     h += "<form method=POST action=/display/test><button>Show colour bars</button></form>";
-    // the presets' flags, so picking one shows what it means; "custom" unlocks the two boxes
+    // the presets' settings, so picking one shows what it means; "custom" unlocks the three controls
     h += "<script>function dpPreset(){var p=document.getElementById('dp').value,i=document.getElementById('di'),"
-         "b=document.getElementById('db');if(p=='0'){i.checked=false;b.checked=true}"
-         "else if(p=='1'){i.checked=true;b.checked=true}i.disabled=b.disabled=(p!='2')}"
+         "b=document.getElementById('db'),c=document.getElementById('dc');"
+         "if(p!='2'){i.checked=false;b.checked=true;c.value=(p=='0')?'0':'1'}"
+         "i.disabled=b.disabled=c.disabled=(p!='2')}"
          "dpPreset();document.getElementById('dform').addEventListener('submit',function(){"
-         "document.getElementById('di').disabled=document.getElementById('db').disabled=false})</script>";
+         "document.getElementById('di').disabled=document.getElementById('db').disabled="
+         "document.getElementById('dc').disabled=false})</script>";
     return h;
 }
 
@@ -226,6 +243,7 @@ void webRoutes(WebServer &server) {
         load();
         Settings n = s_settings;
         n.preset = (uint8_t)constrain(server.arg("preset").toInt(), 0, 2);
+        n.controller = server.arg("ctrl").toInt() == 0 ? CTRL_ILI9341 : CTRL_ST7789;
         n.invert = server.hasArg("invert");
         n.bgr = server.hasArg("bgr");
         n.rotate180 = server.hasArg("rot");
