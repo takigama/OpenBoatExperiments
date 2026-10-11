@@ -5480,13 +5480,14 @@ static void cyd_panel_apply_raw(const tobe::cyd::Settings &s)
     if (!lcd) return;
     lcd->invertColor(s.invert);
     /* baseline picture. LCD: the ST7789 init needs X mirrored for the picture the ILI9341 gets unmirrored (seen
-     * on a real unit). Touch: where the digitizer sits relative to that (correct) picture - the same for both,
-     * mirrored in X (both with the axes swapped). "Rotate 180" flips both axes of both, so touch keeps matching */
+     * on a real unit). Touch: the digitizer sits unmirrored relative to that (correct) picture - found on a
+     * CYD2USB, where it only matched with X flipped from the first guess. "Rotate 180" flips both axes of
+     * both, so touch keeps matching; TOUCHX / TOUCHY flip an axis if another batch differs */
     bool st7789 = (s.controller == tobe::cyd::CTRL_ST7789);
     lcd->mirrorX(st7789 != s.rotate180);
     lcd->mirrorY(s.rotate180);
     if (touch) {
-        touch->mirrorX((!s.rotate180) != s.touchFlipX);
+        touch->mirrorX(s.rotate180 != s.touchFlipX);
         touch->mirrorY(s.rotate180 != s.touchFlipY);
     }
 }
@@ -6178,7 +6179,7 @@ void setup()
     Board *board = new Board();
 #else
     /* which LCD driver and colour order are read when the panel starts: the display setting is needed now */
-    tobe::cyd::setCyd2usbInverted(false);   /* ESP_Panel with this init: the panel is right without inversion */
+    tobe::cyd::setCyd2usbInverted(true);   /* bench-verified on a CYD2USB: inverted is what makes the picture right */
     tobe::cyd::load();
     Board *board = NULL;
     cyd_board_create(&board, tobe::cyd::get());
