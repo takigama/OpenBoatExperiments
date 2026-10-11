@@ -6,6 +6,8 @@ Firmware (SeaTalk/CAN/MQTT/SignalK bridge) lives in [`PlatformIO/ESP32Seatalk`](
 
 ## The built board
 
+> **The board in these photos is version 1.** A version 2 is almost ready; this section will be updated when it is.
+
 A bare board and the same board built up: an ESP32-C3 module with its small OLED sits on the carrier board
 (its small display shows what the firmware is doing); the SeaTalk connectors are on the two sides, and the
 voltage regulator (U1) with its capacitors, the BSS138 level shifter (Q1) for the one-wire SeaTalk line and
