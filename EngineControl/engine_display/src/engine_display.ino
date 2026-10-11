@@ -3717,11 +3717,25 @@ static void can_poll(void)
  * silently drop glow/start/ignition/stop/heartbeat entirely, even with a
  * fully working ESP-NOW link - the same class of bug fixed in can_sim's
  * bus_send() (see its comment). */
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+/* Glow / start pressed on a CYD secondary. The CYD sends the same signed dead-man frames a display on the bus
+ * would (every HOLD_RESEND_MS while the button is held); espnow_handle_bus_frame() checks them and only arms a
+ * hold here - it must not transmit from the radio callback. can_send_commands() (the main loop) turns an armed
+ * hold into the real command at the normal cadence, with the CYD as the source. The hold lapses by itself
+ * HOLD_TIMEOUT_MS after the last frame, so a CYD that goes quiet is a button that was released. */
+static volatile uint32_t g_cyd_glow_until[MD_MAX_ENGINES];
+static volatile uint32_t g_cyd_start_until[MD_MAX_ENGINES];
+#endif
+
 static void can_send_commands(void)
 {
     uint32_t now = millis();
     uint8_t d[2];
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
     d[1] = NODE_ID_HELM;   /* source: authority enforced by CTRL board */
+#else
+    d[1] = NODE_ID_CYD;    /* a CYD says so: the CTRL board accepts it for glow/start only (no ignition, no stop) */
+#endif
 
     /* dead-man held messages every HOLD_RESEND_MS while pressed - BOTH
      * roles may command glow/start (CLAUDE.md's CYD note: glow/start
@@ -3731,6 +3745,14 @@ static void can_send_commands(void)
         last_hold = now;
         if (glow_held)  { d[0] = 1; bus_send(MSG_CMD_GLOW_HELD(sel_engine),  d, 2); }
         if (start_held) { d[0] = 1; bus_send(MSG_CMD_START_HELD(sel_engine), d, 2); }
+#if TARGET_BOARD == BOARD_HELM_S3_800x480
+        /* holds relayed on behalf of a CYD (any engine, not just the one selected here) */
+        for (int e = 0; e < MD_MAX_ENGINES; e++) {
+            uint8_t c[2] = { 1, NODE_ID_CYD };
+            if ((int32_t)(g_cyd_glow_until[e]  - now) > 0) bus_send(MSG_CMD_GLOW_HELD(e),  c, 2);
+            if ((int32_t)(g_cyd_start_until[e] - now) > 0) bus_send(MSG_CMD_START_HELD(e), c, 2);
+        }
+#endif
     }
 
     /* latched ignition desired-state: primary-only authority. On
@@ -3775,8 +3797,13 @@ static void can_send_commands(void)
     static uint32_t last_hb = 0;
     if (now - last_hb >= HEARTBEAT_MS) {
         last_hb = now;
-        uint8_t hb[2] = { NODE_ID_HELM, (uint8_t)((now / 1000) & 0xFF) };
-        bus_send(MSG_HB_HELM, hb, 2);
+        /* [2] = the radio channel this display is on: boards that join by hunting channels can overlap-hear the
+         * master from a few channels away and think they are in contact; this tells them the real one */
+        uint8_t hb_ch = 0;
+        wifi_second_chan_t hb_second = WIFI_SECOND_CHAN_NONE;
+        esp_wifi_get_channel(&hb_ch, &hb_second);
+        uint8_t hb[3] = { NODE_ID_HELM, (uint8_t)((now / 1000) & 0xFF), hb_ch };
+        bus_send(MSG_HB_HELM, hb, 3);
     }
 }
 
@@ -3984,8 +4011,47 @@ static void espnow_pairing_clear_all(void)
  * bus_send() knows to route that engine's future commands back over
  * ESP-NOW. Re-stamped on every inbound frame, not just at enrollment -
  * see enroll_slot_t's comment for why. */
+/* A glow / start dead-man frame (MSG_CMD_GLOW_HELD / MSG_CMD_START_HELD, engine in the id) from a CYD. Returns true
+ * if the frame was one of those (consumed, whatever came of it). The frame already passed the shared-secret
+ * signature and replay check, and its sender is a joined peer; on top of that it has to come from a peer that
+ * joined AS a CYD (a CYD has glow/start only - no ignition, no stop), name an engine the master knows, and that
+ * engine's ignition has to be confirmed on. Anything else is dropped without a word (no printing here: this runs
+ * in the radio callback). */
+static bool cyd_command_frame(const uint8_t *peer_mac, const espnow_bus_frame_t *f)
+{
+    int e = -1;
+    bool glow = false;
+    if (f->can_id >= MSG_CMD_GLOW_HELD(0) && f->can_id < MSG_CMD_GLOW_HELD(0) + MD_MAX_ENGINES) {
+        e = (int)(f->can_id - MSG_CMD_GLOW_HELD(0));
+        glow = true;
+    } else if (f->can_id >= MSG_CMD_START_HELD(0) && f->can_id < MSG_CMD_START_HELD(0) + MD_MAX_ENGINES) {
+        e = (int)(f->can_id - MSG_CMD_START_HELD(0));
+    } else {
+        return false;
+    }
+    if (f->dlc < 2 || f->data[0] != 1) return true;
+
+    bool from_cyd = false;
+    for (int i = 0; i < ESPNOW_MAX_PAIRED; i++) {
+        if (espnow_peers[i].has_mac && espnow_peers[i].node_type == NODE_TYPE_CYD &&
+            memcmp(espnow_peers[i].mac, peer_mac, 6) == 0) {
+            from_cyd = true;
+            break;
+        }
+    }
+    if (!from_cyd) return true;
+    if (!engines[e].present || !engines[e].ign_on) return true;
+
+    uint32_t until = millis() + HOLD_TIMEOUT_MS;
+    if (glow) g_cyd_glow_until[e] = until;
+    else      g_cyd_start_until[e] = until;
+    return true;
+}
+
 static void espnow_handle_bus_frame(const uint8_t *peer_mac, const espnow_bus_frame_t *f)
 {
+    if (cyd_command_frame(peer_mac, f)) return;
+
     twai_message_t m = {};
     m.identifier = f->can_id;
     m.data_length_code = f->dlc;
@@ -5249,6 +5315,7 @@ static uint8_t  g_cyd_channel = 1;
 static uint8_t  g_cyd_cached_tries_left = 0;
 static uint32_t g_cyd_hunt_last_hop_ms = 0;
 static uint32_t g_cyd_rx_frames = 0;   /* bus frames accepted from HELM, for the status line */
+static volatile uint8_t g_cyd_adopt_ch = 0;   /* channel named in the master's heartbeat; applied from the loop */
 
 static uint8_t cyd_helm_link_state(void)
 {
@@ -5327,6 +5394,8 @@ static void cyd_espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *d
         if (memcmp(info->des_addr, ESPNOW_BROADCAST_MAC, 6) != 0)
             g_cyd_last_helm_rx_ms = millis();
         g_cyd_rx_frames++;
+        if (f.can_id == MSG_HB_HELM && f.dlc >= 3 && f.data[2] >= 1 && f.data[2] <= CYD_CHANNEL_SCAN_MAX)
+            g_cyd_adopt_ch = f.data[2];
         twai_message_t m = {};
         m.identifier = f.can_id;
         m.data_length_code = f.dlc;
@@ -5394,6 +5463,22 @@ static void cyd_espnow_forget_helm(void)
 static void cyd_pairing_tick(void)
 {
     if (!g_fsec_have_key) return;   /* ESP-NOW is off until a key is set */
+
+    /* the master named its channel: be on exactly that one (overlapping channels are heard faintly, which is not
+     * contact - data frames fail there) */
+    {
+        uint8_t want = g_cyd_adopt_ch;
+        g_cyd_adopt_ch = 0;
+        uint8_t cur = 0;
+        wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+        esp_wifi_get_channel(&cur, &second);
+        if (want && cur && want != cur) {
+            esp_wifi_set_channel(want, WIFI_SECOND_CHAN_NONE);
+            g_cyd_channel = want;
+            if (prefs_ok) prefs.putUChar("lastch", want);
+            Serial.printf("ESP-NOW: the master is on channel %d - moving from %d\n", (int)want, (int)cur);
+        }
+    }
 
     static uint32_t last_status_ms = 0;
     static uint32_t last_status_frames = 0;
@@ -5660,6 +5745,19 @@ static void bus_send(uint32_t id, const uint8_t *data, uint8_t len)
             wired_send_frame(id, data, len);
     }
 #else
+    /* A CYD's glow / start (the only commands it ever makes) go to the HELM, which checks them and hands them to
+     * the engine: a signed, encrypted unicast, resent by the caller every HOLD_RESEND_MS while the button is held.
+     * Not paired with a HELM (or no key): the CAN path below, as before. */
+    {
+        bool is_hold = (id >= MSG_CMD_GLOW_HELD(0) && id < MSG_CMD_GLOW_HELD(0) + MD_MAX_ENGINES) ||
+                       (id >= MSG_CMD_START_HELD(0) && id < MSG_CMD_START_HELD(0) + MD_MAX_ENGINES);
+        if (is_hold && g_fsec_have_key && g_cyd_paired) {
+            espnow_bus_frame_t f;
+            fsec_frame_build(&f, id, data, len);
+            esp_now_send(g_cyd_helm_mac, (uint8_t *)&f, sizeof(f));
+            return;
+        }
+    }
     if (!can_ok) return;
     twai_message_t m = {};
     m.identifier = id;

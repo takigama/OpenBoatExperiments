@@ -151,6 +151,7 @@ static bool     g_wifi_joined = false;
  * immediately too (avoids one spurious hunt cycle right after a fresh
  * pair, before HELM's first heartbeat has had a chance to arrive). */
 static uint32_t g_last_helm_rx_ms = 0;
+static volatile uint8_t g_adopt_ch = 0;   /* channel named in the master's heartbeat; applied from the loop */
 
 /* channel-hunting tuning (see pairing_requester_tick()). ESP32 supports
  * 2.4GHz channels 1-13; HB_HELM at 1Hz means a 2s dwell gives ~2 chances
@@ -483,6 +484,8 @@ static void espnow_on_recv(const esp_now_recv_info_t *info, const uint8_t *data,
          * (faintly) from a neighbouring channel, so they don't count as contact */
         if (memcmp(info->des_addr, ESPNOW_BROADCAST_MAC, 6) != 0)
             g_last_helm_rx_ms = millis();
+        if (f.can_id == MSG_HB_HELM && f.dlc >= 3 && f.data[2] >= 1 && f.data[2] <= CHANNEL_SCAN_MAX)
+            g_adopt_ch = f.data[2];
         twai_message_t m = {};
         m.identifier = f.can_id;
         m.data_length_code = f.dlc;
@@ -598,6 +601,22 @@ static void pairing_requester_tick(void)
     }
 
     if (g_wifi_joined) return;   /* real network join owns the channel instead */
+
+    /* the master named its channel: be on exactly that one (overlapping channels are heard faintly, which is not
+     * contact - data frames fail there) */
+    {
+        uint8_t want = g_adopt_ch;
+        g_adopt_ch = 0;
+        uint8_t cur = 0;
+        wifi_second_chan_t second = WIFI_SECOND_CHAN_NONE;
+        esp_wifi_get_channel(&cur, &second);
+        if (want && cur && want != cur) {
+            esp_wifi_set_channel(want, WIFI_SECOND_CHAN_NONE);
+            g_channel = want;
+            if (prefs_ok) prefs.putUChar("lastch", want);
+            Serial.printf("ESP-NOW: the master is on channel %d - moving from %d\n", (int)want, (int)cur);
+        }
+    }
 
     bool lost = g_paired && (millis() - g_last_helm_rx_ms > LOST_CONTACT_MS);
     bool need_hunt = !g_paired || lost;
