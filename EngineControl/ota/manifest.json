@@ -17,5 +17,12 @@
       "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/cs-s3z-31/TOBE-EngineControl-CanSim-S3Zero-v31.bin",
       "md5": "a11f8cd4e6b966e07bb2d2eb0e843f35"
     }
+  },
+  "cyd": {
+    "cyd28": {
+      "build": 38,
+      "url": "https://github.com/takigama/OpenBoatExperiments/releases/download/tobe-EngineControl-CYD-v38/TOBE-EngineControl-CYD-v38.bin",
+      "md5": "af85880e067e95fc44a3f80dec21e54c"
+    }
   }
 }
