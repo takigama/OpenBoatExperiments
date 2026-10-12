@@ -72,13 +72,13 @@
         "FishFinderProBluetooth": {
             "dir": "FishFinderProBluetooth/PlatformIO/FishFinderProBluetooth",
             "env": "esp32-c3",
-            "version": 7,
+            "version": 8,
             "ota": {}
         },
         "FishFinderProBluetoothCYD": {
             "dir": "FishFinderProBluetoothCYD/PlatformIO/FishFinderProBluetoothCYD",
             "env": "esp32dev",
-            "version": 14,
+            "version": 15,
             "ota": {}
         },
         "ManOverBoard-DisplayTest": {
