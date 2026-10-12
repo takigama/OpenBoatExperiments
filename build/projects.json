@@ -25,7 +25,7 @@
             "project": "EngineControl",
             "dir": "EngineControl/engine_display",
             "env": "cyd",
-            "version": 37,
+            "version": 38,
             "manifest": "EngineControl/ota/manifest.json",
             "ota": {
                 "device": "cyd",
