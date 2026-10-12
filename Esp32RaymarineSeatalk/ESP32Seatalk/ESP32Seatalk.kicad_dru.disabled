@@ -1,0 +1,9 @@
+(version 1)
+
+# U3 (AP62200, SOT-563): the package's pad-to-pad gap is 0.15 mm by design (0.5 mm pitch), which is below the
+# Power net class clearance (0.3 mm) that +12V, SW and GND are in. For anything that touches U3's courtyard - its
+# own pads and the copper that escapes from them - allow the JLCPCB-safe 0.15 mm. Everywhere else the net class
+# still applies. (insideCourtyard did not match a track that leaves the courtyard, so the router refused to start.)
+(rule "U3 fine pitch pads"
+    (constraint clearance (min 0.15mm))
+    (condition "A.intersectsCourtyard('U3') && B.intersectsCourtyard('U3')"))

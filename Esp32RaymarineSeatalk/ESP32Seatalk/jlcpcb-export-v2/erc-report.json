@@ -1,0 +1,120 @@
+{
+    "$schema": "https://schemas.kicad.org/erc.v1.json",
+    "coordinate_units": "mm",
+    "date": "2026-10-13T06:22:46+1100",
+    "kicad_version": "9.0.6",
+    "sheets": [
+        {
+            "path": "/",
+            "uuid_path": "/ecf1dbd5-de03-4f0a-a91b-37447d68913a",
+            "violations": [
+                {
+                    "description": "Input Power pin not driven by any Output Power pins",
+                    "items": [
+                        {
+                            "description": "Symbol #PWR01 Pin 1 [Power input, Line]",
+                            "pos": {
+                                "x": 1.1557,
+                                "y": 0.3683
+                            },
+                            "uuid": "83a7cde5-d283-44ac-9f31-570da81cf626"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "power_pin_not_driven"
+                },
+                {
+                    "description": "Input Power pin not driven by any Output Power pins",
+                    "items": [
+                        {
+                            "description": "Symbol #PWR05 Pin 1 [Power input, Line]",
+                            "pos": {
+                                "x": 1.0033,
+                                "y": 0.6858
+                            },
+                            "uuid": "1ca61aba-9d89-41d6-85a7-fc9c0aa01001"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "power_pin_not_driven"
+                },
+                {
+                    "description": "Input Power pin not driven by any Output Power pins",
+                    "items": [
+                        {
+                            "description": "Symbol #PWR03 Pin 1 [Power input, Line]",
+                            "pos": {
+                                "x": 1.1557,
+                                "y": 0.4191
+                            },
+                            "uuid": "2888ae6e-4752-41df-b29e-fdfffe86d660"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "power_pin_not_driven"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol U3 Pin 5 [EN, Input, Line]",
+                            "pos": {
+                                "x": 1.651,
+                                "y": 0.4318
+                            },
+                            "uuid": "f9419721-a548-4fdd-a3c7-ae3dd703bc3d"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Input pin not driven by any Output pins",
+                    "items": [
+                        {
+                            "description": "Symbol U3 Pin 5 [EN, Input, Line]",
+                            "pos": {
+                                "x": 1.651,
+                                "y": 0.4318
+                            },
+                            "uuid": "f9419721-a548-4fdd-a3c7-ae3dd703bc3d"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_driven"
+                },
+                {
+                    "description": "Pin not connected",
+                    "items": [
+                        {
+                            "description": "Symbol U2 Pin 7 [5v, Input, Line]",
+                            "pos": {
+                                "x": 1.2954,
+                                "y": 1.1176
+                            },
+                            "uuid": "77645e03-cf21-4572-91c1-30313c158bb0"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_connected"
+                },
+                {
+                    "description": "Input pin not driven by any Output pins",
+                    "items": [
+                        {
+                            "description": "Symbol U2 Pin 7 [5v, Input, Line]",
+                            "pos": {
+                                "x": 1.2954,
+                                "y": 1.1176
+                            },
+                            "uuid": "77645e03-cf21-4572-91c1-30313c158bb0"
+                        }
+                    ],
+                    "severity": "error",
+                    "type": "pin_not_driven"
+                }
+            ]
+        }
+    ],
+    "source": "ESP32Seatalk.kicad_sch"
+}

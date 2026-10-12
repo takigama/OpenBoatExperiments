@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "Seatalk-custom")(type "KiCad")(uri "${KIPRJMOD}/lib/Seatalk-custom.pretty")(options "")(descr "ESP32Seatalk project footprints"))
+)
