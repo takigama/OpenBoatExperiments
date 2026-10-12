@@ -13,6 +13,12 @@
 #include "op_mode.h"
 #include "web_config.h"
 
+// arduino-esp32 3.x gives the Bluetooth controller's memory back at startup unless the sketch says it uses
+// Bluetooth (initArduino() checks btInUse()). NimBLE-Arduino 1.4 does not say so on its own, so without this
+// NimBLEDevice::init() aborts at boot - ESP_ERR_INVALID_STATE from esp_bt_controller_init - and the board
+// resets forever. Declared here, in the C linkage the core's weak default has.
+extern "C" bool btInUse(void) { return true; }
+
 // Sonar data (hex frames, NMEA) goes straight to Serial - it is a data stream for OpenPlotter, and keeping it out
 // of tobe::console keeps it out of the web log. Events and the command line use tobe::console / tobe::logf.
 

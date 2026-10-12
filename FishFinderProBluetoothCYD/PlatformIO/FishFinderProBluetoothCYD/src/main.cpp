@@ -14,6 +14,12 @@
 #include "sonar_ble.h"
 #include "touch.h"
 
+// arduino-esp32 3.x gives the Bluetooth controller's memory back at startup unless the sketch says it uses
+// Bluetooth (initArduino() checks btInUse()). NimBLE-Arduino 1.4 does not say so on its own, so without this
+// NimBLEDevice::init() aborts at boot - ESP_ERR_INVALID_STATE from esp_bt_controller_init - and the board
+// resets forever. Declared here, in the C linkage the core's weak default has.
+extern "C" bool btInUse(void) { return true; }
+
 // WiFi and BLE are mutually exclusive per boot, not live-switched - same
 // reasoning as FishFinderProBluetooth's op_mode.h (this board's single
 // radio can't run both reliably at once). BLE mode (the sonar display) is
