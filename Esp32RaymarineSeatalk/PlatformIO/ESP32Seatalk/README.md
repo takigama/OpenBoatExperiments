@@ -68,6 +68,7 @@ Everything lives at `/` on the board's IP:
 | `/messages.txt` | The same as plain text (same `src` / `n` options) - for `curl` or saving to a file |
 | `/sys/wifi` (POST) | Save WiFi credentials, reboot to join |
 | `/mqtt/save` (POST) | Save MQTT broker host/port/base topic |
+| `/mqtt/raw` (POST) | Save which raw hex dumps are published to MQTT (SeaTalk, CAN, SignalK checkboxes) |
 | `/signalk/save` (POST) | Save SignalK server host/port |
 | `/route/save` (POST) | Save the routing matrix |
 | `/sys/ota/check`, `/sys/ota/apply` | GitHub-manifest OTA check/apply |
@@ -167,6 +168,11 @@ exact bytes, or working with commands nothing here decodes yet.
 | `raw/seatalk/send` | in | Hex bytes → sent as one SeaTalk datagram (first byte = command, rest = data) |
 | `raw/can/send` | in | Hex bytes → first 4 bytes = big-endian PGN, rest = payload; sent as that N2K message (tNMEA2000 handles framing/fast-packet splitting) |
 | `raw/signalk/send` | in | Hex bytes decoded to UTF-8 text, sent verbatim as a WS text frame - no JSON validation, true passthrough |
+
+Which of the three outbound dumps are published is a checkbox each in the web
+UI's MQTT section: **SeaTalk and CAN default on, SignalK off** (a hex copy of
+every JSON frame is a lot of traffic). The decoded values and the `/send`
+topics are not affected by these.
 
 Hex parsing on the inbound side is lenient (spaces/case ignored); outbound
 dumps always use the same lowercase-space-separated format shown above.

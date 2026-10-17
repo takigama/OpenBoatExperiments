@@ -62,4 +62,10 @@ void publishDecoded(const SeatalkDecode::Event &ev);
 // (every raw incoming WS text frame).
 void publishRawBus(const char *source, const uint8_t *data, size_t len);
 
+// Which raw dumps above are actually published (a checkbox each in the web UI's MQTT section, saved to NVS):
+// SeaTalk and CAN default on, SignalK off - its dump is a hex copy of every JSON frame, which is a lot of traffic.
+// The "/send" injection topics are not affected. `source` is "seatalk", "can" or "signalk".
+bool rawEnabled(const char *source);
+void saveRaw(bool seatalk, bool can, bool signalk);
+
 }  // namespace MqttManager

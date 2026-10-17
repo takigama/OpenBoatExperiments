@@ -86,6 +86,17 @@ String mqttSection() {
             "' style='width:100%;padding:.5em;margin:.3em 0;box-sizing:border-box'>";
     body += "<button type='submit' style='width:100%;padding:.6em'>Save</button>";
     body += "</form>";
+    body += "<form method='POST' action='/mqtt/raw'>";
+    body += "<p>Raw hex dumps (<code>raw/seatalk</code>, <code>raw/can</code>, <code>raw/signalk</code>), "
+            "alongside the decoded values:</p>";
+    body += String("<label><input type='checkbox' name='seatalk'") + (MqttManager::rawEnabled("seatalk") ? " checked" : "") +
+            "> SeaTalk</label> ";
+    body += String("<label><input type='checkbox' name='can'") + (MqttManager::rawEnabled("can") ? " checked" : "") +
+            "> CAN</label> ";
+    body += String("<label><input type='checkbox' name='signalk'") + (MqttManager::rawEnabled("signalk") ? " checked" : "") +
+            "> SignalK (busy)</label>";
+    body += "<button type='submit' style='width:100%;padding:.6em;margin-top:.4em'>Save raw dumps</button>";
+    body += "</form>";
     return body;
 }
 
@@ -432,6 +443,12 @@ void handleMqttSave() {
     server.send(303);
 }
 
+void handleMqttRaw() {
+    MqttManager::saveRaw(server.hasArg("seatalk"), server.hasArg("can"), server.hasArg("signalk"));
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
 void handleSignalkSave() {
     String host = server.hasArg("host") ? server.arg("host") : "";
     uint16_t port = server.hasArg("port") ? (uint16_t)server.arg("port").toInt() : 3000;
@@ -464,6 +481,7 @@ void begin() {
     server.on("/messages", HTTP_GET, handleMessages);
     server.on("/messages.txt", HTTP_GET, handleMessagesText);
     server.on("/mqtt/save", HTTP_POST, handleMqttSave);
+    server.on("/mqtt/raw", HTTP_POST, handleMqttRaw);
     server.on("/signalk/save", HTTP_POST, handleSignalkSave);
     server.on("/route/save", HTTP_POST, handleRouteSave);
     server.on("/seatalk/test-lamp", HTTP_GET, handleTestLamp);

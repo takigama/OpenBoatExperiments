@@ -29,6 +29,7 @@ PubSubClient s_client(s_wifiClient);
 String s_host;
 uint16_t s_port = 1883;
 String s_baseTopic = "esp32seatalk";
+bool s_rawSeatalk = true, s_rawCan = true, s_rawSignalk = false;
 uint32_t s_lastReconnectAttempt = 0;
 
 // Inbound commands live under their own "set/" prefix, entirely separate
@@ -82,6 +83,9 @@ void loadConfig() {
     s_host = p.getString("host", "");
     s_port = p.getUShort("port", 1883);
     s_baseTopic = p.getString("base", "esp32seatalk");
+    s_rawSeatalk = p.getBool("rawst", true);
+    s_rawCan = p.getBool("rawcan", true);
+    s_rawSignalk = p.getBool("rawsk", false);
     p.end();
 }
 
@@ -288,8 +292,27 @@ void publishDecoded(const SeatalkDecode::Event &ev) {
     publishValue(path, String(ev.value, 4));
 }
 
+bool rawEnabled(const char *source) {
+    if (strcmp(source, "seatalk") == 0) return s_rawSeatalk;
+    if (strcmp(source, "can") == 0) return s_rawCan;
+    if (strcmp(source, "signalk") == 0) return s_rawSignalk;
+    return true;
+}
+
+void saveRaw(bool seatalk, bool can, bool signalk) {
+    Preferences p = prefs();
+    p.putBool("rawst", seatalk);
+    p.putBool("rawcan", can);
+    p.putBool("rawsk", signalk);
+    p.end();
+    s_rawSeatalk = seatalk;
+    s_rawCan = can;
+    s_rawSignalk = signalk;
+    tobe::logf("mqtt: raw dumps seatalk=%d can=%d signalk=%d", seatalk, can, signalk);
+}
+
 void publishRawBus(const char *source, const uint8_t *data, size_t len) {
-    if (len == 0) return;
+    if (len == 0 || !rawEnabled(source)) return;
     String hex;
     hex.reserve(len * 3);
     for (size_t i = 0; i < len; i++) {
