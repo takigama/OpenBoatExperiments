@@ -17,10 +17,14 @@
 // CODE-locked one, using this exact bit timing - the *PIN-guessing*
 // attempts built on top of it never worked, but that's a failure of what
 // bytes were sent, not this underlying mechanism). RX is genuinely new:
-// a GPIO edge interrupt catches the start bit, then a hardware timer
-// samples each subsequent bit at its center - the standard technique for
-// bit-banged async RX under an RTOS where a polling loop can't be trusted
-// not to get delayed by WiFi/other tasks.
+// a GPIO interrupt on every edge records WHEN the line changed, and poll()
+// works the bits out from those times (a falling edge is a start bit; the
+// bits are the line level 1.5, 2.5 ... bit times later). Nothing has to run
+// on time, so WiFi / MQTT / flash writes delaying the CPU cannot corrupt a
+// byte - the first version sampled each bit from an esp_timer callback that
+// scheduled the next one relative to when it had run, so its lateness added
+// up over a byte and it mangled ~3% of the messages on an idle board and
+// about a third under load (measured with SeatalkRxTest).
 //
 // No live SeaTalk bus is connected to the dev setup as of this writing -
 // RX has only been validated via self-loopback (this device's own TX
@@ -49,6 +53,14 @@ bool poll(Datagram *out);
 // Datagrams that were received completely but lost because the receive queue was full (the main loop was busy
 // for too long). Counted since boot.
 uint32_t droppedDatagrams();
+
+// Receive health counters, since boot (shown by STATUS): edges lost because the edge log (about 70 s of a busy bus)
+// overflowed; low pulses shorter than half a bit (noise); bytes whose stop bit was low; datagrams cut short by a
+// new command byte.
+uint32_t droppedEdges();
+uint32_t startGlitches();
+uint32_t stopBitErrors();
+uint32_t truncatedDatagrams();
 
 // Blocks for the datagram's duration (~2ms/byte at 4800 baud) - fine for
 // the short, infrequent datagrams SeaTalk actually sends, not meant for

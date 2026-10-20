@@ -104,6 +104,11 @@
             "env": "esp32-c3-devkitm-1",
             "version": 1
         },
+        "SeatalkRxTest": {
+            "dir": "Esp32RaymarineSeatalk/PlatformIO/SeatalkRxTest",
+            "env": "esp32-c3",
+            "version": 1
+        },
         "TheHub": {
             "dir": "TheHub/ESP32StandAloneHub/StandAloneHub",
             "env": "denky32",

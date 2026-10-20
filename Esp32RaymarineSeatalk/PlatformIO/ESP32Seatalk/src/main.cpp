@@ -82,6 +82,9 @@ void statusHook() {
                          SignalKManager::isConnected() ? "connected" : "not connected");
     tobe::console.printf("  SeaTalk: %lu datagrams lost to a full receive queue since boot\n",
                          (unsigned long)SeatalkBus::droppedDatagrams());
+    tobe::console.printf("  SeaTalk receive: %lu edges lost, %lu start-bit glitches, %lu stop-bit errors, %lu truncated\n",
+                         (unsigned long)SeatalkBus::droppedEdges(), (unsigned long)SeatalkBus::startGlitches(),
+                         (unsigned long)SeatalkBus::stopBitErrors(), (unsigned long)SeatalkBus::truncatedDatagrams());
 }
 
 void setup() {

@@ -1,55 +1,54 @@
 #include "seatalk_bus.h"
 
+#include <driver/gpio.h>
 #include <esp_timer.h>
 
 namespace SeatalkBus {
 
 namespace {
 
-constexpr uint32_t kBitUs = 208;  // 4800 baud -> ~208.33us/bit, same constant
-                                   // as the proven AVR TX (seatalk_bruteforce.c)
+constexpr uint32_t kBitUs = 208;     // TX: 4800 baud -> ~208.33us/bit, same constant as the proven AVR TX
+                                      // (seatalk_bruteforce.c)
+constexpr float kBitF = 208.333f;    // RX: the real bit time
 
 int s_pin = -1;
 
-// ---- RX assembly state (touched by both the timer callback and poll()/
-// send(), so access is kept to simple flag/byte operations only - no
-// allocation/locking needed since ESP32 byte/bool reads+writes are
-// atomic and there's exactly one producer (the timer callback) and one
-// consumer (poll(), called from the main loop)). ----
-uint8_t s_rxByte;         // bit-shift accumulator for the byte currently being sampled
-uint8_t s_rxBitIndex;     // 0..7 = data bits, 8 = command bit, 9 = stop bit
-Datagram s_rxDatagram;    // datagram currently being assembled (not yet complete)
-uint8_t s_rxExpectedLen;  // 0 = not yet known (still waiting on the attribute byte)
+// ---- RX: the interrupt only records WHEN the line changes; the bits are worked out later, from those times -----
+//
+// This used to sample each bit from an esp_timer callback that scheduled the next sample relative to when it
+// had actually run, so every bit of lateness added up over the 10 samples of a byte (stop-bit sample 50-100 us
+// late, the limit being 104 us) - a board doing nothing else still mangled ~3% of the messages, and with WiFi /
+// MQTT competing for the CPU about a third of them were lost (measured: SeatalkRxTest, receiver A vs D). Working
+// from the edge times instead means no timer has to run on time: the decode is exact however late loop() gets
+// around to it.
+constexpr uint16_t kEdgeN = 4096;  // power of two: ~70 s of a busy bus, so a blocked loop() (a TCP connect) is fine
+uint32_t s_edgeT[kEdgeN];          // microseconds (low 32 bits of esp_timer_get_time())
+uint8_t s_edgeL[kEdgeN];           // the level the line changed TO
+volatile uint16_t s_edgeHead = 0;  // written by the interrupt
+volatile uint16_t s_edgeTail = 0;  // written by poll()
+volatile uint32_t s_edgeDrops = 0;
 
-// Completed datagrams queue here until poll() drains them. This matters:
-// an earlier version had only a single "ready" slot and didn't re-arm for
-// the next start bit until poll() was called - meaning RX went
-// completely deaf the moment one datagram completed, for as long as
-// whatever called send() (or anything else) took to get back around to
-// calling poll(). Caught for real testing this against the actual Rudder
-// instrument: a web handler that sent 5 lamp commands with a blocking
-// delay() between each only ever showed 1 of them in the log, because RX
-// stopped listening after the first one and had nothing to re-arm it
-// until the handler finally returned several seconds later. A proper
-// queue plus always re-arming immediately (see the bottom of
-// sampleBitCallback()) fixes this independent of whatever the consumer
-// happens to be doing.
-constexpr int kQueueSize = 20;  // demo mode alone can enqueue 9 self-echoed
-                                  // datagrams in one blocking tick() - see
-                                  // main.cpp's loop() comment - so 8 wasn't
-                                  // enough headroom even with proper draining
-Datagram s_queue[kQueueSize];
-uint8_t s_queueHead = 0;  // next slot poll() will read
-uint8_t s_queueTail = 0;  // next slot the timer callback will write
-uint8_t s_queueCount = 0;
-// Datagrams that complete before this (low 32 bits of esp_timer_get_time(), microseconds) are our own echo - see
-// setTxIsSelf(). Compared as a signed difference so the wrap-around (every 71 minutes) does not matter.
-volatile uint32_t s_selfUntilUs = 0;
-bool s_txIsSelf = false;
-constexpr uint32_t kSelfGraceUs = 5000;  // the echo's last stop bit can be sampled a little after send() returns
-uint32_t s_queueDrops = 0;  // completed datagrams lost because the queue was full
+void IRAM_ATTR onEdge() {
+    uint32_t now = (uint32_t)esp_timer_get_time();
+    uint8_t lvl = gpio_get_level((gpio_num_t)s_pin);
+    uint16_t h = s_edgeHead;
+    uint16_t nx = (h + 1) & (kEdgeN - 1);
+    if (nx == s_edgeTail) {
+        s_edgeDrops++;
+        return;
+    }
+    s_edgeT[h] = now;
+    s_edgeL[h] = lvl;
+    s_edgeHead = nx;
+}
 
-esp_timer_handle_t s_sampleTimer;
+uint32_t s_startGlitches = 0;  // a low pulse shorter than half a bit: noise, not a start bit
+uint32_t s_stopErrors = 0;     // the stop bit was low
+uint32_t s_resyncs = 0;        // a new command byte arrived before the datagram being assembled was complete
+
+// Datagram assembler: a command byte (the 9th bit) starts one, its attribute byte gives the length.
+Datagram s_rxDatagram;
+uint8_t s_rxExpectedLen = 0;  // 0 = not yet known (still waiting on the attribute byte)
 
 void resetRxDatagram() {
     s_rxDatagram.length = 0;
@@ -57,81 +56,45 @@ void resetRxDatagram() {
     s_rxDatagram.self = false;
 }
 
-// The falling-edge interrupt is attached ONCE (begin()) and stays attached; "armed" is just this flag. It used to
-// detachInterrupt() inside the ISR and attachInterrupt() again after every byte. arduino-esp32 2.x tolerated that,
-// but in 3.x those calls take the driver's non-IRAM, non-ISR-safe path: with the board's own transmissions
-// (demo mode, the lamp test) edging the pin constantly, the main loop stalled for minutes.
-volatile bool s_rxArmed = false;
+// Completed datagrams wait here until poll() hands them out.
+constexpr int kQueueSize = 20;
+Datagram s_queue[kQueueSize];
+uint8_t s_queueHead = 0;  // next slot poll() will read
+uint8_t s_queueTail = 0;  // next slot to write
+uint8_t s_queueCount = 0;
+uint32_t s_queueDrops = 0;  // completed datagrams lost because the queue was full
 
-void IRAM_ATTR onStartBitEdge() {
-    if (!s_rxArmed) return;  // an edge inside a byte we are already sampling (or our own TX): ignore it
-    s_rxArmed = false;
-    s_rxBitIndex = 0;
-    s_rxByte = 0;
-    esp_timer_start_once(s_sampleTimer, kBitUs + kBitUs / 2);  // land at 1st data bit's center
+// ---- our own transmissions come back as RX (every device on a shared open-drain wire hears itself). While
+// setTxIsSelf(true) is in effect the time of everything we send is remembered as a window, and a datagram that
+// STARTED inside a window is marked Datagram::self. ----
+constexpr uint32_t kSelfGraceUs = 5000;
+struct Window {
+    uint32_t from, until;
+};
+Window s_windows[16];
+uint8_t s_windowNext = 0;
+uint32_t s_selfFrom = 0;
+bool s_txIsSelf = false;
+
+bool inSelfWindow(uint32_t t) {
+    for (const Window &w : s_windows) {
+        if ((uint32_t)(t - w.from) <= (uint32_t)(w.until - w.from)) return true;
+    }
+    return false;
 }
 
-void IRAM_ATTR armForNextStartBit() { s_rxArmed = true; }
-
-// Runs once per bit, kBitUs after the previous edge/sample - see
-// armForNextStartBit(). Task-context callback (esp_timer's default
-// dispatch method), not a true ISR - simpler and safer to reason about
-// than ISR-context code (no restrictions on what it can touch), at the
-// cost of somewhat higher/more variable latency than a raw ISR would
-// have. At 208us/bit and sampling at bit-center, that tradeoff has plenty
-// of margin under normal load - see seatalk_bus.h's header comment on
-// what could still go wrong under heavy concurrent activity (e.g. an OTA
-// flash write).
-void sampleBitCallback(void *) {
-    bool level = digitalRead(s_pin);  // HIGH = mark = 1, LOW = space = 0
-
-    if (s_rxBitIndex < 8) {
-        s_rxByte |= (level ? 1 : 0) << s_rxBitIndex;
-        s_rxBitIndex++;
-        esp_timer_start_once(s_sampleTimer, kBitUs);
-        return;
+void feedByte(uint8_t byte, bool isCommand, uint32_t startUs) {
+    if (isCommand && s_rxDatagram.length > 0) {
+        // A fresh command byte arrived before the datagram we were assembling was complete - drop what we had and
+        // resync on this one rather than emit a truncated datagram.
+        s_resyncs++;
+        resetRxDatagram();
     }
-
-    if (s_rxBitIndex == 8) {
-        // Command/data marker bit.
-        bool isCommand = level;
-        s_rxBitIndex++;
-        esp_timer_start_once(s_sampleTimer, kBitUs);  // one more sample: the stop bit
-
-        if (isCommand && s_rxDatagram.length > 0) {
-            // A fresh command byte arrived before the datagram we were
-            // assembling was actually complete - drop what we had and
-            // resync on this one rather than silently emit a truncated
-            // datagram. See seatalk_bus.h on why this can legitimately
-            // happen (dropped byte, bus noise, etc.), not just a bug.
-            resetRxDatagram();
-        }
-
-        if (s_rxDatagram.length < sizeof(s_rxDatagram.bytes)) {
-            s_rxDatagram.bytes[s_rxDatagram.length++] = s_rxByte;
-        }
-
-        if (s_rxDatagram.length == 2) {
-            // Attribute byte just landed - now we know the total length
-            // (see seatalk_bus.h / this session's earlier-confirmed
-            // formula: length = (attribute & 0x0F) + 3).
-            s_rxExpectedLen = (s_rxDatagram.bytes[1] & 0x0F) + 3;
-        }
-        return;
-    }
-
-    // Stop bit - not stored. Whether or not this completed a datagram,
-    // always re-arm immediately for the next start bit - the two used to
-    // be conditional on each other (see the queue comment above for why
-    // that was wrong). Not sanity-checked against "should be mark" - a
-    // real framing error here will simply produce a byte that fails the
-    // length-driven resync logic above on the next byte, which is enough
-    // for this v1.
-    s_rxBitIndex = 0;
-    s_rxByte = 0;
+    if (s_rxDatagram.length == 0) s_rxDatagram.self = inSelfWindow(startUs);
+    if (s_rxDatagram.length < sizeof(s_rxDatagram.bytes)) s_rxDatagram.bytes[s_rxDatagram.length++] = byte;
+    if (s_rxDatagram.length == 2) s_rxExpectedLen = (s_rxDatagram.bytes[1] & 0x0F) + 3;  // length = (attribute & 0x0F) + 3
 
     if (s_rxExpectedLen && s_rxDatagram.length >= s_rxExpectedLen) {
-        s_rxDatagram.self = (int32_t)(s_selfUntilUs - (uint32_t)esp_timer_get_time()) > 0;
         if (s_queueCount < kQueueSize) {
             s_queue[s_queueTail] = s_rxDatagram;
             s_queueTail = (s_queueTail + 1) % kQueueSize;
@@ -141,8 +104,54 @@ void sampleBitCallback(void *) {
         }
         resetRxDatagram();
     }
+}
 
-    armForNextStartBit();
+// Turns the recorded edges into bytes: a falling edge is a start bit; the byte's bits are the line level 1.5, 2.5 ...
+// 9.5 bit times later (8 data bits, then the command bit) and the stop bit at 10.5. Only a byte that is over (2.4 ms
+// after its start) is decoded, so every one of its edges has been recorded.
+void decodeEdges() {
+    const uint16_t mask = kEdgeN - 1;
+    for (;;) {
+        uint32_t nowUs = (uint32_t)esp_timer_get_time();  // read before head: every edge before nowUs is in the log
+        uint16_t head = s_edgeHead;
+        uint16_t i = s_edgeTail;
+        while (i != head && s_edgeL[i] != 0) i = (i + 1) & mask;  // skip rising edges: wait for a start bit
+        if (i == head) {
+            s_edgeTail = head;
+            return;
+        }
+        uint32_t t0 = s_edgeT[i];
+        if ((uint32_t)(nowUs - t0) < 2400) {  // the byte is not over yet
+            s_edgeTail = i;
+            return;
+        }
+        // the line level dt microseconds after the start edge: the level after the last edge at or before that time
+        auto levelAt = [&](uint32_t dt) -> int {
+            int lvl = 0;
+            for (uint16_t j = i; j != head; j = (j + 1) & mask) {
+                if ((uint32_t)(s_edgeT[j] - t0) <= dt) lvl = s_edgeL[j];
+                else break;
+            }
+            return lvl;
+        };
+        // where to look for the next start bit: past the stop bit's start
+        uint16_t next = i;
+        while (next != head && (uint32_t)(s_edgeT[next] - t0) < (uint32_t)(kBitF * 10.0f)) next = (next + 1) & mask;
+
+        if (levelAt((uint32_t)(kBitF * 0.5f)) != 0) {  // the "start bit" ended before its middle: a glitch, not a byte
+            s_startGlitches++;
+            s_edgeTail = (i + 1) & mask;
+            continue;
+        }
+        uint8_t v = 0;
+        for (int k = 0; k < 8; k++) {
+            if (levelAt((uint32_t)(kBitF * (1.5f + k)))) v |= 1 << k;
+        }
+        bool isCommand = levelAt((uint32_t)(kBitF * 9.5f)) != 0;
+        if (levelAt((uint32_t)(kBitF * 10.5f)) == 0) s_stopErrors++;
+        feedByte(v, isCommand, t0);
+        s_edgeTail = next;
+    }
 }
 
 }  // namespace
@@ -152,19 +161,18 @@ void begin(int gpioPin) {
     pinMode(s_pin, OUTPUT_OPEN_DRAIN);
     digitalWrite(s_pin, HIGH);  // released - bus idles at mark via R1's pull-up
 
-    esp_timer_create_args_t timerArgs = {};
-    timerArgs.callback = &sampleBitCallback;
-    timerArgs.name = "seatalk_rx";
-    esp_timer_create(&timerArgs, &s_sampleTimer);
-
     resetRxDatagram();
-    attachInterrupt(digitalPinToInterrupt(s_pin), onStartBitEdge, FALLING);  // once - see s_rxArmed
-    armForNextStartBit();
+    attachInterrupt(digitalPinToInterrupt(s_pin), onEdge, CHANGE);  // once; stays attached
 }
 
 uint32_t droppedDatagrams() { return s_queueDrops; }
+uint32_t droppedEdges() { return s_edgeDrops; }
+uint32_t startGlitches() { return s_startGlitches; }
+uint32_t stopBitErrors() { return s_stopErrors; }
+uint32_t truncatedDatagrams() { return s_resyncs; }
 
 bool poll(Datagram *out) {
+    if (s_queueCount == 0) decodeEdges();
     if (s_queueCount == 0) return false;
     *out = s_queue[s_queueHead];
     s_queueHead = (s_queueHead + 1) % kQueueSize;
@@ -188,19 +196,23 @@ void txByte(uint8_t data, bool isCommand) {
 
 }  // namespace
 
-void setTxIsSelf(bool on) { s_txIsSelf = on; }
+void setTxIsSelf(bool on) {
+    uint32_t now = (uint32_t)esp_timer_get_time();
+    if (on && !s_txIsSelf) {
+        s_selfFrom = now;
+    } else if (!on && s_txIsSelf) {
+        s_windows[s_windowNext] = {s_selfFrom, now + kSelfGraceUs};
+        s_windowNext = (s_windowNext + 1) % (sizeof(s_windows) / sizeof(s_windows[0]));
+    }
+    s_txIsSelf = on;
+}
 
 void send(uint8_t command, const uint8_t *dataBytes, uint8_t dataLen) {
     // RX deliberately stays armed through our own TX - every device on a
     // shared open-drain bus hears its own transmission, that's inherent
     // to the medium, not something to suppress.
-    if (s_txIsSelf) {
-        // everything that completes from now until a little after we finish is our own echo
-        s_selfUntilUs = (uint32_t)esp_timer_get_time() + (uint32_t)(dataLen + 1) * 11 * kBitUs + kSelfGraceUs;
-    }
     txByte(command, true);
     for (uint8_t i = 0; i < dataLen; i++) txByte(dataBytes[i], false);
-    if (s_txIsSelf) s_selfUntilUs = (uint32_t)esp_timer_get_time() + kSelfGraceUs;
 }
 
 }  // namespace SeatalkBus
