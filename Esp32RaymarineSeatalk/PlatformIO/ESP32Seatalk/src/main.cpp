@@ -157,6 +157,11 @@ void loop() {
                 char note[64];
                 snprintf(note, sizeof(note), "no sensor - not forwarded; %s", rawHex);
                 RxLog::addEvent(RxLog::Source::SeaTalk, ev, note);
+            } else if (SeatalkDecode::isImplausible(ev)) {
+                // no checksum on SeaTalk: a corrupted datagram of the right length decodes to nonsense
+                char note[64];
+                snprintf(note, sizeof(note), "implausible - not forwarded; %s", rawHex);
+                RxLog::addEvent(RxLog::Source::SeaTalk, ev, note);
             } else {
                 RxLog::addEvent(RxLog::Source::SeaTalk, ev, rawHex);
                 RouteConfig::relay(RouteConfig::Bus::SeaTalk, ev);

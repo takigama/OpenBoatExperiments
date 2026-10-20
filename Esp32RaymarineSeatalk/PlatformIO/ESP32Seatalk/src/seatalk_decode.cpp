@@ -41,6 +41,7 @@ bool decode(const SeatalkBus::Datagram &dg, Event *out) {
             uint16_t raw = b[2] | (b[3] << 8);
             out->type = Type::SpeedThroughWater;
             out->value = (raw / 10.0) * kKnotsToMs;
+            out->flagA = (attrHigh & 0x04) != 0;  // 0x4_ attribute: no sensor ("20 41 00 00" from an ST50 Tridata with no transducer)
             return true;
         }
         case 0x21: {  // Trip log: "21 02 XX XX 0X", XXXXX/100 nm

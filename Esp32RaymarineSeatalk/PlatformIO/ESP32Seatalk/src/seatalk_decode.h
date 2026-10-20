@@ -59,10 +59,28 @@ struct Event {
 // framing error slipping through, or a command we don't fully understand).
 bool decode(const SeatalkBus::Datagram &dg, Event *out);
 
-// True for a reading the instrument itself marks as "sensor defective / not connected" (water temperature, whose
-// attribute byte then carries the 0x4_ flag - e.g. "23 41 28 68" is a fixed 40 C placeholder, not a measurement).
+// True for a reading the instrument itself marks as "sensor defective / not connected": water temperature and speed
+// through water, whose attribute byte then carries the 0x4_ flag (e.g. "23 41 28 68" is a fixed 40 C placeholder,
+// "20 41 00 00" a zero speed), and depth with the transducer-defective bit set ("00 42 64 00 00" is 0.0 m).
 // Such a value should be shown for what it is but not forwarded as data.
-inline bool isNoSensor(const Event &ev) { return ev.type == Type::WaterTemperature && ev.flagA; }
+inline bool isNoSensor(const Event &ev) {
+    return ev.flagA && (ev.type == Type::WaterTemperature || ev.type == Type::SpeedThroughWater || ev.type == Type::Depth);
+}
+
+// True for a value no real instrument would send. SeaTalk datagrams have no checksum, so a corrupted one can still
+// have a valid length and decode into nonsense (a "20 01 02 90" was published as 3686 knots). Limits are generous:
+// speeds over 100 kn, depths over 1000 m, water temperature outside -10..60 C, positions off the globe.
+inline bool isImplausible(const Event &ev) {
+    switch (ev.type) {
+        case Type::SpeedThroughWater:
+        case Type::SpeedOverGround: return ev.value > 51.4444;
+        case Type::Depth: return ev.value > 1000.0;
+        case Type::WaterTemperature: return ev.value < 263.15 || ev.value > 333.15;
+        case Type::Latitude: return ev.value > 90.0 || ev.value < -90.0;
+        case Type::Longitude: return ev.value > 180.0 || ev.value < -180.0;
+        default: return false;
+    }
+}
 
 // SignalK's own dot-path convention (e.g. "navigation.speedThroughWater") -
 // the single source of truth both MqttManager (converting dots to slashes
