@@ -74,12 +74,18 @@ Everything lives at `/` on the board's IP:
 | `/sys/ota/check`, `/sys/ota/apply` | GitHub-manifest OTA check/apply |
 | `/sys/upload` (POST, multipart) | Direct firmware upload |
 | `/demo/start-cycling`, `/demo/start-manual`, `/demo/stop` (POST/GET) | Demo mode |
+| `/demo/dest` (POST) | Where the demo values go: SeaTalk, MQTT, SignalK checkboxes (default SeaTalk only) |
 | `/seatalk/test-lamp` | Cycles the lamp command (0x30) on/off - visible physical confirmation on a real instrument |
 | `/seatalk/test-nav-data/start`, `/.../stop` | Continuous 1Hz synthetic wind/speed/depth send, for validating TX against real instruments |
 | `/sys/log` | Plain-text tail of the debug log ring buffer - the only diagnostic surface once the board is on a real SeaTalk bus (USB shares 3.3V with the bus, can't have both connected) |
 
-**Demo mode** (`demo_mode.h`) has two mutually-exclusive modes, sharing one
-per-object enable checkbox set:
+**Demo mode** (`demo_mode.h`) has checkboxes at the top choosing where the demo
+values go: **SeaTalk** (transmitted on the bus), **MQTT** and **SignalK**
+(published straight to the broker / server as decoded values, on the same
+topics and paths real bus data uses). Default is SeaTalk only. The board hears
+its own SeaTalk transmissions back, but that echo is not published or relayed
+again, so the checkboxes are the only thing deciding where demo values appear.
+It has two mutually-exclusive modes, sharing one per-object enable checkbox set:
 - **Cycling**: a simulated vessel - rudder drives heading, heading+speed
   dead-reckon a position and set COG, depth/wind/water-temp ramp
   independently.

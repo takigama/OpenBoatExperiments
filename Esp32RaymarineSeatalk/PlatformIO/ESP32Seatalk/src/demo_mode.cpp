@@ -3,7 +3,10 @@
 #include <math.h>
 
 #include <TobeLog.h>
+#include "mqtt_manager.h"
+#include "seatalk_bus.h"
 #include "seatalk_encode.h"
+#include "signalk_manager.h"
 
 namespace DemoMode {
 
@@ -12,6 +15,7 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 
 Mode s_mode = Mode::Off;
+Destinations s_dest;
 bool s_enabled[(int)Object::Count] = {};
 uint32_t s_lastTick = 0;
 uint32_t s_secondsElapsed = 0;
@@ -96,28 +100,90 @@ using SeatalkEncode::sendSpeedOverGround;
 using SeatalkEncode::sendSpeedThroughWater;
 using SeatalkEncode::sendWaterTemperature;
 
+// Publishes one value, in the SI units a decoded SeaTalk reading has, to MQTT and / or SignalK (the same sinks
+// RouteConfig::relay() feeds for real bus data).
+void emit(SeatalkDecode::Type type, double value, double value2 = 0) {
+    SeatalkDecode::Event ev;
+    ev.type = type;
+    ev.value = value;
+    ev.value2 = value2;
+    if (s_dest.mqtt) MqttManager::publishDecoded(ev);
+    if (s_dest.signalk) SignalKManager::publishDecoded(ev);
+}
+
+constexpr double kFeetToMeters = 0.3048;
+constexpr double kKnotsToMs = 0.514444;
+constexpr double kDegToRad = kPi / 180.0;
+
+// Sends one demo object (values in SeaTalk-native units) to every chosen destination.
+void put(Object obj, double v1, double v2 = 0) {
+    switch (obj) {
+        case Object::Depth:
+            if (s_dest.seatalk) sendDepth(v1);
+            emit(SeatalkDecode::Type::Depth, v1 * kFeetToMeters);
+            break;
+        case Object::SpeedThroughWater:
+            if (s_dest.seatalk) sendSpeedThroughWater(v1);
+            emit(SeatalkDecode::Type::SpeedThroughWater, v1 * kKnotsToMs);
+            break;
+        case Object::ApparentWindAngle: {
+            if (s_dest.seatalk) sendApparentWindAngle(v1);
+            double deg = fmod(v1, 360.0);
+            if (deg > 180.0) deg -= 360.0;  // signed, negative = port - what decode() publishes
+            emit(SeatalkDecode::Type::ApparentWindAngle, deg * kDegToRad);
+            break;
+        }
+        case Object::ApparentWindSpeed:
+            if (s_dest.seatalk) sendApparentWindSpeed(v1);
+            emit(SeatalkDecode::Type::ApparentWindSpeed, v1 * kKnotsToMs);
+            break;
+        case Object::WaterTemperature:
+            if (s_dest.seatalk) sendWaterTemperature(v1);
+            emit(SeatalkDecode::Type::WaterTemperature, v1 + 273.15);
+            break;
+        case Object::Position:
+            if (s_dest.seatalk) sendPosition(v1, v2);
+            emit(SeatalkDecode::Type::Latitude, v1);
+            emit(SeatalkDecode::Type::Longitude, v2);
+            break;
+        case Object::CourseOverGround:
+            if (s_dest.seatalk) sendCourseOverGround(v1);
+            emit(SeatalkDecode::Type::CourseOverGround, v1 * kDegToRad);
+            break;
+        case Object::SpeedOverGround:
+            if (s_dest.seatalk) sendSpeedOverGround(v1);
+            emit(SeatalkDecode::Type::SpeedOverGround, v1 * kKnotsToMs);
+            break;
+        case Object::HeadingAndRudder:
+            if (s_dest.seatalk) sendHeadingAndRudder(v1, v2);
+            emit(SeatalkDecode::Type::HeadingAndRudder, v1 * kDegToRad, v2 * kDegToRad);
+            break;
+        default: break;
+    }
+}
+
 void sendEnabledFromSimulation() {
-    if (s_enabled[(int)Object::Depth]) sendDepth(s_depthFt);
-    if (s_enabled[(int)Object::SpeedThroughWater]) sendSpeedThroughWater(s_speedKn);
-    if (s_enabled[(int)Object::ApparentWindAngle]) sendApparentWindAngle(s_windAngleDeg);
-    if (s_enabled[(int)Object::ApparentWindSpeed]) sendApparentWindSpeed(s_windSpeedKn);
-    if (s_enabled[(int)Object::WaterTemperature]) sendWaterTemperature(s_waterTempC);
-    if (s_enabled[(int)Object::Position]) sendPosition(s_lat, s_lon);
-    if (s_enabled[(int)Object::CourseOverGround]) sendCourseOverGround(s_headingDeg);
-    if (s_enabled[(int)Object::SpeedOverGround]) sendSpeedOverGround(s_speedKn);
-    if (s_enabled[(int)Object::HeadingAndRudder]) sendHeadingAndRudder(s_headingDeg, s_rudderDeg);
+    if (s_enabled[(int)Object::Depth]) put(Object::Depth, s_depthFt);
+    if (s_enabled[(int)Object::SpeedThroughWater]) put(Object::SpeedThroughWater, s_speedKn);
+    if (s_enabled[(int)Object::ApparentWindAngle]) put(Object::ApparentWindAngle, s_windAngleDeg);
+    if (s_enabled[(int)Object::ApparentWindSpeed]) put(Object::ApparentWindSpeed, s_windSpeedKn);
+    if (s_enabled[(int)Object::WaterTemperature]) put(Object::WaterTemperature, s_waterTempC);
+    if (s_enabled[(int)Object::Position]) put(Object::Position, s_lat, s_lon);
+    if (s_enabled[(int)Object::CourseOverGround]) put(Object::CourseOverGround, s_headingDeg);
+    if (s_enabled[(int)Object::SpeedOverGround]) put(Object::SpeedOverGround, s_speedKn);
+    if (s_enabled[(int)Object::HeadingAndRudder]) put(Object::HeadingAndRudder, s_headingDeg, s_rudderDeg);
 }
 
 void sendEnabledFromManual() {
-    if (s_enabled[(int)Object::Depth]) sendDepth(s_manualDepthFt);
-    if (s_enabled[(int)Object::SpeedThroughWater]) sendSpeedThroughWater(s_manualSpeedKn);
-    if (s_enabled[(int)Object::ApparentWindAngle]) sendApparentWindAngle(s_manualWindAngleDeg);
-    if (s_enabled[(int)Object::ApparentWindSpeed]) sendApparentWindSpeed(s_manualWindSpeedKn);
-    if (s_enabled[(int)Object::WaterTemperature]) sendWaterTemperature(s_manualWaterTempC);
-    if (s_enabled[(int)Object::Position]) sendPosition(s_manualLat, s_manualLon);
-    if (s_enabled[(int)Object::CourseOverGround]) sendCourseOverGround(s_manualCogDeg);
-    if (s_enabled[(int)Object::SpeedOverGround]) sendSpeedOverGround(s_manualSogKn);
-    if (s_enabled[(int)Object::HeadingAndRudder]) sendHeadingAndRudder(s_manualHeadingDeg, s_manualRudderDeg);
+    if (s_enabled[(int)Object::Depth]) put(Object::Depth, s_manualDepthFt);
+    if (s_enabled[(int)Object::SpeedThroughWater]) put(Object::SpeedThroughWater, s_manualSpeedKn);
+    if (s_enabled[(int)Object::ApparentWindAngle]) put(Object::ApparentWindAngle, s_manualWindAngleDeg);
+    if (s_enabled[(int)Object::ApparentWindSpeed]) put(Object::ApparentWindSpeed, s_manualWindSpeedKn);
+    if (s_enabled[(int)Object::WaterTemperature]) put(Object::WaterTemperature, s_manualWaterTempC);
+    if (s_enabled[(int)Object::Position]) put(Object::Position, s_manualLat, s_manualLon);
+    if (s_enabled[(int)Object::CourseOverGround]) put(Object::CourseOverGround, s_manualCogDeg);
+    if (s_enabled[(int)Object::SpeedOverGround]) put(Object::SpeedOverGround, s_manualSogKn);
+    if (s_enabled[(int)Object::HeadingAndRudder]) put(Object::HeadingAndRudder, s_manualHeadingDeg, s_manualRudderDeg);
 }
 
 }  // namespace
@@ -157,6 +223,14 @@ void stop() {
     tobe::logf("demo: stopped");
 }
 
+Destinations destinations() { return s_dest; }
+void setDestinations(bool seatalk, bool mqtt, bool signalk) {
+    s_dest.seatalk = seatalk;
+    s_dest.mqtt = mqtt;
+    s_dest.signalk = signalk;
+    tobe::logf("demo: destinations seatalk=%d mqtt=%d signalk=%d", seatalk, mqtt, signalk);
+}
+
 bool isEnabled(Object obj) { return s_enabled[(int)obj]; }
 void setEnabled(Object obj, bool enabled) { s_enabled[(int)obj] = enabled; }
 
@@ -184,12 +258,15 @@ void tick() {
     if (millis() - s_lastTick < 1000) return;
     s_lastTick = millis();
 
+    // Our own transmissions come back on the bus; mark that echo so the main loop does not publish it again.
+    SeatalkBus::setTxIsSelf(true);
     if (s_mode == Mode::Cycling) {
         advanceSimulation();
         sendEnabledFromSimulation();
     } else {
         sendEnabledFromManual();
     }
+    SeatalkBus::setTxIsSelf(false);
 }
 
 }  // namespace DemoMode

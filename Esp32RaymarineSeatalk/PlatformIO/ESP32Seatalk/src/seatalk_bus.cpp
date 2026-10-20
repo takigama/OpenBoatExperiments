@@ -42,6 +42,11 @@ Datagram s_queue[kQueueSize];
 uint8_t s_queueHead = 0;  // next slot poll() will read
 uint8_t s_queueTail = 0;  // next slot the timer callback will write
 uint8_t s_queueCount = 0;
+// Datagrams that complete before this (low 32 bits of esp_timer_get_time(), microseconds) are our own echo - see
+// setTxIsSelf(). Compared as a signed difference so the wrap-around (every 71 minutes) does not matter.
+volatile uint32_t s_selfUntilUs = 0;
+bool s_txIsSelf = false;
+constexpr uint32_t kSelfGraceUs = 5000;  // the echo's last stop bit can be sampled a little after send() returns
 uint32_t s_queueDrops = 0;  // completed datagrams lost because the queue was full
 
 esp_timer_handle_t s_sampleTimer;
@@ -49,6 +54,7 @@ esp_timer_handle_t s_sampleTimer;
 void resetRxDatagram() {
     s_rxDatagram.length = 0;
     s_rxExpectedLen = 0;
+    s_rxDatagram.self = false;
 }
 
 // The falling-edge interrupt is attached ONCE (begin()) and stays attached; "armed" is just this flag. It used to
@@ -125,6 +131,7 @@ void sampleBitCallback(void *) {
     s_rxByte = 0;
 
     if (s_rxExpectedLen && s_rxDatagram.length >= s_rxExpectedLen) {
+        s_rxDatagram.self = (int32_t)(s_selfUntilUs - (uint32_t)esp_timer_get_time()) > 0;
         if (s_queueCount < kQueueSize) {
             s_queue[s_queueTail] = s_rxDatagram;
             s_queueTail = (s_queueTail + 1) % kQueueSize;
@@ -181,12 +188,19 @@ void txByte(uint8_t data, bool isCommand) {
 
 }  // namespace
 
+void setTxIsSelf(bool on) { s_txIsSelf = on; }
+
 void send(uint8_t command, const uint8_t *dataBytes, uint8_t dataLen) {
     // RX deliberately stays armed through our own TX - every device on a
     // shared open-drain bus hears its own transmission, that's inherent
     // to the medium, not something to suppress.
+    if (s_txIsSelf) {
+        // everything that completes from now until a little after we finish is our own echo
+        s_selfUntilUs = (uint32_t)esp_timer_get_time() + (uint32_t)(dataLen + 1) * 11 * kBitUs + kSelfGraceUs;
+    }
     txByte(command, true);
     for (uint8_t i = 0; i < dataLen; i++) txByte(dataBytes[i], false);
+    if (s_txIsSelf) s_selfUntilUs = (uint32_t)esp_timer_get_time() + kSelfGraceUs;
 }
 
 }  // namespace SeatalkBus

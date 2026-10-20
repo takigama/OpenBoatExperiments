@@ -43,6 +43,17 @@ void setManualValue(Object obj, double v1, double v2 = 0);
 void startManual();
 void stop();
 
+// Where the demo values go - the checkboxes at the top of the demo section. SeaTalk: transmitted on the bus (the
+// board hears them again, but that echo is not published or relayed). MQTT / SignalK: published straight to the
+// broker / server as decoded values, the same topics and paths real bus data uses. Default: SeaTalk only.
+struct Destinations {
+    bool seatalk = true;
+    bool mqtt = false;
+    bool signalk = false;
+};
+Destinations destinations();
+void setDestinations(bool seatalk, bool mqtt, bool signalk);
+
 bool isEnabled(Object obj);
 void setEnabled(Object obj, bool enabled);
 int valueCount(Object obj);  // 1 or 2 - how many manual value fields this object needs

@@ -138,6 +138,9 @@ void loop() {
     // 0.5kn/sec ramp makes physically impossible in one tick.
     SeatalkBus::Datagram dg;
     while (SeatalkBus::poll(&dg)) {
+        // The echo of the demo's own transmissions: the demo has already published its values where it was told to
+        // (see DemoMode::destinations()), so publishing or relaying them again here would ignore that choice.
+        if (dg.self) continue;
         // Every received datagram gets hex-dumped, decoded or not - once
         // this is on a real bus this is the only view into traffic we
         // don't (yet) have a decoder for, and worth having regardless

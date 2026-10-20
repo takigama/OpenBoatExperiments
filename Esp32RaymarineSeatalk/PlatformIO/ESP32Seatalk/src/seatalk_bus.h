@@ -32,6 +32,7 @@ namespace SeatalkBus {
 struct Datagram {
     uint8_t bytes[18];  // command + attribute + up to 16 data bytes (SeaTalk's max)
     uint8_t length;      // total bytes including command+attribute
+    bool self = false;   // this is the echo of something we sent with setTxIsSelf(true) in effect (see send())
 };
 
 void begin(int gpioPin);
@@ -55,5 +56,10 @@ uint32_t droppedDatagrams();
 // armed throughout (see seatalk_bus.cpp) - the datagram will come back
 // through poll() same as any bus traffic would.
 void send(uint8_t command, const uint8_t *dataBytes, uint8_t dataLen);
+
+// While true, send() also marks the datagrams it hears back (its own echo, during the transmission and a few ms
+// after) with Datagram::self, so the caller can leave them out of the normal receive handling. The demo sets it:
+// it publishes to MQTT / SignalK itself, only where it was told to, so its echo must not be published again.
+void setTxIsSelf(bool on);
 
 }  // namespace SeatalkBus

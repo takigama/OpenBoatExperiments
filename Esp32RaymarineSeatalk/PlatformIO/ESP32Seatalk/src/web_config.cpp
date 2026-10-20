@@ -151,6 +151,16 @@ String demoSection() {
     String body = "<hr><h3>Demo mode</h3>";
     DemoMode::Mode mode = DemoMode::currentMode();
 
+    // Where the demo values go - applies at once, also while the demo is running.
+    DemoMode::Destinations dest = DemoMode::destinations();
+    body += "<form method='POST' action='/demo/dest'><p>Send demo values to: ";
+    body += String("<label><input type='checkbox' name='seatalk' onchange='this.form.submit()'") +
+            (dest.seatalk ? " checked" : "") + "> SeaTalk</label> ";
+    body += String("<label><input type='checkbox' name='mqtt' onchange='this.form.submit()'") +
+            (dest.mqtt ? " checked" : "") + "> MQTT</label> ";
+    body += String("<label><input type='checkbox' name='signalk' onchange='this.form.submit()'") +
+            (dest.signalk ? " checked" : "") + "> SignalK</label></p></form>";
+
     if (mode != DemoMode::Mode::Off) {
         String label = mode == DemoMode::Mode::Cycling ? "Cycling" : "Manual";
         body += "<p>Running (" + label + ") - sending checked objects once/sec.</p>";
@@ -428,6 +438,12 @@ void handleDemoStartManual() {
     server.send(303);
 }
 
+void handleDemoDest() {
+    DemoMode::setDestinations(server.hasArg("seatalk"), server.hasArg("mqtt"), server.hasArg("signalk"));
+    server.sendHeader("Location", "/");
+    server.send(303);
+}
+
 void handleDemoStop() {
     DemoMode::stop();
     server.sendHeader("Location", "/");
@@ -489,6 +505,7 @@ void begin() {
     server.on("/seatalk/test-nav-data/stop", HTTP_GET, handleTestNavDataStop);
     server.on("/demo/start-cycling", HTTP_POST, handleDemoStartCycling);
     server.on("/demo/start-manual", HTTP_POST, handleDemoStartManual);
+    server.on("/demo/dest", HTTP_POST, handleDemoDest);
     server.on("/demo/stop", HTTP_GET, handleDemoStop);
     tobe::web::attach(server);
     server.begin();
