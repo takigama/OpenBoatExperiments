@@ -1,5 +1,7 @@
 # KiCad transient/generated files
 *.lck
+# per-user view/window state, rewritten every time KiCad opens the project
+*.kicad_prl
 fp-info-cache
 *-backups/
 \#auto_saved_files#
